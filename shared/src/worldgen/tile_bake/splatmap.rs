@@ -17,7 +17,7 @@ use super::constants::{
     SNOW_ELEVATION_M, SNOW_FULL_SPAN_M, TILE_DIM, VERTS_PER_SIDE,
 };
 use super::context::BakeContext;
-use super::heightmap::lerp;
+use super::heightmap::{containing_cell_index, lerp};
 
 /// Pack one splat cell into 4 bytes following the V2 layout
 /// (`doc/SPLATMAP_V2.md`).
@@ -107,7 +107,6 @@ pub(super) fn bake_splatmap(
     let cfg = &map.config;
     let world_size = cfg.world_size_m as f32;
     let inv_mpc = 1.0 / cfg.meters_per_cell();
-    let res = cfg.global_res as usize;
 
     let tile_origin_x = tx as f32 * TILE_DIM as f32 - TILE_DIM as f32 * 0.5;
     let tile_origin_z = tz as f32 * TILE_DIM as f32 - TILE_DIM as f32 * 0.5;
@@ -143,10 +142,7 @@ pub(super) fn bake_splatmap(
             let wx = tile_origin_x + cx as f32 + 0.5;
             let wz = tile_origin_z + cz as f32 + 0.5;
 
-            let gx = ((wx + world_size * 0.5) * inv_mpc).floor() as i32;
-            let gy = ((wz + world_size * 0.5) * inv_mpc).floor() as i32;
-            let gi =
-                (gy.clamp(0, res as i32 - 1) as usize) * res + (gx.rem_euclid(res as i32) as usize);
+            let gi = containing_cell_index(map, wx, wz, world_size, inv_mpc);
 
             let h00 = heights[cz * VERTS_PER_SIDE + cx];
             let h10 = heights[cz * VERTS_PER_SIDE + cx + 1];

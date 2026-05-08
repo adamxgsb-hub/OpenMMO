@@ -6,11 +6,11 @@ use super::super::vector_features::{
     nearest_river_segment, river_segments_near_tile, RiverSegment,
 };
 use super::constants::{
-    DETAIL_FREQUENCY, DETAIL_GAIN, DETAIL_LACUNARITY, DETAIL_MAX_AMPLITUDE, DETAIL_MIN_AMPLITUDE,
-    DETAIL_OCTAVES, HEIGHT_BIAS, HEIGHT_STEP, HILLS_AMPLITUDE_M, HILLS_COASTAL_FADE_M,
-    HILLS_FREQUENCY, HILLS_GAIN, HILLS_OCTAVES, RIVER_CARVE_DEPTH_EXTRA_M, RIVER_CARVE_DEPTH_MIN_M,
-    RIVER_CARVE_MIN_BED_Y_M, RIVER_CARVE_TAPER_EXTRA_M, RIVER_CARVE_TAPER_MIN_M, TILE_DIM,
-    VERTS_PER_SIDE,
+    DETAIL_COAST_DAMP, DETAIL_FREQUENCY, DETAIL_GAIN, DETAIL_LACUNARITY, DETAIL_MAX_AMPLITUDE,
+    DETAIL_MIN_AMPLITUDE, DETAIL_OCTAVES, HEIGHT_BIAS, HEIGHT_STEP, HILLS_AMPLITUDE_M,
+    HILLS_COASTAL_FADE_M, HILLS_FREQUENCY, HILLS_GAIN, HILLS_OCTAVES, LAND_BASE_MIN_Y_M,
+    RIVER_CARVE_DEPTH_EXTRA_M, RIVER_CARVE_DEPTH_MIN_M, RIVER_CARVE_MIN_BED_Y_M,
+    RIVER_CARVE_TAPER_EXTRA_M, RIVER_CARVE_TAPER_MIN_M, TILE_DIM, VERTS_PER_SIDE,
 };
 use super::context::{BakeContext, MouthIsland};
 
@@ -250,13 +250,27 @@ fn sample_elevation_no_carve(
     inv_mpc: f32,
     mouth_islands: &[MouthIsland],
 ) -> f32 {
-    let base = catmull_rom_wrap_x(map, world_x, world_z, world_size, inv_mpc, |i| {
+    let base_raw = catmull_rom_wrap_x(map, world_x, world_z, world_size, inv_mpc, |i| {
         cell_elevation_m(map, &ctx.dist_to_land, i)
     });
+    // Catmull-Rom across the coast can overshoot the adjacent sea cell's
+    // negative bathymetry into a vertex inside a land cell, so use the
+    // cell-center mask query — not `base_raw >= 0` — as the land test.
+    let mi = containing_cell_index(map, world_x, world_z, world_size, inv_mpc);
+    let base = if map.land_mask[mi] == 1 {
+        base_raw.max(LAND_BASE_MIN_Y_M)
+    } else {
+        base_raw
+    };
     let max_elev = map.config.max_elevation_m.max(1.0);
     let amp_t = (base.max(0.0) / max_elev).clamp(0.0, 1.0);
     let amp = DETAIL_MIN_AMPLITUDE + (DETAIL_MAX_AMPLITUDE - DETAIL_MIN_AMPLITUDE) * amp_t;
-    let underwater_damp = if base < 0.0 { 0.15 } else { 1.0 };
+    let inland_t = coastal_inland_t(base);
+    let underwater_damp = if base < 0.0 {
+        0.15
+    } else {
+        DETAIL_COAST_DAMP + (1.0 - DETAIL_COAST_DAMP) * inland_t
+    };
     let n = fbm_wrap_x(
         &ctx.detail_noise,
         world_x + world_size * 0.5,
@@ -279,8 +293,7 @@ fn sample_elevation_no_carve(
             DETAIL_LACUNARITY,
             HILLS_GAIN,
         );
-        let coastal_damp = (base / HILLS_COASTAL_FADE_M).clamp(0.0, 1.0);
-        hn * HILLS_AMPLITUDE_M * coastal_damp
+        hn * HILLS_AMPLITUDE_M * inland_t
     } else {
         0.0
     };
@@ -359,6 +372,32 @@ fn carve_at_point(world_x: f32, world_z: f32, current_h: f32, segs: &[RiverSegme
 #[inline]
 pub(super) fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
+}
+
+/// Linear global-cell index for the cell that *contains* `(world_x,
+/// world_z)` (X wraps, Y clamps). Distinct from `fractional_cell_coords`
+/// which shifts by −0.5 for bilinear pixel-center sampling — callers
+/// here want a discrete integer cell to look up scalar fields like
+/// `land_mask` or `elevation_m`.
+#[inline]
+pub(super) fn containing_cell_index(
+    map: &GlobalMap,
+    world_x: f32,
+    world_z: f32,
+    world_size: f32,
+    inv_mpc: f32,
+) -> usize {
+    let res = map.config.global_res as i32;
+    let gx = (((world_x + world_size * 0.5) * inv_mpc).floor() as i32).rem_euclid(res);
+    let gy = (((world_z + world_size * 0.5) * inv_mpc).floor() as i32).clamp(0, res - 1);
+    gy as usize * res as usize + gx as usize
+}
+
+/// Coastal fade ramp shared by detail-noise and hills synthesis: `0`
+/// when `base ≤ 0`, `1` past `HILLS_COASTAL_FADE_M`, smooth elsewhere.
+#[inline]
+fn coastal_inland_t(base: f32) -> f32 {
+    (base / HILLS_COASTAL_FADE_M).clamp(0.0, 1.0)
 }
 
 /// Carve geometry at a point on the river: `(half_width, taper, depth)`.

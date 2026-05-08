@@ -39,6 +39,18 @@ pub(super) const DETAIL_FREQUENCY: f32 = 1.0 / 16.0;
 pub(super) const DETAIL_MAX_AMPLITUDE: f32 = 6.0;
 /// Min detail amplitude (m) on lowland plains.
 pub(super) const DETAIL_MIN_AMPLITUDE: f32 = 0.4;
+/// Minimum baseline elevation for land vertices (m). Every cell the
+/// global `land_mask` marks as land sits at ≥ this height before detail
+/// noise / hills are added on top, so coastal noise can't flicker below
+/// sea level (and the sea shader's `edgeCutoff` keeps water hidden on
+/// land).
+pub(super) const LAND_BASE_MIN_Y_M: f32 = 0.2;
+/// Detail-noise damp at the coast (`base = 0`), ramping linearly to 1
+/// past `HILLS_COASTAL_FADE_M`. Chosen so `DETAIL_MIN_AMPLITUDE *
+/// DETAIL_COAST_DAMP == LAND_BASE_MIN_Y_M` — that's the safety
+/// invariant: coastal noise can drag down by exactly the floor's worth,
+/// landing the worst case at sea level instead of crossing it.
+pub(super) const DETAIL_COAST_DAMP: f32 = LAND_BASE_MIN_Y_M / DETAIL_MIN_AMPLITUDE;
 
 // --- Rolling hills layer -------------------------------------------------
 // Universal hills applied to every land vertex, independent of the Phase 2
@@ -66,16 +78,12 @@ pub(super) const RIVER_CARVE_TAPER_EXTRA_M: f32 = 7.0;
 pub(super) const RIVER_CARVE_DEPTH_MIN_M: f32 = 0.6;
 pub(super) const RIVER_CARVE_DEPTH_EXTRA_M: f32 = 1.4;
 /// Lower bound on post-carve terrain elevation inside a river channel
-/// (meters). Stops carving from dragging the bed deep enough that the
-/// ocean shader floods the channel with shore/wet-sand patterns. Tuned
-/// just below sea level — at -0.1 m the river bed sits in the sea
-/// shader's hard-cut zone (depth < 0.01 m → α=0) so the ocean doesn't
-/// render inside the channel, while still leaving enough headroom under
-/// the river surface (centerY = bed + RIVER_DEPTH_OFFSET_M = 0.4 m at
-/// the estuary) for the river shader's depth-based edge fade to produce
-/// a visible bank gradient instead of stamping a uniform-opaque slab.
-/// See RIVER_SYSTEM.md §10.
-pub(super) const RIVER_CARVE_MIN_BED_Y_M: f32 = -0.1;
+/// (meters). Sits exactly at sea level so the sea shader's
+/// `edgeCutoff = smoothstep(0, 0.01, depth)` cuts ocean alpha to 0
+/// inside the channel. The river shader still renders a visible body
+/// because `surfaceY = bed + RIVER_DEPTH_OFFSET_M = 0.5 m` at the
+/// estuary, leaving headroom for its own depth-based bank fade.
+pub(super) const RIVER_CARVE_MIN_BED_Y_M: f32 = 0.0;
 /// River water surface offset above the carved bed (m). The bake fills a
 /// per-tile field with `surfaceY = bed + RIVER_DEPTH_OFFSET_M` along each
 /// segment so the runtime shader can compute `depth = surfaceY − bedY`
