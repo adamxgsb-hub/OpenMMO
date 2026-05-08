@@ -32,11 +32,18 @@
 //! * Post-sim the result is rescaled so its peak matches the pre-sim peak
 //!   (in meters), then bilinearly upsampled back to `global_res`. This
 //!   preserves world relief even when the sim flattened the absolute peak.
+//! * A final Phase 3b shaping pass applies a peak-preserving lowland
+//!   power curve and a noise-modulated coastal beach ramp. These are
+//!   gameplay-driven adjustments — the sim is faithful, but it doesn't
+//!   know we want plains to read as flat or coastlines to slope into the
+//!   water rather than meeting it at a small cliff.
 
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 
 use super::global_map::GlobalMap;
+use super::grid::bfs_distance_from;
+use super::noise::{fbm_wrap_x, smoothstep, PerlinNoise3D};
 
 const SLIPPAGE_BLUR_SIGMA: f32 = 1.5;
 /// Subsystem salt mixed into the sim RNG so erosion's stream is independent
@@ -70,14 +77,7 @@ pub fn erode_hydraulic(map: &mut GlobalMap) {
     let max_elev = cfg.max_elevation_m.max(1.0);
     // Pre-sim peak in meters, so the post-sim normalization preserves the
     // pre-erosion dynamic range even when the sim shaved the global max.
-    let pre_max = map
-        .elevation_m
-        .iter()
-        .copied()
-        .zip(map.land_mask.iter().copied())
-        .filter_map(|(h, m)| if m == 1 { Some(h) } else { None })
-        .fold(0.0f32, f32::max)
-        .max(1e-6);
+    let pre_max = land_peak_m(&map.elevation_m, &map.land_mask);
 
     let (mut terrain, sim_land) =
         downsample(&map.elevation_m, &map.land_mask, global_res, sim_res, max_elev);
@@ -93,6 +93,135 @@ pub fn erode_hydraulic(map: &mut GlobalMap) {
         &map.land_mask,
         &mut map.elevation_m,
     );
+
+    apply_post_erosion_shaping(map);
+}
+
+/// Phase 3b: post-erosion shaping. Three gameplay-driven passes layered
+/// on top of the physically-faithful sim output:
+///   1. Lowland expansion — peak-preserving power curve so plains read as
+///      flat ground instead of a plateau near `base_elevation_m`.
+///   2. Plain-band compression — piecewise squash of cells below a pivot
+///      so the playable lowland reads as ankle-deep rather than waist-
+///      high; cells ≥ pivot pass through unchanged so mountains keep
+///      their mass.
+///   3. Coast beach ramp — pulls coastal cells down to a configured
+///      shoreline height, with a slow noise pattern reserving a fraction
+///      of the coast as cliffs.
+fn apply_post_erosion_shaping(map: &mut GlobalMap) {
+    apply_lowland_expansion(map);
+    apply_plain_band_compression(map);
+    apply_coast_beach_ramp(map);
+}
+
+/// Maximum land elevation in `elevation`, floored at 1e-6 so callers can
+/// divide by it without an extra guard.
+fn land_peak_m(elevation: &[f32], land_mask: &[u8]) -> f32 {
+    elevation
+        .iter()
+        .copied()
+        .zip(land_mask.iter().copied())
+        .filter_map(|(h, m)| if m == 1 { Some(h) } else { None })
+        .fold(0.0f32, f32::max)
+        .max(1e-6)
+}
+
+fn apply_plain_band_compression(map: &mut GlobalMap) {
+    let pivot = map.config.plain_band_pivot_m;
+    let q = map.config.plain_band_power;
+    if pivot <= 0.0 || !(q > 0.0) || q == 1.0 {
+        return;
+    }
+    for (h, &m) in map.elevation_m.iter_mut().zip(map.land_mask.iter()) {
+        if m != 1 || *h >= pivot {
+            continue;
+        }
+        let t = (*h / pivot).max(0.0);
+        *h = pivot * t.powf(q);
+    }
+}
+
+fn apply_lowland_expansion(map: &mut GlobalMap) {
+    let p = map.config.lowland_expansion_power;
+    if !(p > 0.0) || p == 1.0 {
+        return;
+    }
+    let peak = land_peak_m(&map.elevation_m, &map.land_mask);
+    for (h, &m) in map.elevation_m.iter_mut().zip(map.land_mask.iter()) {
+        if m != 1 {
+            continue;
+        }
+        let t = (*h / peak).clamp(0.0, 1.0);
+        *h = peak * t.powf(p);
+    }
+}
+
+const COAST_CLIFF_NOISE_SALT: u64 = 0xC11F_FACE_C11F_FACE;
+/// Soft-threshold band on each side of the cliff cutoff. Wider = more
+/// gradual transitions between cliff and beach sections.
+const COAST_CLIFF_THRESHOLD_BAND: f32 = 0.12;
+
+fn apply_coast_beach_ramp(map: &mut GlobalMap) {
+    let cfg = &map.config;
+    let beach_d_cells = cfg.scaled_cells(cfg.coast_beach_distance_cells as f32);
+    if beach_d_cells <= 0.0 {
+        return;
+    }
+    let beach_max = cfg.coast_beach_max_height_m.max(0.0);
+    let cliff_frac = cfg.coast_cliff_fraction.clamp(0.0, 1.0);
+    let cliff_wl = cfg
+        .scaled_cells(cfg.coast_cliff_wavelength_cells)
+        .max(1.0);
+    let cliff_freq = 1.0 / cliff_wl;
+    let cliff_thr = 1.0 - cliff_frac;
+
+    let res = cfg.global_res as usize;
+    let dist = bfs_distance_from(&map.land_mask, res, 0, None);
+    let cliff_noise = PerlinNoise3D::new(cfg.seed ^ COAST_CLIFF_NOISE_SALT);
+    let world_width = res as f32;
+
+    for y in 0..res {
+        for x in 0..res {
+            let i = y * res + x;
+            if map.land_mask[i] != 1 {
+                continue;
+            }
+            let d = dist[i];
+            if d == u16::MAX || (d as f32) >= beach_d_cells {
+                continue;
+            }
+            // Slow X-wrapped noise on the world grid: clusters adjacent
+            // coast cells into homogenous beach- or cliff-classified
+            // stretches, so the pattern doesn't dither cell-by-cell.
+            let n = fbm_wrap_x(
+                &cliff_noise,
+                x as f32,
+                y as f32,
+                world_width,
+                cliff_freq,
+                1,
+                2.0,
+                0.5,
+            );
+            let nu = (n * 0.5 + 0.5).clamp(0.0, 1.0);
+            let cliff_factor = smoothstep(
+                cliff_thr - COAST_CLIFF_THRESHOLD_BAND,
+                cliff_thr + COAST_CLIFF_THRESHOLD_BAND,
+                nu,
+            );
+            let t = (d as f32 / beach_d_cells).clamp(0.0, 1.0);
+            let ramp_t = smoothstep(0.0, 1.0, t);
+            let current = map.elevation_m[i];
+            let beach_target = beach_max + (current - beach_max) * ramp_t;
+            let new_h = beach_target * (1.0 - cliff_factor) + current * cliff_factor;
+            // Only lower; never raise. Ensures the ramp can't push a
+            // cell above its natural elevation when the noise puts a
+            // cliff section adjacent to a low-base cell.
+            if new_h < current {
+                map.elevation_m[i] = new_h.max(0.0);
+            }
+        }
+    }
 }
 
 fn run_simulation(

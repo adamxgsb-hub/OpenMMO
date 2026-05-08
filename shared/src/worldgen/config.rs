@@ -229,6 +229,61 @@ pub struct WorldGenConfig {
     /// capacity. dandrino: 0.001.
     pub erosion_deposition_rate: f32,
 
+    // --- Phase 3b: post-erosion shaping ----------------------------------
+    // The dandrino sim is faithful to its reference and produces a clean
+    // mountain/valley silhouette, but two things are gameplay-driven and
+    // need explicit fixup after the sim runs:
+    //   1. The pre-erosion FBM puts every land cell at `base ± relief`, so
+    //      coast cells start at whatever happens to fall on the land/sea
+    //      boundary — typically 5–20 m. Erosion does not pull them all the
+    //      way to zero, so coastlines read as small cliffs by default.
+    //   2. The peak-preserving renormalization at the end of the sim keeps
+    //      mountains tall but also keeps lowlands stacked near the
+    //      pre-erosion `base_h`, leaving very little area below ~350 m.
+    /// Peak-preserving power applied to post-erosion land elevation:
+    /// `h' = peak · (h/peak)^p`. `p > 1` compresses lowlands toward 0,
+    /// expanding the visual area of plains while leaving mountain peaks at
+    /// their original height. 1.0 = no remap.
+    pub lowland_expansion_power: f32,
+
+    /// Pivot (m) for the piecewise deep-plain compression that runs after
+    /// the global `lowland_expansion_power` curve. Cells already below
+    /// this elevation are squashed further toward 0 via
+    /// `h' = pivot · (h/pivot)^plain_band_power`; cells at or above the
+    /// pivot are left unchanged. Targets the very-low band specifically
+    /// (where players walk) without flattening mid-mountains. 0 disables.
+    pub plain_band_pivot_m: f32,
+
+    /// Power for the piecewise deep-plain compression. `q > 1` pulls the
+    /// sub-pivot range down toward 0, expanding the visual area of cells
+    /// at the lowest elevations (the playable plains). 1.0 = no remap.
+    pub plain_band_power: f32,
+
+    /// Maximum elevation (m) at the immediate shoreline after Phase 3b's
+    /// coast ramp. Land cells within `coast_beach_distance_cells` of the
+    /// sea are pulled down toward this height via a smoothstep ramp.
+    /// 0 disables the ramp; tiny values (e.g. 0.1 m) give natural
+    /// beach-to-water transitions instead of an 8 m drop at every cell.
+    pub coast_beach_max_height_m: f32,
+
+    /// Width of the coast ramp in reference cells. The ramp blends
+    /// linearly from `coast_beach_max_height_m` at d=0 to the natural
+    /// post-erosion elevation at d=N. Wider = gentler, more sand;
+    /// narrower = steeper transition right at the water's edge.
+    pub coast_beach_distance_cells: u32,
+
+    /// Fraction (0..1) of the coastline that should remain as cliffs at
+    /// the natural post-erosion elevation, exempted from the beach ramp.
+    /// Implemented via a slow noise pattern: cells where the noise sits
+    /// in the top `coast_cliff_fraction` of its range keep their height.
+    /// 0 = ramp the whole coast down (no cliffs); 1 = no ramp anywhere.
+    pub coast_cliff_fraction: f32,
+
+    /// Wavelength of the cliff/beach pattern in reference cells. Sets the
+    /// typical along-coast length of a single cliff section or beach
+    /// section before the pattern flips. Larger = chunkier pattern.
+    pub coast_cliff_wavelength_cells: f32,
+
     // --- Phase 5: settlements ---------------------------------------------
     /// Target number of settlements to place across the world. Greedy
     /// min-spacing selection may end up with fewer if candidates run out.
@@ -380,6 +435,25 @@ impl Default for WorldGenConfig {
             erosion_sediment_capacity: 50.0,
             erosion_dissolving_rate: 0.25,
             erosion_deposition_rate: 0.001,
+            // Phase 3b post-erosion shaping. 1.4 roughly doubles the area
+            // below `0.27·max_elev` (~675 m at 2500 m cap), which puts
+            // most of the lowland green band well below 350 m. Beach ramp
+            // takes the natural ~5–20 m coast height down to 0.1 m over
+            // 12 cells (~96 m at 8 m/cell), with 20% of the coastline
+            // exempted as cliffs via the slow cliff-noise pattern.
+            lowland_expansion_power: 1.4,
+            // Deep-plain compression: pivot 1000 m, power 10.0 collapses
+            // sub-pivot elevations hard enough that "below 30 m" — the
+            // band that actually reads as flat plain — expands ~1.6×.
+            // 700–1000 m foothills are heavily flattened so the playable
+            // ground reads as plain rather than sloped hill; mountains
+            // above 1000 m are left untouched.
+            plain_band_pivot_m: 1200.0,
+            plain_band_power: 15.0,
+            coast_beach_max_height_m: 0.1,
+            coast_beach_distance_cells: 12,
+            coast_cliff_fraction: 0.2,
+            coast_cliff_wavelength_cells: 80.0,
             settlement_target_count: 60,
             settlement_min_spacing_cells: 70,
             settlement_max_elevation_m: 1200.0,
