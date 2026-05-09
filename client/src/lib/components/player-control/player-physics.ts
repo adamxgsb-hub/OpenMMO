@@ -1,0 +1,73 @@
+import type { TerrainHeightManager } from '../../managers/terrainHeightManager'
+import { housingManager } from '../../managers/housingManager'
+import { bridgeManager } from '../../managers/bridgeManager'
+import {
+  isSlopeTooSteepUphill,
+  SLOPE_LOOKAHEAD_DISTANCE,
+} from '../../utils/movementUtils'
+
+export interface PlayerPhysicsDeps {
+  /** Live read — heightManager is a Svelte prop and may change identity. */
+  getHeightManager: () => TerrainHeightManager
+  /** Live read — bridgeManager uses current Y to disambiguate stacked decks. */
+  getCurrentPlayerY: () => number | null
+  /** Live read — housing floor offset above ground. */
+  getFloorOffset: () => number
+}
+
+export interface PlayerPhysics {
+  sampleHeight(x: number, z: number): number
+  isMovementBlocked(
+    fromX: number,
+    fromZ: number,
+    toX: number,
+    toZ: number,
+    y: number
+  ): boolean
+  /** Sample terrain ahead and report whether the climb would exceed MAX_TRAVERSABLE_SLOPE_DEG. */
+  isUphillTooSteep(
+    fromX: number,
+    fromZ: number,
+    fromY: number,
+    dirX: number,
+    dirZ: number
+  ): boolean
+}
+
+export function createPlayerPhysics(deps: PlayerPhysicsDeps): PlayerPhysics {
+  function sampleHeight(x: number, z: number): number {
+    const deckY = bridgeManager.findDeckYAt(x, z, deps.getCurrentPlayerY())
+    if (deckY !== null) return deckY
+    return (
+      deps.getHeightManager().getHeightAtWorldPosition(x, z) +
+      deps.getFloorOffset()
+    )
+  }
+
+  function isMovementBlocked(
+    fromX: number,
+    fromZ: number,
+    toX: number,
+    toZ: number,
+    y: number
+  ): boolean {
+    if (housingManager.isMovementBlocked(fromX, fromZ, toX, toZ, y)) return true
+    if (bridgeManager.isMovementBlocked(fromX, fromZ, toX, toZ, y)) return true
+    return false
+  }
+
+  function isUphillTooSteep(
+    fromX: number,
+    fromZ: number,
+    fromY: number,
+    dirX: number,
+    dirZ: number
+  ): boolean {
+    const aheadX = fromX + dirX * SLOPE_LOOKAHEAD_DISTANCE
+    const aheadZ = fromZ + dirZ * SLOPE_LOOKAHEAD_DISTANCE
+    const aheadY = sampleHeight(aheadX, aheadZ)
+    return isSlopeTooSteepUphill(fromY, aheadY, SLOPE_LOOKAHEAD_DISTANCE)
+  }
+
+  return { sampleHeight, isMovementBlocked, isUphillTooSteep }
+}

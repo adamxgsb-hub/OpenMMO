@@ -6,15 +6,13 @@
   import { monsterManager } from '../managers/monsterManager'
   import { groundItemManager } from '../managers/groundItemManager'
   import { combatController } from '../managers/combatController'
-  import { inputHandler } from '../managers/inputHandler'
+  import { inputHandler, type ClickIntent } from '../managers/inputHandler'
   import { mapEditorMode, housingEditorMode, debugSpeedMode, torchLightEnabled } from '../stores/debugStore'
   import { localTorchEquipped } from '../stores/inventoryStore'
   import {
     calculateMovementStep,
     initMovementState,
     getMovementMode,
-    isSlopeTooSteepUphill,
-    SLOPE_LOOKAHEAD_DISTANCE,
     DEFAULT_MOVEMENT_CONFIG,
     type Position,
     type MovementState,
@@ -25,10 +23,22 @@
   import type { TerrainHeightManager } from '../managers/terrainHeightManager'
   import { playerFloorOffset, playerFloorLevel } from '../stores/housingStore'
   import { housingManager } from '../managers/housingManager'
-  import { bridgeManager } from '../managers/bridgeManager'
   import { findPath } from '../managers/pathfinding'
   import { passability_get_floor_at } from '../wasm/onlinerpg_shared'
   import { get } from 'svelte/store'
+  import { createPlayerPhysics } from './player-control/player-physics'
+  import {
+    buildJumpState,
+    buildIdleAfterInteract,
+    buildAttackState,
+    buildIdleAfterAttack,
+    buildDeadState,
+    buildRespawnedState,
+    buildInteractState,
+    buildPickupState,
+  } from './player-control/player-state-builders'
+  import { subscribePlayerNetworkEvents } from './player-control/player-network-events'
+  import { dispatchCanvasClickIntent } from './player-control/canvas-click-dispatcher'
 
   interface Props {
     onStateChange: (state: PlayerState) => void
@@ -47,25 +57,14 @@
   let floorOffset = 0
   playerFloorOffset.subscribe((v) => (floorOffset = v))
 
-  function sampleHeight(x: number, z: number): number {
-    const deckY = bridgeManager.findDeckYAt(x, z, currentPlayer?.position.y ?? null)
-    if (deckY !== null) return deckY
-    return heightManager.getHeightAtWorldPosition(x, z) + floorOffset
-  }
-
-  function isMovementBlocked(
-    fromX: number,
-    fromZ: number,
-    toX: number,
-    toZ: number,
-    y: number
-  ): boolean {
-    if (housingManager.isMovementBlocked(fromX, fromZ, toX, toZ, y)) return true
-    if (bridgeManager.isMovementBlocked(fromX, fromZ, toX, toZ, y)) return true
-    return false
-  }
-
   let currentPlayer = $state<LocalPlayer | null>(null)
+
+  const physics = createPlayerPhysics({
+    getHeightManager: () => heightManager,
+    getCurrentPlayerY: () => currentPlayer?.position.y ?? null,
+    getFloorOffset: () => floorOffset,
+  })
+  const { sampleHeight, isMovementBlocked, isUphillTooSteep } = physics
 
   // Movement system
   let movementTarget = $state<Position | null>(null)
@@ -98,26 +97,6 @@
   let lastJumpFeedbackAt = 0
 
   /**
-   * Sample the terrain ahead of `from` along (dirX, dirZ) and report whether
-   * the climb to that point would exceed MAX_TRAVERSABLE_SLOPE_DEG.
-   *
-   * Uses sampleHeight() so it respects bridges/housing floor offsets the
-   * same way as the player's vertical position.
-   */
-  function isUphillTooSteep(
-    fromX: number,
-    fromZ: number,
-    fromY: number,
-    dirX: number,
-    dirZ: number
-  ): boolean {
-    const aheadX = fromX + dirX * SLOPE_LOOKAHEAD_DISTANCE
-    const aheadZ = fromZ + dirZ * SLOPE_LOOKAHEAD_DISTANCE
-    const aheadY = sampleHeight(aheadX, aheadZ)
-    return isSlopeTooSteepUphill(fromY, aheadY, SLOPE_LOOKAHEAD_DISTANCE)
-  }
-
-  /**
    * Briefly switch the player to the 'jump' state to play the jump animation
    * as a one-shot feedback that the terrain ahead is too steep. Cooldown
    * prevents the animation from restarting every frame while the user keeps
@@ -128,15 +107,7 @@
     if (now - lastJumpFeedbackAt < JUMP_FEEDBACK_COOLDOWN_MS) return
     lastJumpFeedbackAt = now
 
-    const jumpState: PlayerState = {
-      ...playerState,
-      state: 'jump',
-      speed: 0,
-      movementMode: undefined,
-      attackCounter: undefined,
-    }
-    playerState = jumpState
-    onStateChange(jumpState)
+    setPlayerState(buildJumpState(playerState))
 
     if (jumpFeedbackTimer) clearTimeout(jumpFeedbackTimer)
     jumpFeedbackTimer = setTimeout(() => {
@@ -158,15 +129,7 @@
     ) {
       return
     }
-    const idleState: PlayerState = {
-      ...playerState,
-      state: 'idle',
-      speed: 0,
-      interactionAnim: undefined,
-      interactOffsetY: undefined,
-    }
-    playerState = idleState
-    onStateChange(idleState)
+    setPlayerState(buildIdleAfterInteract(playerState))
   }
 
   export function onInteractionFinished() {
@@ -202,15 +165,7 @@
       }
     }
 
-    const idleState: PlayerState = {
-      ...playerState,
-      state: 'idle',
-      speed: 0,
-      interactionAnim: undefined,
-      interactOffsetY: undefined,
-    }
-    playerState = idleState
-    onStateChange(idleState)
+    setPlayerState(buildIdleAfterInteract(playerState))
 
     if (notify) {
       networkManager.sendStopInteraction()
@@ -244,6 +199,11 @@
     rotation: 0,
     position: { x: 0, y: 0, z: 0 },
   })
+
+  function setPlayerState(next: PlayerState) {
+    playerState = next
+    onStateChange(next)
+  }
 
   gameStore.subscribe((state) => {
     currentPlayer = state.currentPlayer
@@ -331,13 +291,7 @@
       }
     }
 
-    const newPlayerState = {
-      ...playerState,
-      state: 'attack',
-    } as PlayerState
-
-    playerState = newPlayerState
-    onStateChange(newPlayerState)
+    setPlayerState(buildAttackState(playerState))
 
     networkManager.sendPlayerAttack(monsterId)
   }
@@ -345,13 +299,7 @@
   // Transition from attack to idle state
   function transitionToIdle() {
     if (playerState.state === 'attack') {
-      const idleState = {
-        ...playerState,
-        state: 'idle',
-        attackCounter: 0,
-      } as PlayerState
-      playerState = idleState
-      onStateChange(idleState)
+      setPlayerState(buildIdleAfterAttack(playerState))
     }
   }
 
@@ -364,14 +312,7 @@
     combatController.cancelCombat()
     currentSpeed = 0
 
-    const deadState: PlayerState = {
-      ...playerState,
-      state: 'dead',
-      speed: 0,
-      movementMode: undefined,
-    }
-    playerState = deadState
-    onStateChange(deadState)
+    setPlayerState(buildDeadState(playerState))
   }
 
   function transitionToRespawned() {
@@ -384,21 +325,15 @@
     currentSpeed = 0
     playerRotation = 0
 
-    const revivedState: PlayerState = {
-      ...playerState,
-      state: 'idle',
-      speed: 0,
-      rotation: playerRotation,
-      movementMode: undefined,
-      attackCounter: 0,
-      position: {
+    setPlayerState(buildRespawnedState(
+      playerState,
+      {
         x: currentPlayer.position.x,
         y: currentPlayer.position.y,
         z: currentPlayer.position.z,
       },
-    }
-    playerState = revivedState
-    onStateChange(revivedState)
+      playerRotation,
+    ))
   }
 
   /** Check E key interaction (door toggle). Call from game loop. */
@@ -516,13 +451,7 @@
         case 'attacking': {
           playerRotation = result.rotation
           if (playerState.state !== 'attack') {
-            const attackState = {
-              ...playerState,
-              state: 'attack',
-              rotation: result.rotation,
-            } as PlayerState
-            playerState = attackState
-            onStateChange(attackState)
+            setPlayerState(buildAttackState(playerState, result.rotation))
           }
           return
         }
@@ -851,7 +780,50 @@
     updatePlayerState(movementState.totalDistance)
   }
 
-  // Handle canvas click intent from input handler
+  function enterInteraction(intent: Extract<ClickIntent, { type: 'interact_object' }>) {
+    combatController.cancelCombat()
+    isMoving = false
+    movementTarget = null
+
+    playerRotation = intent.rotation
+    const offset = intent.interactOffset
+
+    setPlayerState(buildInteractState(
+      playerState,
+      intent.position,
+      playerRotation,
+      intent.interaction,
+      offset?.y ?? 0,
+    ))
+
+    if (currentPlayer) {
+      const fx = intent.position.x + (offset?.x ?? 0)
+      const fz = intent.position.z + (offset?.z ?? 0)
+      currentPlayer.position.x = fx
+      currentPlayer.position.z = fz
+      if (heightManager.hasHeightData(fx, fz)) {
+        currentPlayer.position.y = sampleHeight(fx, fz)
+      }
+    }
+
+    networkManager.sendInteractObject(intent.objectType, intent.objectId)
+  }
+
+  function enterPickup(instanceId: number) {
+    if (playerState.state === 'dead') return
+
+    groundItemManager.beginPickup(instanceId)
+    pendingPickupInstanceId = instanceId
+
+    combatController.cancelCombat()
+    isMoving = false
+    movementTarget = null
+    movementState = null
+    currentSpeed = 0
+
+    setPlayerState(buildPickupState(playerState))
+  }
+
   function handleCanvasClickIntent(event: MouseEvent) {
     if ($housingEditorMode) return
     const expectedButton = $mapEditorMode ? 2 : 0
@@ -877,125 +849,45 @@
       },
     })
 
-    if ($mapEditorMode && intent.type !== 'move_to_ground') return
-
-    switch (intent.type) {
-      case 'attack_monster': {
-        if (intent.distance < 2.0) {
-          initiateAttack(intent.monsterId)
-          isMoving = false
-          movementTarget = null
-        } else {
-          combatController.beginCombat(intent.monsterId, false)
-          handleClickToMove(intent.hitPoint)
-        }
-        break
-      }
-      case 'toggle_door': {
-        networkManager.sendToggleDoor(
-          intent.houseId,
-          intent.roomIndex,
-          intent.wallDir,
-          intent.segmentIndex
-        )
-        break
-      }
-      case 'interact_object': {
-        combatController.cancelCombat()
+    dispatchCanvasClickIntent(intent, $mapEditorMode, {
+      attackInRange: (monsterId) => {
+        initiateAttack(monsterId)
         isMoving = false
         movementTarget = null
-
-        // Align character with object rotation (face +Z / south)
-        playerRotation = intent.rotation
-
-        const interactState: PlayerState = {
-          ...playerState,
-          state: 'interact',
-          speed: 0,
-          rotation: playerRotation,
-          position: intent.position,
-          interactionAnim: intent.interaction,
-          interactOffsetY: intent.interactOffset?.y ?? 0,
-        }
-        playerState = interactState
-        onStateChange(interactState)
-
-        if (currentPlayer) {
-          const fx = intent.position.x + (intent.interactOffset?.x ?? 0)
-          const fz = intent.position.z + (intent.interactOffset?.z ?? 0)
-          currentPlayer.position.x = fx
-          currentPlayer.position.z = fz
-          if (heightManager.hasHeightData(fx, fz)) {
-            currentPlayer.position.y = sampleHeight(fx, fz)
-          }
-        }
-
-        networkManager.sendInteractObject(intent.objectType, intent.objectId)
-        break
-      }
-      case 'pickup_ground_item': {
-        if (playerState.state === 'dead') break
-
-        groundItemManager.beginPickup(intent.instanceId)
-        pendingPickupInstanceId = intent.instanceId
-
+      },
+      chaseAndAttack: (monsterId, hitPoint) => {
+        combatController.beginCombat(monsterId, false)
+        handleClickToMove(hitPoint)
+      },
+      toggleDoor: (houseId, roomIndex, wallDir, segmentIndex) => {
+        networkManager.sendToggleDoor(houseId, roomIndex, wallDir, segmentIndex)
+      },
+      enterInteraction,
+      enterPickup,
+      moveToGround: (position) => {
         combatController.cancelCombat()
-        isMoving = false
-        movementTarget = null
-        movementState = null
-        currentSpeed = 0
-
-        const pickupState: PlayerState = {
-          ...playerState,
-          state: 'interact',
-          speed: 0,
-          interactionAnim: 'pickup',
-        }
-        playerState = pickupState
-        onStateChange(pickupState)
-        break
-      }
-      case 'move_to_ground': {
-        combatController.cancelCombat()
-        handleClickToMove(intent.position)
-        break
-      }
-    }
+        handleClickToMove(position)
+      },
+    })
   }
-
-  let respawnRequested = $state(false)
 
   onMount(() => {
     const removeInputListeners = inputHandler.setupEventListeners(
       handleCanvasClickIntent
     )
 
-    const unsubscribeRespawnRequested = networkManager.respawnRequested.on(() => {
-      if (!currentPlayer || currentPlayer.health > 0 || respawnRequested) return
-      respawnRequested = true
+    const unsubscribeNetworkEvents = subscribePlayerNetworkEvents({
+      isCurrentPlayerEligibleForRespawn: () =>
+        !!currentPlayer && currentPlayer.health <= 0,
+      isCurrentPlayer: (id) => !!currentPlayer && currentPlayer.id === id,
+      isInteracting: () => playerState.state === 'interact',
+      onRespawned: transitionToRespawned,
+      onInteractionRejected: () => exitObjectInteraction(false),
     })
-
-    const unsubscribePlayerRespawned = networkManager.playerRespawned.on(
-      (playerId) => {
-        if (!currentPlayer || currentPlayer.id !== playerId) return
-        respawnRequested = false
-        transitionToRespawned()
-      }
-    )
-
-    const unsubscribeInteractionRejected = networkManager.interactionRejected.on(
-      () => {
-        if (playerState.state === 'interact') {
-          exitObjectInteraction(false)
-        }
-      }
-    )
 
     return () => {
       removeInputListeners()
-      unsubscribeRespawnRequested()
-      unsubscribePlayerRespawned()
-      unsubscribeInteractionRejected()
+      unsubscribeNetworkEvents()
       if (standUpTimer) clearTimeout(standUpTimer)
       if (jumpFeedbackTimer) clearTimeout(jumpFeedbackTimer)
     }
