@@ -3,7 +3,6 @@
   import { OrbitControls } from '@threlte/extras'
   import * as THREE from 'three'
   import { ClippingGroup, type WebGPURenderer } from 'three/webgpu'
-  import { CSMShadowNode } from 'three/addons/csm/CSMShadowNode.js'
   import { onMount } from 'svelte'
   import {
     gameStore,
@@ -30,6 +29,7 @@
   import GameSceneWindParticles from './game-scene/GameSceneWindParticles.svelte'
   import GameSceneHousingLayer from './game-scene/GameSceneHousingLayer.svelte'
   import { drainTileWork } from '../utils/tileWorkQueue'
+  import { bootstrapSceneAssets } from './game-scene/asset-bootstrap'
   import GameScenePlayersLayer from './game-scene/GameScenePlayersLayer.svelte'
   import GameSceneMonstersLayer from './game-scene/GameSceneMonstersLayer.svelte'
   import GameSceneGroundItemsLayer from './game-scene/GameSceneGroundItemsLayer.svelte'
@@ -79,22 +79,17 @@
     updateCameraWithOffset as applyCameraOffset,
     updateOrthographicFrustum,
   } from './game-scene/camera-utils'
-  import {
-    TERRAIN_TILE_SIZE,
-    type TerrainTile,
-  } from './game-scene/terrain-utils'
+  import { type TerrainTile } from './game-scene/terrain-utils'
   import { createLoopProfiler } from './game-scene/loop-profiler'
+  import { createRenderProfiler } from './game-scene/render-profiler'
+  import { setupCsmShadow, applyGraphicsPreset } from './game-scene/renderer-quality'
+  import { runRenderPasses, recordRenderProfilerStats } from './game-scene/render-passes'
   import { createSceneLightingController } from './game-scene/scene-lighting'
   import { TerrainHeightManager } from '../managers/terrainHeightManager'
   import { TerrainSplatManager } from '../managers/terrainSplatManager'
   import { TerrainGrassDataManager } from '../managers/terrainGrassDataManager'
   import { TerrainTreeDataManager } from '../managers/terrainTreeDataManager'
   import { RiverFieldManager } from '../managers/riverFieldManager'
-  import { loadSplatLayers } from '../utils/splatLayerLoader'
-  import { initHousingTextures } from '../utils/housing-textures'
-  import {
-    loadFlowerColorTexture,
-  } from '../shaders/grass-material'
   import { createCalendarSystem } from './game-scene/calendar-system'
   import { createTerrainTileManager } from './game-scene/terrain-tile-manager'
   import { registerDebugConsole } from './game-scene/debug-console'
@@ -261,42 +256,13 @@
 
   const sceneLighting = createSceneLightingController()
 
-  // Cascaded Shadow Maps for directional light
-  const CSM_MAX_FAR = 200
-  const CSM_CASCADES = 2
   $effect(() => {
     if (!directionalLight) return
-    const csm = new CSMShadowNode(directionalLight, {
-      cascades: CSM_CASCADES,
-      maxFar: CSM_MAX_FAR,
-      mode: 'practical',
-      lightMargin: 100,
-    })
-    csm.fade = true
-    directionalLight.shadow.shadowNode = csm
+    setupCsmShadow(directionalLight)
   })
 
-  const _tmpVec2 = new THREE.Vector2()
   $effect(() => {
-    const preset = getPreset($graphicsQuality)
-
-    const newRatio = Math.min(window.devicePixelRatio, preset.pixelRatioCap)
-    if (renderer.getPixelRatio() !== newRatio) {
-      renderer.setPixelRatio(newRatio)
-      const sz = renderer.getSize(_tmpVec2)
-      renderer.setSize(sz.width, sz.height)
-    }
-
-    if (directionalLight?.shadow) {
-      const cur = directionalLight.shadow.mapSize
-      if (cur.x !== preset.shadowMapSize) {
-        cur.set(preset.shadowMapSize, preset.shadowMapSize)
-        if (directionalLight.shadow.map) {
-          directionalLight.shadow.map.dispose()
-          directionalLight.shadow.map = null
-        }
-      }
-    }
+    applyGraphicsPreset(renderer, getPreset($graphicsQuality), directionalLight)
   })
 
   const calendarSystem = createCalendarSystem({
@@ -317,61 +283,7 @@
   let loopProfileEnabled = false
   const loopProfiler = createLoopProfiler(() => loopProfileEnabled)
 
-  type RenderTag = 'main' | 'refraction' | 'reflection' | 'wetness'
-  let currentRenderTag: RenderTag = 'main'
-  const perFrameRenderMs: Record<RenderTag, number> = {
-    main: 0, refraction: 0, reflection: 0, wetness: 0,
-  }
-  const perFrameDrawCalls: Record<RenderTag, number> = {
-    main: 0, refraction: 0, reflection: 0, wetness: 0,
-  }
-  const perFrameTriangles: Record<RenderTag, number> = {
-    main: 0, refraction: 0, reflection: 0, wetness: 0,
-  }
-  const perFrameRenderCalls: Record<RenderTag, number> = {
-    main: 0, refraction: 0, reflection: 0, wetness: 0,
-  }
-  function resetPerFrameRenderStats() {
-    perFrameRenderMs.main = 0; perFrameRenderMs.refraction = 0
-    perFrameRenderMs.reflection = 0; perFrameRenderMs.wetness = 0
-    perFrameDrawCalls.main = 0; perFrameDrawCalls.refraction = 0
-    perFrameDrawCalls.reflection = 0; perFrameDrawCalls.wetness = 0
-    perFrameTriangles.main = 0; perFrameTriangles.refraction = 0
-    perFrameTriangles.reflection = 0; perFrameTriangles.wetness = 0
-    perFrameRenderCalls.main = 0; perFrameRenderCalls.refraction = 0
-    perFrameRenderCalls.reflection = 0; perFrameRenderCalls.wetness = 0
-  }
-  let rendererWrapped = false
-  function wrapRendererForProfiling() {
-    if (rendererWrapped) return
-    rendererWrapped = true
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const r = renderer as any
-    const origRender = r.render.bind(r)
-    r.render = (scene: THREE.Scene, cam: THREE.Camera) => {
-      if (!loopProfileEnabled) {
-        origRender(scene, cam)
-        return
-      }
-      // `info.render.drawCalls` accumulates per rAF frame (reset by Animation
-      // auto-reset), so take a delta around this single render() call to get
-      // the per-call draw count. `info.render.calls` is cumulative since app
-      // start and is NOT reset per render — don't use it.
-      const infoRender = r.info?.render
-      const drawsBefore = infoRender?.drawCalls ?? 0
-      const trisBefore = infoRender?.triangles ?? 0
-      const start = performance.now()
-      origRender(scene, cam)
-      const elapsed = performance.now() - start
-      const drawsAfter = infoRender?.drawCalls ?? 0
-      const trisAfter = infoRender?.triangles ?? 0
-      const tag = currentRenderTag
-      perFrameRenderMs[tag] += elapsed
-      perFrameRenderCalls[tag] += 1
-      perFrameDrawCalls[tag] += drawsAfter - drawsBefore
-      perFrameTriangles[tag] += trisAfter - trisBefore
-    }
-  }
+  const renderProfiler = createRenderProfiler(() => loopProfileEnabled)
 
   // Player state from PlayerControl
   let currentPlayerState = $state<PlayerState>({
@@ -604,85 +516,38 @@
         waterCamDir = waterCamDirTmp.clone()
       }
 
-      // Track draw calls across all render passes in this frame.
-      // renderer.info auto-resets on each render() call, so we snapshot after each pass.
-      // Render wetness pre-pass (small 256x256 RT per water tile).
-      // Not gated behind multiPassReady — it's a tiny RT with negligible
-      // pipeline overhead, and deferring it causes blocky wet sand.
-      {
-        const wetnessStart = performance.now()
-        currentRenderTag = 'wetness'
-        waterLayerRef?.renderWetness(renderer)
-        riverLayerRef?.updateUniforms()
-        currentRenderTag = 'main'
-        loopProfiler.record('wetnessPass', performance.now() - wetnessStart)
-      }
+      runRenderPasses({
+        renderer,
+        camera,
+        multiPassRenderer,
+        refractionManager,
+        reflectionManager,
+        refractionEnabled: $refractionEnabled,
+        reflectionEnabled: $reflectionEnabled,
+        waterGroup,
+        terrainGroup,
+        terrainMeshes,
+        entityClipGroup,
+        waterLayerRef,
+        riverLayerRef,
+        grassLayerRef,
+        treeLayerRef,
+        windParticlesRef,
+        housingLayerRef,
+        objectOverlayRef,
+        currentPlayerModel,
+        otherPlayerModels,
+        monsterModels,
+        renderProfiler,
+        loopProfiler,
+      })
 
-      // Multi-pass warmup + refraction/reflection
-      multiPassRenderer.tickWarmup()
+      loopProfiler.record('frameWork', performance.now() - frameWorkStart)
 
-      currentRenderTag = 'refraction'
-      multiPassRenderer.renderRefraction({
-        camera, refractionManager, refractionEnabled: $refractionEnabled,
-        waterGroup, terrainMeshes,
-        hiddenGroups: [
-          entityClipGroup as THREE.Group | undefined,
-          grassLayerRef?.getGroup(),
-          treeLayerRef?.getGroup(),
-          windParticlesRef?.getGroup(),
-          riverLayerRef?.getGroup(),
-        ],
-      }, loopProfiler)
-      currentRenderTag = 'main'
-
-      currentRenderTag = 'reflection'
-      multiPassRenderer.renderReflection({
-        camera, reflectionManager, reflectionEnabled: $reflectionEnabled,
-        waterGroup, terrainGroup, housingGroup: housingLayerRef?.getGroup(),
-        hiddenGroups: [
-          grassLayerRef?.getGroup(),
-          treeLayerRef?.getGroup(),
-          windParticlesRef?.getGroup(),
-          objectOverlayRef?.getGroup(),
-          entityClipGroup as THREE.Group | undefined,
-          riverLayerRef?.getGroup(),
-        ],
-        getNametagGroups: () => {
-          const groups: THREE.Group[] = []
-          const ntCurrent = currentPlayerModel?.getNametagGroup()
-          if (ntCurrent) groups.push(ntCurrent)
-          for (const pm of otherPlayerModels) {
-            const nt = pm?.getNametagGroup()
-            if (nt) groups.push(nt)
-          }
-          for (const mm of monsterModels) {
-            const nt = mm?.getNametagGroup()
-            if (nt) groups.push(nt)
-          }
-          return groups
-        },
-      }, loopProfiler)
-      currentRenderTag = 'main'
-
-      const frameWorkMs = performance.now() - frameWorkStart
-      loopProfiler.record('frameWork', frameWorkMs)
-
-      // Record wrapped renderer.render() stats accumulated since previous game
-      // loop frame. `main` captures Threlte's automatic main scene render which
-      // runs on its own rAF. `refraction`/`reflection`/`wetness` capture the
-      // passes we drive manually (tags are set around each call).
-      if (loopProfileEnabled) {
-        loopProfiler.record('mainRenderCpu', perFrameRenderMs.main)
-        loopProfiler.recordCount('mainRenderCalls', perFrameRenderCalls.main)
-        loopProfiler.recordCount('mainDraws', perFrameDrawCalls.main)
-        loopProfiler.recordCount('mainTrisK', perFrameTriangles.main / 1000)
-        loopProfiler.recordCount('refractionDraws', perFrameDrawCalls.refraction)
-        loopProfiler.recordCount('refractionTrisK', perFrameTriangles.refraction / 1000)
-        loopProfiler.recordCount('reflectionDraws', perFrameDrawCalls.reflection)
-        loopProfiler.recordCount('reflectionTrisK', perFrameTriangles.reflection / 1000)
-        loopProfiler.recordCount('wetnessDraws', perFrameDrawCalls.wetness)
-      }
-      resetPerFrameRenderStats()
+      // `main` captures Threlte's automatic main scene render on its own rAF;
+      // 'refraction'/'reflection'/'wetness' come from passes tagged via withTag.
+      recordRenderProfilerStats(renderProfiler, loopProfiler)
+      renderProfiler.resetFrame()
 
       // Detect when pipeline compilation is done: once data is ready,
       // wait for a few consecutive smooth frames before hiding the loading dialog.
@@ -786,7 +651,7 @@
   onMount(() => {
     loopProfileEnabled = false
     loopProfiler.resetWindow(performance.now())
-    wrapRendererForProfiling()
+    renderProfiler.wrap(renderer)
 
     const cleanupDebugConsole = registerDebugConsole(() => ({
       loopProfiler,
@@ -847,54 +712,18 @@
     tileManager.rebuild(terrainCenterChunk.x, terrainCenterChunk.z)
     tileManager.drainAll()
 
-    // Pre-fetch all tile heightmaps so they're cached when the TerrainLayer
-    // $effect fires. This allows work items to be enqueued immediately.
-    const tileCoords = terrainTiles.map((t) => ({
-      x: Math.round(t.position[0] / TERRAIN_TILE_SIZE),
-      z: Math.round(t.position[2] / TERRAIN_TILE_SIZE),
-    }))
-    const heightPromises = tileCoords.map((c) =>
-      terrainHeightManager.loadHeightmap(c.x, c.z).catch(() => {})
-    )
-
-    const splatPromise = loadSplatLayers()
-
-    // Await flower texture loading so grass materials can be compiled
-    // (all geometry is now created synchronously)
-    const grassAssetsPromise = loadFlowerColorTexture()
-
-    const housingTexturesPromise = initHousingTextures()
-
-    // Pre-load housing chunks around the player in parallel with other assets
-    // so house geometry is built before the loading screen is dismissed.
-    const housingChunksPromise = currentPlayer
-      ? housingLayerRef?.preloadChunks(currentPlayer.position.x, currentPlayer.position.z)
-      : Promise.resolve()
-
-    // Wait for terrain data + grass assets, let the TerrainLayer $effect run
-    // and enqueue work, eagerly create grass materials, then let the renderer
-    // compile pipelines while the loading dialog is still visible.
-    Promise.all([splatPromise, grassAssetsPromise, housingTexturesPromise, housingChunksPromise, ...heightPromises]).then(() => {
-      // Wait two frames: one for Svelte to flush the $effect that enqueues
-      // tile work, and another to ensure all microtask .then() chains complete.
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          drainTileWork(Infinity)
-
-          // Preallocate all grass slots + seed dummy blades below world so
-          // every compute/render pipeline compiles under the loading dialog
-          // instead of stalling mid-movement when a new sub-chunk activates.
-          grassLayerRef?.warmupGrassPipelines(renderer)
-          housingLayerRef?.warmupHousingPipelines()
-          // Wind particles: lazy init on first spawn (MeshBasicNodeMaterial
-          // compiles fast, not worth blocking the loading screen for)
-
-          // Mark data as ready. Threlte's render loop compiles WebGPU pipelines
-          // on-demand (synchronously per frame) under the loading dialog overlay.
-          // The smooth frame detector waits until compilation is done.
-          initialDataReady = true
-        })
-      })
+    bootstrapSceneAssets({
+      renderer,
+      terrainTiles,
+      heightManager: terrainHeightManager,
+      playerPosition: currentPlayer?.position ?? null,
+      grassLayerRef,
+      housingLayerRef,
+    }).then(() => {
+      // Mark data as ready. Threlte's render loop compiles WebGPU pipelines
+      // on-demand (synchronously per frame) under the loading dialog overlay.
+      // The smooth frame detector waits until compilation is done.
+      initialDataReady = true
     })
 
     // Start game loop
