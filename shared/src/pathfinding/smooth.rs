@@ -1,0 +1,162 @@
+//! Greedy line-of-sight path smoothing on top of `find_path`.
+//! `find_and_smooth_path` is the single entry-point most callers use:
+//! it runs A*, prepends the player's continuous start position, then
+//! collapses cardinal A* zig-zags into the longest straight runs each
+//! cell-edge mask still permits. Smoothing only spans within a single
+//! floor; floor-transition waypoints (stairwell entry/exit) are anchored
+//! so the path stays cardinal across the seam.
+
+use super::astar::find_path;
+use super::query::is_cardinal_move_blocked;
+use super::{PassabilityCache, PathResult, PathWaypoint};
+
+/// Greedy line-of-sight path smoothing. Only smooths within the same floor level.
+fn smooth_path(waypoints: &[PathWaypoint], cache: &PassabilityCache) -> Vec<PathWaypoint> {
+    if waypoints.len() <= 2 {
+        return waypoints.to_vec();
+    }
+
+    let mut result = vec![waypoints[0].clone()];
+    let mut anchor = 0;
+
+    while anchor < waypoints.len() - 1 {
+        let mut farthest = anchor + 1;
+
+        // Don't smooth from floor-transition points (stairwell exit/entry).
+        // The first step after a floor change must stay cardinal to avoid
+        // diagonal paths that clip stairwell side-walls.
+        let is_floor_transition =
+            anchor > 0 && waypoints[anchor].floor != waypoints[anchor - 1].floor;
+
+        if !is_floor_transition {
+            for probe in anchor + 2..waypoints.len() {
+                if waypoints[probe].floor != waypoints[anchor].floor {
+                    break;
+                }
+                if is_line_passable(&waypoints[anchor], &waypoints[probe], cache) {
+                    farthest = probe;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        result.push(waypoints[farthest].clone());
+        anchor = farthest;
+    }
+
+    result
+}
+
+/// Cell-based line-of-sight check using Bresenham grid traversal.
+/// For diagonal cell transitions, BOTH L-shaped paths must be clear
+/// (the player has thickness and can't squeeze through a corner gap).
+pub(super) fn is_line_passable(
+    from: &PathWaypoint,
+    to: &PathWaypoint,
+    cache: &PassabilityCache,
+) -> bool {
+    let floor = from.floor;
+    let x0 = from.x.floor() as i32;
+    let z0 = from.z.floor() as i32;
+    let x1 = to.x.floor() as i32;
+    let z1 = to.z.floor() as i32;
+
+    if x0 == x1 && z0 == z1 {
+        return true;
+    }
+
+    let dx = (x1 - x0).abs();
+    let dz = (z1 - z0).abs();
+    let sx = (x1 - x0).signum();
+    let sz = (z1 - z0).signum();
+
+    let mut x = x0;
+    let mut z = z0;
+    let mut err = dx - dz;
+
+    loop {
+        if x == x1 && z == z1 {
+            return true;
+        }
+
+        let e2 = 2 * err;
+        let step_x = e2 > -dz;
+        let step_z = e2 < dx;
+
+        if step_x && step_z {
+            // Diagonal: both L-paths must be clear
+            if is_cardinal_move_blocked(cache, x, z, sx, 0, floor)
+                || is_cardinal_move_blocked(cache, x + sx, z, 0, sz, floor)
+            {
+                return false;
+            }
+            if is_cardinal_move_blocked(cache, x, z, 0, sz, floor)
+                || is_cardinal_move_blocked(cache, x, z + sz, sx, 0, floor)
+            {
+                return false;
+            }
+            x += sx;
+            z += sz;
+            err += dx - dz;
+        } else if step_x {
+            if is_cardinal_move_blocked(cache, x, z, sx, 0, floor) {
+                return false;
+            }
+            x += sx;
+            err -= dz;
+        } else {
+            if is_cardinal_move_blocked(cache, x, z, 0, sz, floor) {
+                return false;
+            }
+            z += sz;
+            err += dx;
+        }
+    }
+}
+
+/// Convenience: find path and smooth it in one call.
+pub fn find_and_smooth_path(
+    start_x: f32,
+    start_z: f32,
+    start_floor: u8,
+    goal_x: f32,
+    goal_z: f32,
+    goal_floor: u8,
+    cache: &PassabilityCache,
+    max_nodes: usize,
+) -> PathResult {
+    let result = find_path(
+        start_x,
+        start_z,
+        start_floor,
+        goal_x,
+        goal_z,
+        goal_floor,
+        cache,
+        max_nodes,
+    );
+    if result.waypoints.is_empty() {
+        return result;
+    }
+    // Prepend the player's actual position so smoothing can optimize the
+    // entire trajectory (start → goal), not just (first A* cell → goal).
+    let mut full_path = Vec::with_capacity(result.waypoints.len() + 1);
+    full_path.push(PathWaypoint {
+        x: start_x,
+        z: start_z,
+        floor: start_floor,
+    });
+    full_path.extend(result.waypoints);
+    let smoothed = smooth_path(&full_path, cache);
+    PathResult {
+        // Remove the start position — the client already knows where the player is
+        // and uses the first waypoint as the movement target.
+        waypoints: if smoothed.len() > 1 {
+            smoothed[1..].to_vec()
+        } else {
+            smoothed
+        },
+        found: result.found,
+    }
+}
