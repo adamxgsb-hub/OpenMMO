@@ -31,18 +31,73 @@ const PARALLEL_MERGE_RADIUS_MIN: i32 = 2;
 const PARALLEL_MERGE_RADIUS_MAX: i32 = 12;
 const PARALLEL_MERGE_MIN_DOT: f32 = 0.7;
 
-/// D8 flow over broad lowlands can lock onto a single cardinal / diagonal
-/// direction for hundreds of cells. After extraction, gently displace river
-/// vertices in low-slope reaches so the baked carve/ribbon reads as a natural
-/// channel instead of a ruler-straight grid trace.
+/// D8 flow over broad lowlands locks onto a single cardinal / diagonal
+/// direction for hundreds of cells. After extraction, displace each
+/// non-anchor vertex perpendicular to its windowed tangent by a sum of
+/// two octaves of sine noise indexed on arc-length. Amplitude scales
+/// with flow (small streams barely wave, big rivers swing wide) and
+/// tapers smoothly to zero on approach to *any* anchor — start, end,
+/// or interior junction with another polyline — so confluence cells
+/// stay shared across the trunk and its tributary. One-shot:
+/// displacement is bounded a priori by the amplitude constants below.
 const MEANDER_MIN_LENGTH_CELLS: f32 = 40.0;
-const MEANDER_TANGENT_WINDOW: usize = 8;
-const MEANDER_WAVELENGTH_CELLS: f32 = 56.0;
-const MEANDER_ENDPOINT_TAPER_CELLS: f32 = 36.0;
-const MEANDER_BASE_AMPLITUDE_CELLS: f32 = 0.75;
-const MEANDER_FLOW_AMPLITUDE_CELLS: f32 = 3.0;
+/// Window radius for tangent / slope estimation. Larger = smoother
+/// direction estimate but coarser local response.
+const MEANDER_TANGENT_WINDOW: usize = 6;
+/// Base displacement amplitude in cells, applied to every river that
+/// passes the slope gate.
+const MEANDER_BASE_AMPLITUDE_CELLS: f32 = 3.0;
+/// Additional amplitude (cells) at the global max flow. The total
+/// per-river amplitude is `base + flow · log_norm`, so a tributary
+/// with 1% of the max flow swings only a fraction of the trunk's
+/// amplitude. Choose generous enough to read as a bend at preview
+/// scale; 28 cells ≈ 224 m at the typical 8 m/cell spacing.
+const MEANDER_FLOW_AMPLITUDE_CELLS: f32 = 28.0;
+/// Wavelength (cells) of the dominant noise octave. The visible bend
+/// scale is roughly `wavelength / 2` between zero-crossings; at 240
+/// cells / ~1.9 km that's a single S over each kilometre or so —
+/// big enough to read as a clear meander at world scale rather than
+/// a per-screen wiggle.
+const MEANDER_PRIMARY_WAVELENGTH_CELLS: f32 = 240.0;
+/// Secondary octave wavelength and weight. A small fraction of a
+/// shorter wave breaks the perfect sine symmetry without re-introducing
+/// the busy "lots of small curves" feel. Set weight to 0 for a pure
+/// single-frequency meander.
+const MEANDER_SECONDARY_WAVELENGTH_CELLS: f32 = 110.0;
+const MEANDER_SECONDARY_WEIGHT: f32 = 0.18;
+/// Arc-distance (cells) over which displacement smoothly tapers to
+/// zero at every anchor (endpoints + interior junctions). Scale with
+/// wavelength: too short and the taper bends sharply at confluences;
+/// too long and only the middle of each polyline gets to swing.
+const MEANDER_ANCHOR_TAPER_CELLS: f32 = 80.0;
 const MEANDER_SLOPE_LOW: f32 = 0.025;
 const MEANDER_SLOPE_HIGH: f32 = 0.14;
+
+/// Only rivers with apex flow at or above this fraction of the global
+/// max get deltaized. Small streams reach the sea as a single channel.
+const DISTRIBUTARY_FLOW_FRAC_OF_MAX: f32 = 0.05;
+/// Apex sits this many cells back from the river mouth (measured along
+/// the polyline arc, not Euclidean). The original trunk is truncated at
+/// the apex; distributary branches sprout from there.
+const DISTRIBUTARY_APEX_OFFSET_CELLS: f32 = 25.0;
+/// Maximum apex-to-mouth slope for a delta. Real deltas form on near-flat
+/// coastal plains where the channel can't choose a single dominant path.
+const DISTRIBUTARY_SLOPE_MAX: f32 = 0.015;
+/// Branch endpoints must lie within this radius (Euclidean cells) of
+/// the apex. Smaller radius = tighter fan, larger = wider spread.
+const DISTRIBUTARY_SEARCH_RADIUS_CELLS: f32 = 35.0;
+/// Branch endpoints must be at least this far from the apex; prevents
+/// branches collapsing into a single short stub when the apex is right
+/// on the coast.
+const DISTRIBUTARY_SEARCH_MIN_RADIUS_CELLS: f32 = 16.0;
+/// Half-angle (radians) of the forward arc inside which we look for
+/// branch endpoints. ~0.7 rad ≈ 40° → total fan span of ~80°.
+const DISTRIBUTARY_HALF_ARC_RAD: f32 = 0.7;
+/// Number of distributary branches to spawn per delta. Real systems run
+/// from 2 (simple bifurcation) through 4–5 (full birdfoot). Three is a
+/// readable middle ground that avoids both the "Y-fork" simplicity of 2
+/// and the visual clutter of 5.
+const DISTRIBUTARY_BRANCH_COUNT: usize = 3;
 
 #[derive(Clone, Copy)]
 struct MergeClaim {
@@ -193,99 +248,59 @@ fn cumulative_lengths_cells(points: &[(u32, u32)], res: usize) -> Vec<f32> {
     lengths
 }
 
-fn meandered_point(
-    map: &GlobalMap,
+/// Windowed unit tangent at vertex `i` from the cell-coordinate polyline.
+/// Symmetric `±window` window when not near an endpoint; X-folded so a
+/// segment that crosses the world wrap doesn't return a backward tangent.
+fn windowed_tangent_cells(
     points: &[(u32, u32)],
-    flow: &[f32],
-    cumulative: &[f32],
-    anchors: &[bool],
-    max_flow: f32,
-    river_index: usize,
-    point_index: usize,
-) -> (u32, u32) {
-    let res = map.config.global_res as usize;
+    i: usize,
+    window: usize,
+    res_i: i32,
+) -> Option<(f32, f32)> {
     let n = points.len();
-    let original = points[point_index];
-    if point_index == 0 || point_index + 1 == n {
-        return original;
-    }
-    if anchors[original.1 as usize * res + original.0 as usize] {
-        return original;
-    }
-
-    let total_len = *cumulative.last().unwrap_or(&0.0);
-    if total_len < MEANDER_MIN_LENGTH_CELLS {
-        return original;
-    }
-
-    let lo = point_index.saturating_sub(MEANDER_TANGENT_WINDOW);
-    let hi = (point_index + MEANDER_TANGENT_WINDOW).min(n - 1);
+    let lo = i.saturating_sub(window);
+    let hi = (i + window).min(n - 1);
     if lo == hi {
-        return original;
+        return None;
     }
-
-    let dx = fold_x_delta(points[hi].0 as i32 - points[lo].0 as i32, res as i32) as f32;
+    let dx = fold_x_delta(points[hi].0 as i32 - points[lo].0 as i32, res_i) as f32;
     let dy = points[hi].1 as f32 - points[lo].1 as f32;
     let len = (dx * dx + dy * dy).sqrt();
-    if len < 1e-3 {
-        return original;
+    if len < 1e-6 {
+        return None;
     }
+    Some((dx / len, dy / len))
+}
 
-    let mpc = map.config.meters_per_cell();
-    let elev_lo = map.elevation_m[points[lo].1 as usize * res + points[lo].0 as usize];
-    let elev_hi = map.elevation_m[points[hi].1 as usize * res + points[hi].0 as usize];
-    let slope = (elev_lo - elev_hi).abs() / (len * mpc).max(1e-3);
-    let slope_gate = 1.0 - smoothstep(MEANDER_SLOPE_LOW, MEANDER_SLOPE_HIGH, slope);
-    if slope_gate <= 0.01 {
-        return original;
-    }
-
-    let endpoint_dist = cumulative[point_index].min(total_len - cumulative[point_index]);
-    let taper_len = MEANDER_ENDPOINT_TAPER_CELLS.min(total_len * 0.5).max(1.0);
-    let endpoint_gate = smoothstep01(endpoint_dist / taper_len);
-    if endpoint_gate <= 0.01 {
-        return original;
-    }
-
-    let flow_norm = if max_flow > 1.0 {
-        flow[point_index].max(1.0).log2() / max_flow.log2()
-    } else {
-        0.0
-    }
-    .clamp(0.0, 1.0);
-
-    let phase = hash_unit(
-        map.config.seed
-            ^ ((river_index as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15))
-            ^ 0xA11C_E5ED_5EA_u64,
-    ) * std::f32::consts::TAU;
-    let s = cumulative[point_index];
-    let wave_a = (s / MEANDER_WAVELENGTH_CELLS * std::f32::consts::TAU + phase).sin();
-    let wave_b =
-        (s / (MEANDER_WAVELENGTH_CELLS * 0.47) * std::f32::consts::TAU + phase * 1.73).sin();
-    let wave = wave_a + wave_b * 0.35;
-    let amp = (MEANDER_BASE_AMPLITUDE_CELLS + MEANDER_FLOW_AMPLITUDE_CELLS * flow_norm)
-        * endpoint_gate
-        * slope_gate;
-    let offset = wave * amp;
-    if offset.abs() < 0.5 {
-        return original;
-    }
-
-    let nx = -dy / len;
-    let ny = dx / len;
-    for scale in [1.0f32, 0.5] {
-        let x = (original.0 as f32 + nx * offset * scale).round() as i32;
-        let y = (original.1 as f32 + ny * offset * scale).round() as i32;
-        let x = x.rem_euclid(res as i32) as u32;
-        let y = y.clamp(0, res as i32 - 1) as u32;
-        let idx = y as usize * res + x as usize;
-        if map.land_mask[idx] == 1 {
-            return (x, y);
+/// Per-vertex arc distance (in cells) to the nearest anchor along the
+/// polyline. Two passes (forward sweep, backward sweep) compute the
+/// minimum distance from each vertex to any earlier or later anchor;
+/// anchors themselves get distance 0. Used to taper the displacement
+/// amplitude smoothly across confluences.
+fn anchor_distance_along_polyline(cumulative: &[f32], anchors: &[bool]) -> Vec<f32> {
+    let n = anchors.len();
+    let mut out = vec![f32::INFINITY; n];
+    let mut last = f32::NEG_INFINITY;
+    for i in 0..n {
+        if anchors[i] {
+            last = cumulative[i];
+            out[i] = 0.0;
+        } else if last.is_finite() {
+            out[i] = cumulative[i] - last;
         }
     }
-
-    original
+    let mut next = f32::INFINITY;
+    for i in (0..n).rev() {
+        if anchors[i] {
+            next = cumulative[i];
+        } else if next.is_finite() {
+            let d = next - cumulative[i];
+            if d < out[i] {
+                out[i] = d;
+            }
+        }
+    }
+    out
 }
 
 fn append_wrapped_line(
@@ -331,10 +346,9 @@ fn naturalize_river_meanders(map: &GlobalMap, rivers: &mut [Polyline]) {
         }
     }
 
-    // Keep sources, mouths, and junction cells fixed. Tributary polylines end
-    // exactly on a main-stem cell; if the main stem meanders that shared
-    // interior point while the tributary endpoint stays put, the rendered
-    // ribbons separate by a few meters at the confluence.
+    // Junction cells (shared by ≥2 polylines) and per-polyline endpoints
+    // are anchored: they stay fixed during migration so a tributary's
+    // confluence with its main stem doesn't drift apart by a few cells.
     let mut anchors = occurrences
         .iter()
         .map(|&count| count > 1)
@@ -348,47 +362,161 @@ fn naturalize_river_meanders(map: &GlobalMap, rivers: &mut [Polyline]) {
         }
     }
 
-    let max_flow = rivers
-        .iter()
-        .flat_map(|poly| poly.flow.iter().copied())
-        .fold(1.0f32, f32::max);
+    let max_flow = polylines_max_flow(rivers);
+    let log_max_flow = max_flow.log2().max(1.0);
+
+    let res_i = res as i32;
+    let mpc = map.config.meters_per_cell();
 
     for (ri, poly) in rivers.iter_mut().enumerate() {
-        if poly.points.len() < 3 || poly.points.len() != poly.flow.len() {
+        let n = poly.points.len();
+        if n < 5 || n != poly.flow.len() {
             continue;
         }
 
         let cumulative = cumulative_lengths_cells(&poly.points, res);
-        if *cumulative.last().unwrap_or(&0.0) < MEANDER_MIN_LENGTH_CELLS {
+        let total_len = *cumulative.last().unwrap_or(&0.0);
+        if total_len < MEANDER_MIN_LENGTH_CELLS {
             continue;
         }
 
-        let targets: Vec<(u32, u32)> = (0..poly.points.len())
-            .map(|i| {
-                meandered_point(
-                    map,
-                    &poly.points,
-                    &poly.flow,
-                    &cumulative,
-                    &anchors,
-                    max_flow,
-                    ri,
-                    i,
-                )
-            })
-            .collect();
+        // Per-vertex anchor flags. Junction cells (occurrences > 1 in the
+        // global map) plus this polyline's own endpoints. Anchors stay
+        // exactly where they are; the displacement amplitude tapers as we
+        // approach them.
+        let mut anchor_flags = vec![false; n];
+        for i in 0..n {
+            let (px, py) = poly.points[i];
+            if anchors[py as usize * res + px as usize] {
+                anchor_flags[i] = true;
+            }
+        }
+        anchor_flags[0] = true;
+        anchor_flags[n - 1] = true;
 
-        let mut new_points = Vec::with_capacity(poly.points.len());
-        let mut new_flow = Vec::with_capacity(poly.flow.len());
-        new_points.push(targets[0]);
+        // Arc distance from each vertex to its nearest anchor — drives the
+        // taper that prevents kinks at confluences.
+        let anchor_dist = anchor_distance_along_polyline(&cumulative, &anchor_flags);
+        let taper_len = MEANDER_ANCHOR_TAPER_CELLS
+            .min(total_len * 0.5)
+            .max(1.0);
+
+        // Phase-randomize per polyline so adjacent rivers don't bend in
+        // lockstep — the seed mix is the same recipe the previous code used.
+        let phase = hash_unit(
+            map.config.seed
+                ^ ((ri as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15))
+                ^ 0xA11C_E5ED_5EA_u64,
+        ) * std::f32::consts::TAU;
+
+        let mut target_x = vec![0.0f32; n];
+        let mut target_y = vec![0.0f32; n];
+        for i in 0..n {
+            target_x[i] = poly.points[i].0 as f32;
+            target_y[i] = poly.points[i].1 as f32;
+        }
+
+        for i in 1..n - 1 {
+            if anchor_flags[i] {
+                continue;
+            }
+            // Anchor-proximity taper: 0 at any anchor, smoothly to 1 by
+            // `MEANDER_ANCHOR_TAPER_CELLS`. Both ends of the polyline and
+            // every junction in the middle get the same gentle ramp.
+            let taper = smoothstep01(anchor_dist[i] / taper_len);
+            if taper <= 0.01 {
+                continue;
+            }
+
+            // Slope gate over a tangent window: lowland reaches only.
+            let lo = i.saturating_sub(MEANDER_TANGENT_WINDOW);
+            let hi = (i + MEANDER_TANGENT_WINDOW).min(n - 1);
+            let elev_lo =
+                map.elevation_m[poly.points[lo].1 as usize * res + poly.points[lo].0 as usize];
+            let elev_hi =
+                map.elevation_m[poly.points[hi].1 as usize * res + poly.points[hi].0 as usize];
+            let arc = cumulative[hi] - cumulative[lo];
+            let slope = (elev_lo - elev_hi).abs() / (arc * mpc).max(1e-3);
+            let slope_gate = 1.0 - smoothstep(MEANDER_SLOPE_LOW, MEANDER_SLOPE_HIGH, slope);
+            if slope_gate <= 0.01 {
+                continue;
+            }
+
+            let Some((tx, ty)) =
+                windowed_tangent_cells(&poly.points, i, MEANDER_TANGENT_WINDOW, res_i)
+            else {
+                continue;
+            };
+            // Image-coord normal: CCW-rotated tangent (Y-down convention).
+            let nx = -ty;
+            let ny = tx;
+
+            let flow_norm = (poly.flow[i].max(1.0).log2() / log_max_flow).clamp(0.0, 1.0);
+            let amp_cells = MEANDER_BASE_AMPLITUDE_CELLS
+                + MEANDER_FLOW_AMPLITUDE_CELLS * flow_norm;
+
+            // Two-octave sinusoidal noise on arc length: long-wavelength
+            // primary carries the visible bend, optional shorter-wavelength
+            // harmonic breaks the sine symmetry. Avoid a third octave —
+            // any wavelength much shorter than ~1 km reads as small
+            // wiggles rather than a meander at world scale.
+            let s = cumulative[i];
+            let wave_a = (s / MEANDER_PRIMARY_WAVELENGTH_CELLS * std::f32::consts::TAU + phase)
+                .sin();
+            let wave_b = (s / MEANDER_SECONDARY_WAVELENGTH_CELLS * std::f32::consts::TAU
+                + phase * 1.73)
+                .sin()
+                * MEANDER_SECONDARY_WEIGHT;
+            let wave = wave_a + wave_b; // bound: |wave| ≤ 1 + secondary_weight
+
+            let offset = wave * amp_cells * taper * slope_gate;
+            if offset.abs() < 0.5 {
+                continue;
+            }
+
+            // Try the full offset first, then half — back off rather than
+            // skip if the candidate cell is sea, so we still get *some*
+            // displacement near coastal margins.
+            for scale in [1.0f32, 0.5] {
+                let cand_x = target_x[i] + nx * offset * scale;
+                let cand_y = target_y[i] + ny * offset * scale;
+                let cell_x_i = cand_x.round() as i32;
+                let cell_y_i = cand_y.round() as i32;
+                if cell_y_i < 0 || cell_y_i >= res_i {
+                    continue;
+                }
+                let cell_x = cell_x_i.rem_euclid(res_i) as usize;
+                let cell_y = cell_y_i as usize;
+                if map.land_mask[cell_y * res + cell_x] != 1 {
+                    continue;
+                }
+                target_x[i] = cand_x;
+                target_y[i] = cand_y;
+                break;
+            }
+        }
+
+        let mut new_points: Vec<(u32, u32)> = Vec::with_capacity(n);
+        let mut new_flow: Vec<f32> = Vec::with_capacity(n);
+        let p0 = (
+            (target_x[0].round() as i32).rem_euclid(res_i) as u32,
+            target_y[0].round().clamp(0.0, (res_i - 1) as f32) as u32,
+        );
+        new_points.push(p0);
         new_flow.push(poly.flow[0]);
-        for i in 1..targets.len() {
+        for i in 1..n {
+            let pi = (
+                (target_x[i].round() as i32).rem_euclid(res_i) as u32,
+                target_y[i].round().clamp(0.0, (res_i - 1) as f32) as u32,
+            );
+            let last = *new_points.last().unwrap();
+            let last_flow = *new_flow.last().unwrap();
             append_wrapped_line(
                 &mut new_points,
                 &mut new_flow,
-                targets[i - 1],
-                targets[i],
-                poly.flow[i - 1],
+                last,
+                pi,
+                last_flow,
                 poly.flow[i],
                 res,
             );
@@ -464,16 +592,20 @@ impl RiverMap {
     /// on demand (rivers vector mutates rarely, callers are offline bake /
     /// preview).
     pub fn max_flow(&self) -> f32 {
-        let mut m = 1.0f32;
-        for poly in &self.rivers {
-            for &f in &poly.flow {
-                if f > m {
-                    m = f;
-                }
-            }
-        }
-        m
+        polylines_max_flow(&self.rivers)
     }
+}
+
+/// Peak per-vertex flow on a single polyline (0 if empty). Used as a
+/// per-polyline priority key in `merge_overlapping_polylines`.
+fn polyline_peak_flow(poly: &Polyline) -> f32 {
+    poly.flow.iter().copied().fold(0.0f32, f32::max)
+}
+
+/// Peak per-vertex flow across every polyline, clamped to ≥ 1 so callers
+/// can divide by `log2(max_flow)` without guarding for log of 1 or below.
+fn polylines_max_flow(polys: &[Polyline]) -> f32 {
+    polys.iter().map(polyline_peak_flow).fold(1.0f32, f32::max)
 }
 
 #[derive(Debug, Clone)]
@@ -483,6 +615,17 @@ pub struct Polyline {
     /// Same length as `points`. Drives downstream width growth.
     pub flow: Vec<f32>,
 }
+
+/// Strength of the post-erosion water-field bias on downstream selection.
+/// Each downhill candidate's slope is multiplied by `(water_norm + base)`
+/// with `water_norm ∈ [0, 1]` (channels ≈ 1, off-channel ≈ 0); a cell
+/// fully claimed by a sim-carved channel beats a near-flat alternative
+/// by `(1 + WATER_FIELD_BIAS_BASE) / WATER_FIELD_BIAS_BASE`. Tuning
+/// rationale: large enough that flat reaches reliably snap to the
+/// sim-carved meander, small enough that genuine steepest-descent on
+/// mountain flanks (where water_norm is near zero outside channels) is
+/// still chosen over a high-water diagonal that climbs.
+const WATER_FIELD_BIAS_BASE: f32 = 0.05;
 
 /// Compute downstream pointers + flow accumulation for every land cell.
 /// Fills pits first so every land cell has a downhill path to the ocean.
@@ -494,6 +637,15 @@ pub fn compute_flow(map: &GlobalMap) -> RiverMap {
     // preserved in `map.elevation_m`; flow pretends pits are already full.
     let filled = fill_pits(&map.elevation_m, mask, res);
     let elev = &filled;
+    // Sim-carved channel signal from Phase 3, normalized to ~[0, 1].
+    // Empty when erosion was skipped — the lookup below treats that as
+    // "no preference" so the selection collapses back to pure steepest
+    // descent.
+    let water_field = if map.water_after_erosion.len() == total {
+        Some(map.water_after_erosion.as_slice())
+    } else {
+        None
+    };
 
     // 8-connected offsets with their Euclidean distance (for slope calc).
     const OFFSETS: [(i32, i32, f32); 8] = [
@@ -516,7 +668,7 @@ pub fn compute_flow(map: &GlobalMap) -> RiverMap {
         let x = (i % res) as i32;
         let y = (i / res) as i32;
         let h = elev[i];
-        let mut best_slope = 0.0f32;
+        let mut best_score = 0.0f32;
         let mut best: Option<u32> = None;
         for &(dx, dy, dist) in &OFFSETS {
             let nx = (x + dx).rem_euclid(res as i32) as usize;
@@ -528,8 +680,16 @@ pub fn compute_flow(map: &GlobalMap) -> RiverMap {
             let dh = h - elev[ni];
             if dh > 0.0 {
                 let slope = dh / dist;
-                if slope > best_slope {
-                    best_slope = slope;
+                // Slope-only score when no sim signal is available; on
+                // flats with uniform slope this still falls back to the
+                // first downhill neighbor (matching pre-water behavior).
+                let bias = match water_field {
+                    Some(w) => w[ni] + WATER_FIELD_BIAS_BASE,
+                    None => 1.0,
+                };
+                let score = slope * bias;
+                if score > best_score {
+                    best_score = score;
                     best = Some(ni as u32);
                 }
             }
@@ -720,7 +880,269 @@ pub fn extract_rivers(
         }
     }
 
+    synthesize_distributary_deltas(map, &mut rivers.rivers);
     naturalize_river_meanders(map, &mut rivers.rivers);
+    merge_overlapping_polylines(map, &mut rivers.rivers);
+}
+
+/// Cells on either side of a polyline that the carve still reaches —
+/// max half-width (~5 m) plus the lateral fade taper (~10 m) ≈ 15 m, so
+/// at the typical 8 m/cell spacing two polylines whose vertex paths run
+/// within ~2 cells of each other read as a single visually-overlapping
+/// channel even when no vertex is exactly shared.
+const MERGE_PROXIMITY_RADIUS_CELLS: i32 = 2;
+
+/// Number of vertices at each polyline endpoint exempt from the
+/// proximity check. Distributary fans share an apex cell across 2–3
+/// branches that diverge by ~40°; the first few cells of those branches
+/// are unavoidably close to each other. With a ±40° fan, by the eighth
+/// cell from apex adjacent branches are ~5.4 cells apart, comfortably
+/// outside `MERGE_PROXIMITY_RADIUS`. Keep this >= the radius times the
+/// distance ratio for the tightest fan you expect to support.
+const MERGE_ENDPOINT_EXEMPT_VERTICES: usize = 8;
+
+/// Resolve crossings and visually-overlapping parallel reaches caused
+/// by meander displacement: when this polyline runs within
+/// `MERGE_PROXIMITY_RADIUS_CELLS` of any cell already claimed by a
+/// higher-priority polyline, truncate it at that point so the two
+/// merge into a single channel rather than meeting and splitting
+/// again. Priority is "max flow descending" so trunks claim cells
+/// before their tributaries.
+///
+/// The first / last `MERGE_ENDPOINT_EXEMPT_VERTICES` vertices on each
+/// polyline are exempt from the check — junction cells are *meant* to
+/// be shared between trunks and tributaries, and distributary fans by
+/// construction have all branches start very close to a shared apex
+/// before fanning out.
+fn merge_overlapping_polylines(map: &GlobalMap, rivers: &mut Vec<Polyline>) {
+    if rivers.is_empty() {
+        return;
+    }
+    let res = map.config.global_res as usize;
+    let res_i = res as i32;
+    let total = res * res;
+
+    // Priority = peak per-vertex flow on each polyline. Cache the peaks
+    // up front; the comparator is called O(R log R) times so a per-call
+    // fold over each polyline's flows would be O(R V log R).
+    let peak_flow: Vec<f32> = rivers.iter().map(polyline_peak_flow).collect();
+    let mut order: Vec<usize> = (0..rivers.len()).collect();
+    order.sort_by(|&a, &b| peak_flow[b].total_cmp(&peak_flow[a]));
+
+    // u32::MAX = unclaimed; otherwise the cell's owning polyline index.
+    let mut claimer: Vec<u32> = vec![u32::MAX; total];
+
+    for &ri in &order {
+        let n = rivers[ri].points.len();
+        if n < 2 {
+            continue;
+        }
+
+        // Skip the endpoint-exempt vertices on each side.
+        let exempt = MERGE_ENDPOINT_EXEMPT_VERTICES.min(n.saturating_sub(1) / 2);
+        let lo = exempt;
+        let hi = n.saturating_sub(exempt);
+
+        // Walk vertices in order; the first one whose proximity disk
+        // contains a cell claimed by another polyline marks where this
+        // polyline merges into that channel. Truncate inclusive of the
+        // current vertex so the river's last cell sits squarely on
+        // the path it joined.
+        let mut truncate_at: Option<usize> = None;
+        'outer: for i in lo..hi {
+            let (x, y) = rivers[ri].points[i];
+            for ddy in -MERGE_PROXIMITY_RADIUS_CELLS..=MERGE_PROXIMITY_RADIUS_CELLS {
+                let cy = y as i32 + ddy;
+                if cy < 0 || cy >= res_i {
+                    continue;
+                }
+                for ddx in -MERGE_PROXIMITY_RADIUS_CELLS..=MERGE_PROXIMITY_RADIUS_CELLS {
+                    let cx = (x as i32 + ddx).rem_euclid(res_i);
+                    let cell = cy as usize * res + cx as usize;
+                    let owner = claimer[cell];
+                    if owner != u32::MAX && owner as usize != ri {
+                        truncate_at = Some(i);
+                        break 'outer;
+                    }
+                }
+            }
+        }
+        if let Some(cut) = truncate_at {
+            rivers[ri].points.truncate(cut + 1);
+            rivers[ri].flow.truncate(cut + 1);
+        }
+
+        // First claim wins so the priority ordering above governs ownership.
+        for &(x, y) in &rivers[ri].points {
+            let cell = y as usize * res + x as usize;
+            if claimer[cell] == u32::MAX {
+                claimer[cell] = ri as u32;
+            }
+        }
+    }
+
+    // Drop polylines that collapsed to a single point during truncation
+    // (e.g. one whose interior overlapped another from vertex 1).
+    rivers.retain(|p| p.points.len() >= 2);
+}
+
+/// Branch each qualifying main river into a distributary fan at its
+/// mouth. A river qualifies if it (a) reaches the sea, (b) carries
+/// flow above a fraction of the global max, and (c) the apex-to-mouth
+/// reach is near-flat. The original trunk is truncated at the apex
+/// and 2–`DISTRIBUTARY_BRANCH_COUNT` straight branches are appended,
+/// each ending at a sea cell within the forward fan. Subsequent
+/// `naturalize_river_meanders` smooths the new branches into curves.
+fn synthesize_distributary_deltas(map: &GlobalMap, rivers: &mut Vec<Polyline>) {
+    let res = map.config.global_res as usize;
+    let res_i = res as i32;
+    let mpc = map.config.meters_per_cell();
+    let flow_threshold = polylines_max_flow(rivers) * DISTRIBUTARY_FLOW_FRAC_OF_MAX;
+    let cos_half_arc = DISTRIBUTARY_HALF_ARC_RAD.cos();
+    let r_max = DISTRIBUTARY_SEARCH_RADIUS_CELLS;
+    let r_min = DISTRIBUTARY_SEARCH_MIN_RADIUS_CELLS;
+    let r_max_i = r_max.ceil() as i32;
+    let slice_width = 2.0 * DISTRIBUTARY_HALF_ARC_RAD / DISTRIBUTARY_BRANCH_COUNT as f32;
+
+    let mut new_polys: Vec<Polyline> = Vec::new();
+    let mut truncate_to: Vec<Option<usize>> = vec![None; rivers.len()];
+
+    for (ri, poly) in rivers.iter().enumerate() {
+        let n = poly.points.len();
+        if n < 6 {
+            continue;
+        }
+        // Mouth must sit on a sea cell.
+        let mouth = poly.points[n - 1];
+        if map.land_mask[mouth.1 as usize * res + mouth.0 as usize] != 0 {
+            continue;
+        }
+
+        let cumulative = cumulative_lengths_cells(&poly.points, res);
+        let total_len = *cumulative.last().unwrap_or(&0.0);
+        let target_len = total_len - DISTRIBUTARY_APEX_OFFSET_CELLS;
+        if target_len <= 5.0 {
+            continue;
+        }
+
+        // Walk back to the first vertex whose cumulative arc-length is
+        // at or below `target_len` — that's the apex.
+        let mut apex_idx = 0usize;
+        for i in (0..n).rev() {
+            if cumulative[i] <= target_len {
+                apex_idx = i;
+                break;
+            }
+        }
+        if apex_idx == 0 || apex_idx >= n - 1 {
+            continue;
+        }
+        let apex = poly.points[apex_idx];
+        if map.land_mask[apex.1 as usize * res + apex.0 as usize] != 1 {
+            continue;
+        }
+
+        // Flow gate: only sizable rivers form distributary deltas.
+        if poly.flow[apex_idx] < flow_threshold {
+            continue;
+        }
+
+        // Forward direction = apex → mouth (tangent at apex toward sea).
+        let dx_fwd = fold_x_delta(mouth.0 as i32 - apex.0 as i32, res_i) as f32;
+        let dy_fwd = mouth.1 as f32 - apex.1 as f32;
+        let fwd_len = (dx_fwd * dx_fwd + dy_fwd * dy_fwd).sqrt();
+        if fwd_len < 1.0 {
+            continue;
+        }
+        let fx = dx_fwd / fwd_len;
+        let fy = dy_fwd / fwd_len;
+
+        // Slope gate: deltas only on near-flat coastal plains.
+        let elev_apex = map.elevation_m[apex.1 as usize * res + apex.0 as usize];
+        let slope = elev_apex / (fwd_len * mpc).max(1.0);
+        if slope > DISTRIBUTARY_SLOPE_MAX {
+            continue;
+        }
+
+        // Sweep the forward sector for sea cells; for each angular slice
+        // keep the closest valid candidate. Annulus filter prevents
+        // collapsing branches and absurdly long ones; arc filter keeps
+        // them in front of the apex rather than behind.
+        let mut slice_best: [Option<((u32, u32), f32)>; DISTRIBUTARY_BRANCH_COUNT] =
+            [None; DISTRIBUTARY_BRANCH_COUNT];
+        for ddy in -r_max_i..=r_max_i {
+            let cy_i = apex.1 as i32 + ddy;
+            if cy_i < 0 || cy_i >= res_i {
+                continue;
+            }
+            for ddx in -r_max_i..=r_max_i {
+                let cx_i = (apex.0 as i32 + ddx).rem_euclid(res_i);
+                if map.land_mask[cy_i as usize * res + cx_i as usize] != 0 {
+                    continue;
+                }
+                let dx = ddx as f32;
+                let dy = ddy as f32;
+                let d = (dx * dx + dy * dy).sqrt();
+                if d < r_min || d > r_max {
+                    continue;
+                }
+                let cos_angle = (dx * fx + dy * fy) / d;
+                if cos_angle < cos_half_arc {
+                    continue;
+                }
+                let sin_angle = (fx * dy - fy * dx) / d;
+                let angle = sin_angle.atan2(cos_angle);
+                let slice_idx = (((angle + DISTRIBUTARY_HALF_ARC_RAD) / slice_width).floor()
+                    as i32)
+                    .clamp(0, DISTRIBUTARY_BRANCH_COUNT as i32 - 1)
+                    as usize;
+                let take = slice_best[slice_idx].map_or(true, |(_, prev_d)| d < prev_d);
+                if take {
+                    slice_best[slice_idx] = Some(((cx_i as u32, cy_i as u32), d));
+                }
+            }
+        }
+
+        let endpoints: Vec<(u32, u32)> = slice_best
+            .iter()
+            .filter_map(|s| s.map(|(p, _)| p))
+            .collect();
+        if endpoints.len() < 2 {
+            // Coastline geometry doesn't support a fan here; leave the
+            // river as a single mouth.
+            continue;
+        }
+
+        truncate_to[ri] = Some(apex_idx);
+        let trunk_flow_at_apex = poly.flow[apex_idx];
+        let split_flow = trunk_flow_at_apex / endpoints.len() as f32;
+        for sea_pt in endpoints {
+            let mut pts: Vec<(u32, u32)> = vec![apex];
+            let mut flows: Vec<f32> = vec![trunk_flow_at_apex];
+            append_wrapped_line(
+                &mut pts,
+                &mut flows,
+                apex,
+                sea_pt,
+                trunk_flow_at_apex,
+                split_flow,
+                res,
+            );
+            if pts.len() >= 2 {
+                new_polys.push(Polyline { points: pts, flow: flows });
+            }
+        }
+    }
+
+    // Apply truncations after the analysis pass so the loop above never
+    // sees a half-edited polyline.
+    for (ri, cut) in truncate_to.iter().enumerate() {
+        if let Some(end_inclusive) = *cut {
+            rivers[ri].points.truncate(end_inclusive + 1);
+            rivers[ri].flow.truncate(end_inclusive + 1);
+        }
+    }
+    rivers.extend(new_polys);
 }
 
 #[cfg(test)]
@@ -769,6 +1191,7 @@ mod tests {
             land_mask: vec![1; total],
             sea_level_potential: 0.0,
             elevation_m: vec![0.0; total],
+            water_after_erosion: Vec::new(),
         }
     }
 

@@ -87,7 +87,7 @@ pub fn erode_hydraulic(map: &mut GlobalMap) {
         max_elev,
     );
 
-    run_simulation(&mut terrain, &sim_land, sim_res, &cfg, iterations);
+    let sim_water = run_simulation(&mut terrain, &sim_land, sim_res, &cfg, iterations);
 
     upsample_into_elevation(
         &terrain,
@@ -98,6 +98,8 @@ pub fn erode_hydraulic(map: &mut GlobalMap) {
         &map.land_mask,
         &mut map.elevation_m,
     );
+
+    map.water_after_erosion = upsample_water(&sim_water, sim_res, global_res, &map.land_mask);
 
     apply_post_erosion_shaping(map);
 }
@@ -233,7 +235,7 @@ fn run_simulation(
     res: usize,
     cfg: &super::config::WorldGenConfig,
     iterations: usize,
-) {
+) -> Vec<f32> {
     let cell_width = cfg.erosion_cell_width.max(1e-3);
     let cell_area = cell_width * cell_width;
     let rain_rate = cfg.erosion_rain_rate.max(0.0) * cell_area;
@@ -248,6 +250,12 @@ fn run_simulation(
     let total = res * res;
     let mut sediment = vec![0.0f32; total];
     let mut water = vec![0.0f32; total];
+    // Time-integrated water accumulator. Each iteration adds the post-evap
+    // water field; channels visited by many advection passes accumulate
+    // proportionally more than off-channel cells whose only inflow is the
+    // single rain pulse per iter. Stable signal for downstream routing.
+    let mut water_visits = vec![0.0f32; total];
+    let warmup = iterations / 4;
     let mut velocity = vec![0.0f32; total];
     let mut gx = vec![0.0f32; total];
     let mut gy = vec![0.0f32; total];
@@ -308,6 +316,12 @@ fn run_simulation(
         evaporate(&mut water, evap_rate);
         clear_sea(land, terrain, &mut water, &mut sediment, &mut velocity);
 
+        if iter >= warmup {
+            for (acc, &w) in water_visits.iter_mut().zip(water.iter()) {
+                *acc += w;
+            }
+        }
+
         let done = iter + 1;
         if done == iterations || done >= next_report {
             let pct = done * 100 / iterations;
@@ -317,6 +331,8 @@ fn run_simulation(
             }
         }
     }
+
+    water_visits
 }
 
 // --- Sim steps ----------------------------------------------------------
@@ -677,6 +693,46 @@ fn downsample(
         }
     }
     (terrain, sim_land)
+}
+
+/// Upsample the sim-resolution water field to `dst_res` and normalize to
+/// `[0, 1]` against the 99.5th-percentile sim cell. Channels routinely sit
+/// orders of magnitude above off-channel rain accumulation, so a hard
+/// max-divide compresses every interesting cell into the bottom end of
+/// the range; the high quantile keeps the river cells around 1.0. Sea
+/// cells are zeroed (the sim drains coastal water but bilinear smear can
+/// leak a touch across the coastline). Returns an empty Vec when the
+/// sim produced no signal so callers can treat "no water field"
+/// uniformly.
+fn upsample_water(sim_water: &[f32], sim_res: usize, dst_res: usize, dst_land: &[u8]) -> Vec<f32> {
+    let max_w = sim_water.iter().copied().fold(0.0f32, f32::max);
+    if !(max_w > 0.0) {
+        return Vec::new();
+    }
+    let mut positives: Vec<f32> = sim_water.iter().copied().filter(|&w| w > 0.0).collect();
+    if positives.is_empty() {
+        return Vec::new();
+    }
+    let q_idx = ((positives.len() as f32) * 0.995) as usize;
+    let q_idx = q_idx.min(positives.len() - 1);
+    let q = (*positives.select_nth_unstable_by(q_idx, f32::total_cmp).1).max(1e-12);
+    let inv_q = 1.0 / q;
+
+    let mut out = vec![0.0f32; dst_res * dst_res];
+    let scale = sim_res as f32 / dst_res as f32;
+    for dy in 0..dst_res {
+        for dx in 0..dst_res {
+            let i = dy * dst_res + dx;
+            if dst_land[i] == 0 {
+                continue;
+            }
+            let sx_f = (dx as f32 + 0.5) * scale - 0.5;
+            let sy_f = (dy as f32 + 0.5) * scale - 0.5;
+            let w = bilinear_sample(sim_water, sim_res, sx_f, sy_f).max(0.0);
+            out[i] = (w * inv_q).clamp(0.0, 1.0);
+        }
+    }
+    out
 }
 
 #[allow(clippy::too_many_arguments)]

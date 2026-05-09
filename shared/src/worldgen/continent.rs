@@ -114,6 +114,7 @@ pub fn generate_continent_mask(config: &WorldGenConfig) -> GlobalMap {
         land_mask,
         sea_level_potential: threshold,
         elevation_m: vec![0.0; total],
+        water_after_erosion: Vec::new(),
     }
 }
 

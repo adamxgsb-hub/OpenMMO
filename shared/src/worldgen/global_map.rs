@@ -27,6 +27,16 @@ pub struct GlobalMap {
     /// Sea cells are 0.0; land cells range from ~0 at the coast up to the
     /// configured `max_elevation_m`. Length = `config.cell_count()`.
     pub elevation_m: Vec<f32>,
+
+    /// Steady-state water depth from the Phase 3 sim, upsampled to
+    /// `global_res`. High values trace the channels the sim actually
+    /// carved — including the meandering reaches that pure D8 on the
+    /// upsampled heightmap would miss. Empty if erosion was skipped.
+    /// Phase 4's `compute_flow` uses this as a tiebreaker when picking
+    /// each cell's downstream neighbor.
+    /// Length = `config.cell_count()` when populated, else 0.
+    #[serde(default)]
+    pub water_after_erosion: Vec<f32>,
 }
 
 impl GlobalMap {

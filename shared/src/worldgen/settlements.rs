@@ -710,6 +710,7 @@ mod tests {
             land_mask: vec![1; total],
             sea_level_potential: 0.0,
             elevation_m: vec![10.0; total],
+            water_after_erosion: Vec::new(),
         }
     }
 
