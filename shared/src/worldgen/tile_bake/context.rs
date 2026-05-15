@@ -98,16 +98,20 @@ impl MouthIsland {
         }
         let u = (along_raw / self.half_len + 1.0) * 0.5;
         let u_peak = MOUTH_ISLAND_WIDEST_AXIS_T;
-        // Quadratic rise (pointed on land side), quarter-circle arc
-        // fall (rounded on sea side) — teardrop with a sharp flow-facing
-        // head and a circular tail silhouette.
-        let r_scale = if u <= u_peak {
-            let t = u / u_peak;
-            t * t
+        // Quarter-circle arc on both sides of the widest axis — vertical
+        // tangent at each tip so radius grows fast away from u=0/u=1 and
+        // the bar reads as a continuous ellipse at 1 m heightmap sampling.
+        // A quadratic rise on the upstream side would collapse to a
+        // sub-grid needle (e.g. radius·(0.1/0.75)² ≈ 0.05 m), only
+        // catching the rare on-axis vertex and rendering the upstream
+        // end as a chain of disconnected dots above the deep mouth-fan
+        // bed. `t` is normalised so the two halves share the arc body.
+        let t = if u <= u_peak {
+            (u_peak - u) / u_peak
         } else {
-            let t = (u - u_peak) / (1.0 - u_peak);
-            (1.0 - t * t).sqrt()
+            (u - u_peak) / (1.0 - u_peak)
         };
+        let r_scale = (1.0 - t * t).sqrt();
         let r_at_u = self.radius * r_scale;
         if r_at_u <= 1e-3 {
             return 0.0;

@@ -12,9 +12,9 @@ use super::constants::{
     CLIFF_SLOPE_THRESHOLD, COAST_FADE_SPAN_M, COAST_SAND_M, DETAIL_GAIN, DETAIL_LACUNARITY,
     GRASS_FALLOFF_ELEVATION_M, PAL_CLIFF, PAL_GROUND, PAL_RIVER_BED, PAL_ROAD, PAL_SAND, PAL_SNOW,
     RIVER_BAND_NOISE_AMP, RIVER_BAND_NOISE_FREQ, RIVER_BAND_NOISE_OCTAVES, RIVER_FADE_SPAN_M,
-    RIVER_FOAM_SUPPRESS_RADIUS_M, RIVER_MOUTH_SAND_COAST_DIST_M, RIVER_SAND_WIDTH_MULT,
-    ROAD_FADE_SPAN_M, ROAD_HALF_WIDTH_M, SEA_MAX_DEPTH_FOR_BLEND, SLOPE_CLIFF_FULL,
-    SNOW_ELEVATION_M, SNOW_FULL_SPAN_M, TILE_DIM, VERTS_PER_SIDE,
+    RIVER_FAN_SAND_BASE_WIDTH_M, RIVER_FAN_SAND_FADE_M, RIVER_FOAM_SUPPRESS_RADIUS_M,
+    RIVER_SAND_WIDTH_MULT, ROAD_FADE_SPAN_M, ROAD_HALF_WIDTH_M, SEA_MAX_DEPTH_FOR_BLEND,
+    SLOPE_CLIFF_FULL, SNOW_ELEVATION_M, SNOW_FULL_SPAN_M, TILE_DIM, VERTS_PER_SIDE,
 };
 use super::context::BakeContext;
 use super::heightmap::{containing_cell_index, lerp};
@@ -292,18 +292,21 @@ fn classify_splat(inputs: SplatInputs, patch: impl FnOnce() -> PatchSample) -> (
         // `water_half_width_m` instead keeps the wet zone clean while still
         // letting some grass / sparse trees grow on the dry sand bank.
         let sand_t = (river_d_m / river_sand_half_width_m).clamp(0.0, 1.0);
-        // Near the estuary, the pebble band tapers toward the centerline
-        // while SAND fills the outer annulus, so the wet-pebble region
-        // retracts into the water as we approach the beach instead of
-        // ending in a coast-parallel strip. At `RIVER_MOUTH_SAND_COAST_DIST_M`
-        // and beyond the pebble wedge covers the full sand-band; at the
-        // coast it's 0 and the entire band is SAND continuous with the
-        // beach. Keyed on horizontal distance to the ocean coast polyline:
-        // the bake's carve floor flattens h_center over ~40 m inland at
-        // gentle mouths, so an elevation cutoff was too coarse — a coastal
-        // distance directly caps the delta length. Both palettes share the
-        // GROUND secondary so the bank fade stays smooth across the swap.
-        let pebble_wedge_t = smoothstep(0.0, RIVER_MOUTH_SAND_COAST_DIST_M, coast_d_m);
+        // Inside the mouth fan, the pebble band collapses to zero so the
+        // entire visible delta wedge reads as sand (continuous with the
+        // shallow-sea SAND beyond the coast). Keyed on the post-fan
+        // segment width: `apply_mouth_fan_widths` only inflates widths
+        // past the apex, so `river_width_m > RIVER_FAN_SAND_BASE_WIDTH_M`
+        // is the natural fan-entry signal. Fades over `_FADE_M` of width
+        // so the seam straddles a couple of cells instead of popping.
+        // Both palettes share the GROUND secondary so the bank fade stays
+        // smooth across the swap.
+        let pebble_wedge_t = 1.0
+            - smoothstep(
+                RIVER_FAN_SAND_BASE_WIDTH_M,
+                RIVER_FAN_SAND_BASE_WIDTH_M + RIVER_FAN_SAND_FADE_M,
+                river_width_m,
+            );
         let pebble_half_width_m = river_sand_half_width_m * pebble_wedge_t;
         let is_pebble = river_d_m < pebble_half_width_m;
         let primary = if is_pebble { PAL_RIVER_BED } else { PAL_SAND };
@@ -585,15 +588,16 @@ mod tests {
         // doesn't regress — an accidental swap would most likely surface as
         // DIRT (red laterite) from the plain branch.
         //
-        // Near-sea-level h_center falls into the estuary sand window, so the
-        // primary is PAL_SAND instead of PAL_RIVER_BED; both share the
-        // GROUND secondary so coast/river continuity still holds. Inland
-        // (`priority_river_beats_sea_inland`) exercises the PAL_RIVER_BED
-        // path.
+        // Inside the mouth fan (segment width past
+        // `RIVER_FAN_SAND_BASE_WIDTH_M`), the river branch retracts the
+        // pebble band so the primary is PAL_SAND instead of PAL_RIVER_BED;
+        // both share the GROUND secondary so coast/river continuity still
+        // holds. Inland (`priority_river_beats_sea_inland`) exercises the
+        // PAL_RIVER_BED path at natural widths.
         let (p, s, _, _) = call_classify(SplatInputs {
             is_sea: true,
             river_d_m: 0.0,
-            river_width_m: TEST_RIVER_WIDTH_M,
+            river_width_m: RIVER_FAN_SAND_BASE_WIDTH_M + RIVER_FAN_SAND_FADE_M + 1.0,
             h_center: -1.0,
             coast_d_m: 0.0,
             ..plain_inputs(0.0)

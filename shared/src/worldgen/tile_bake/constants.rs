@@ -92,13 +92,14 @@ pub(super) const RIVER_CARVE_MIN_BED_Y_M: f32 = 0.0;
 /// large enough to give the depth-fade headroom past the 0.05 m hard cut.
 pub(super) const RIVER_DEPTH_OFFSET_M: f32 = 0.5;
 /// River-bed splat switches from `PAL_RIVER_BED` (ganges pebbles — wet
-/// inland bed look) to `PAL_SAND` (sandy_gravel_02 — matches coast) where
-/// the cell is within this horizontal distance of the ocean coast
-/// polyline. Horizontal distance rather than elevation because the bake's
-/// carve floor holds h_center flat for ~40 m inland at gentle mouths; an
-/// elevation cutoff clipped sand to just the first few meters while this
-/// directly caps the delta length at the ocean-facing side.
-pub(super) const RIVER_MOUTH_SAND_COAST_DIST_M: f32 = 50.0;
+/// inland bed look) to `PAL_SAND` (sandy_gravel_02 — matches shallow sea)
+/// as the river enters the mouth fan. Keyed on the projected segment
+/// width: the fan-widening starts at the apex, so `width > RIVER_MAX_WIDTH_M`
+/// is the natural fan-entry signal. Smoothstep from `BASE_M` (still
+/// pebble) to `BASE_M + FADE_M` (fully sand) keeps the swap a couple of
+/// cells wide so the seam doesn't pop.
+pub(super) const RIVER_FAN_SAND_BASE_WIDTH_M: f32 = RIVER_MAX_WIDTH_M;
+pub(super) const RIVER_FAN_SAND_FADE_M: f32 = 3.0;
 /// Width-fan window (cells of arc-length along the polyline, measured back
 /// from the river mouth). Vertices at or past `ARC_CELLS` from the mouth
 /// keep their natural width; vertices closer to the mouth are widened up
@@ -144,8 +145,8 @@ pub(super) const RIVER_SAND_WIDTH_MULT: f32 = 0.7;
 // above the carved channel floor (sitting at `RIVER_CARVE_MIN_BED_Y_M`
 // near the mouth) as elongated capsules aligned with the apex flow
 // direction. The splatmap's mouth-pebble retraction already paints them
-// SAND since they sit inside the river band with `coast_d_m` well below
-// `RIVER_MOUTH_SAND_COAST_DIST_M`.
+// SAND since they sit inside the river band where the post-fan width
+// is well past `RIVER_FAN_SAND_BASE_WIDTH_M`.
 pub(super) const MOUTH_ISLAND_COUNT_MIN: u32 = 3;
 pub(super) const MOUTH_ISLAND_COUNT_MAX: u32 = 8;
 /// Target along-mouth spacing (m): the actual island count is the
@@ -177,8 +178,8 @@ pub(super) const MOUTH_ISLAND_LAND_HEIGHT_BOOST: f32 = 0.3;
 /// surface up through the waterline AND leaving a visible dry crown.
 /// The upper end of the range also budgets for the height attenuation
 /// from `smooth_island_area`'s Gaussian pass.
-pub(super) const MOUTH_ISLAND_PEAK_MIN_M: f32 = 1.1;
-pub(super) const MOUTH_ISLAND_PEAK_MAX_M: f32 = 1.5;
+pub(super) const MOUTH_ISLAND_PEAK_MIN_M: f32 = 0.7;
+pub(super) const MOUTH_ISLAND_PEAK_MAX_M: f32 = 0.9;
 /// Fractional along-fan position of each island's upstream tip and
 /// downstream end, measured from the fan apex (0) toward the polyline
 /// endpoint (1). Tips sitting around the mid-fan place island heads
