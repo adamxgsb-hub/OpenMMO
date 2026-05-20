@@ -22,7 +22,9 @@ use super::constants::{
     RIVER_MIN_WIDTH_M, RIVER_MOUTH_BRANCH_BED_Y_M, RIVER_MOUTH_BRANCH_COUNT_MAX,
     RIVER_MOUTH_BRANCH_COUNT_MIN, RIVER_MOUTH_BRANCH_END_JITTER_M,
     RIVER_MOUTH_BRANCH_END_WIDTH_MAX_M, RIVER_MOUTH_BRANCH_END_WIDTH_MIN_M,
-    RIVER_MOUTH_BRANCH_END_WIDTH_SCALE, RIVER_MOUTH_BRANCH_MEANDER_M, RIVER_MOUTH_BRANCH_SPREAD_M,
+    RIVER_MOUTH_BRANCH_END_WIDTH_SCALE, RIVER_MOUTH_BRANCH_MEANDER_CYCLES_MAX,
+    RIVER_MOUTH_BRANCH_MEANDER_CYCLES_MIN, RIVER_MOUTH_BRANCH_MEANDER_M,
+    RIVER_MOUTH_BRANCH_MEANDER_RAMP_T, RIVER_MOUTH_BRANCH_SAMPLES, RIVER_MOUTH_BRANCH_SPREAD_M,
     RIVER_MOUTH_FAN_ARC_CELLS, ROAD_CHAIKIN_ITERATIONS,
 };
 use super::heightmap::cell_elevation_m;
@@ -230,6 +232,9 @@ fn split_mouth_polyline(
         let amp = rng.gen_range(0.45..=1.0)
             * RIVER_MOUTH_BRANCH_MEANDER_M.min(amp_cap)
             * if rng.gen_bool(0.5) { 1.0 } else { -1.0 };
+        let cycles = rng.gen_range(
+            RIVER_MOUTH_BRANCH_MEANDER_CYCLES_MIN..RIVER_MOUTH_BRANCH_MEANDER_CYCLES_MAX,
+        );
 
         out.push(build_distributary_branch(
             apex,
@@ -240,6 +245,7 @@ fn split_mouth_polyline(
             end_width,
             end_bed_floor,
             amp,
+            cycles,
         ));
     }
 
@@ -376,27 +382,23 @@ fn build_distributary_branch(
     end_width: f32,
     end_bed_floor: f32,
     meander_amp: f32,
+    meander_cycles: f32,
 ) -> RiverWorldPolyline {
     let axis_x = end[0] - apex[0];
     let axis_z = end[1] - apex[1];
     let axis_len = (axis_x * axis_x + axis_z * axis_z).sqrt().max(1e-3);
     let normal = [-axis_z / axis_len, axis_x / axis_len];
     let bed_drop_t = (10.0 / axis_len).min(0.25);
-    let mut control_ts = Vec::with_capacity(6);
-    control_ts.push(0.0);
-    control_ts.push(bed_drop_t);
-    for t in [0.25f32, 0.5, 0.75, 1.0] {
-        if t > bed_drop_t + 1e-4 {
-            control_ts.push(t);
-        }
-    }
 
-    let mut points = Vec::with_capacity(control_ts.len());
-    let mut flow_norm = Vec::with_capacity(control_ts.len());
-    let mut widths = Vec::with_capacity(control_ts.len());
-    let mut bed_floor = Vec::with_capacity(control_ts.len());
-    for t in control_ts {
-        let s = (std::f32::consts::TAU * t).sin() * meander_amp;
+    let mut points = Vec::with_capacity(RIVER_MOUTH_BRANCH_SAMPLES);
+    let mut flow_norm = Vec::with_capacity(RIVER_MOUTH_BRANCH_SAMPLES);
+    let mut widths = Vec::with_capacity(RIVER_MOUTH_BRANCH_SAMPLES);
+    let mut bed_floor = Vec::with_capacity(RIVER_MOUTH_BRANCH_SAMPLES);
+    for i in 0..RIVER_MOUTH_BRANCH_SAMPLES {
+        let t = i as f32 / (RIVER_MOUTH_BRANCH_SAMPLES - 1) as f32;
+        let meander_phase = meander_cycles * std::f32::consts::TAU * t;
+        let meander_envelope = smoothstep(0.0, RIVER_MOUTH_BRANCH_MEANDER_RAMP_T, t);
+        let s = meander_phase.sin() * meander_amp * meander_envelope;
         points.push([
             apex[0] + axis_x * t + normal[0] * s,
             apex[1] + axis_z * t + normal[1] * s,

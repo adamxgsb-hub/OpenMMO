@@ -119,7 +119,22 @@ pub(super) const RIVER_MOUTH_BRANCH_SPREAD_M: f32 =
 /// Endpoint lateral jitter (m) so branches do not form a perfect comb.
 pub(super) const RIVER_MOUTH_BRANCH_END_JITTER_M: f32 = 4.0;
 /// Maximum signed S-curve offset (m) applied to each branch centerline.
-pub(super) const RIVER_MOUTH_BRANCH_MEANDER_M: f32 = 12.0;
+pub(super) const RIVER_MOUTH_BRANCH_MEANDER_M: f32 = 15.0;
+/// Range of full sine cycles per branch length. Each branch picks a value
+/// in [MIN, MAX) so neighbours don't share an obvious meander wavelength.
+/// >1.0 gives multiple S-bends instead of one broad arc. Sample density
+/// (`RIVER_MOUTH_BRANCH_SAMPLES`) must satisfy Nyquist for `MAX` to render
+/// — keep ≥ 4× MAX.
+pub(super) const RIVER_MOUTH_BRANCH_MEANDER_CYCLES_MIN: f32 = 1.5;
+pub(super) const RIVER_MOUTH_BRANCH_MEANDER_CYCLES_MAX: f32 = 3.0;
+/// Pre-Chaikin control point count along each distributary branch. Needs
+/// to be dense enough to resolve `RIVER_MOUTH_BRANCH_MEANDER_CYCLES`.
+pub(super) const RIVER_MOUTH_BRANCH_SAMPLES: usize = 21;
+/// Branch-fraction over which the meander amplitude ramps from 0 (at apex)
+/// to full. Keeps the branch nearly straight where it splits off the trunk
+/// so all branches stay anchored cleanly, then lets it wander toward the
+/// sea where current is slow and deposition is high.
+pub(super) const RIVER_MOUTH_BRANCH_MEANDER_RAMP_T: f32 = 0.5;
 /// End width as a fraction of the original mouth width, clamped to
 /// `[RIVER_MOUTH_BRANCH_END_WIDTH_MIN_M, RIVER_MOUTH_BRANCH_END_WIDTH_MAX_M]`.
 pub(super) const RIVER_MOUTH_BRANCH_END_WIDTH_SCALE: f32 = 0.04;
