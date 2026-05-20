@@ -113,17 +113,17 @@ pub(super) const RIVER_MOUTH_BRANCH_COUNT_MIN: u32 = 2;
 pub(super) const RIVER_MOUTH_BRANCH_COUNT_MAX: u32 = 6;
 /// Half-width (m) of the fan-shaped endpoint spread for distributaries.
 pub(super) const RIVER_MOUTH_BRANCH_SPREAD_M: f32 =
-    RIVER_MAX_WIDTH_M * RIVER_MOUTH_FAN_EXTRA * 0.30;
+    RIVER_MAX_WIDTH_M * RIVER_MOUTH_FAN_EXTRA * 0.42;
 /// Endpoint lateral jitter (m) so branches do not form a perfect comb.
 pub(super) const RIVER_MOUTH_BRANCH_END_JITTER_M: f32 = 4.0;
 /// Maximum signed S-curve offset (m) applied to each branch centerline.
-pub(super) const RIVER_MOUTH_BRANCH_MEANDER_M: f32 = 8.0;
+pub(super) const RIVER_MOUTH_BRANCH_MEANDER_M: f32 = 12.0;
 /// End width as a fraction of the original mouth width, capped below. The
 /// branch starts at the incoming river width and tapers to this narrower
 /// sea contact width.
-pub(super) const RIVER_MOUTH_BRANCH_END_WIDTH_SCALE: f32 = 0.12;
-pub(super) const RIVER_MOUTH_BRANCH_END_WIDTH_MIN_M: f32 = 0.45;
-pub(super) const RIVER_MOUTH_BRANCH_END_WIDTH_MAX_M: f32 = 2.0;
+pub(super) const RIVER_MOUTH_BRANCH_END_WIDTH_SCALE: f32 = 0.04;
+pub(super) const RIVER_MOUTH_BRANCH_END_WIDTH_MIN_M: f32 = 0.2;
+pub(super) const RIVER_MOUTH_BRANCH_END_WIDTH_MAX_M: f32 = 0.65;
 /// Bed-floor target for tapering mouth distributary branches. These branches
 /// narrow as they approach the sea, so the carve needs a small sub-sea floor
 /// to keep the channel visibly connected to ocean water.
