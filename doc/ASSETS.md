@@ -108,6 +108,7 @@
 - stone bridge https://sketchfab.com/3d-models/stone-bridge-a5d380cd08654b508b4b643056038605
 - bridge wood https://sketchfab.com/3d-models/bridge-wood-20c090db0a7345898e20e2621fc2ba4c
 - big bridge https://sketchfab.com/3d-models/bridge-9328bbfc04a84202a6a97bd59408473a
+- bridge_wood_long.glb https://sketchfab.com/3d-models/wooden-bridge-deep-27b22af7020c4755b5cb788d75db8ee7
 
 ## Terrain
 
@@ -348,3 +349,27 @@ seamless loop, game BGM
   ```
   High-intensity medieval battle score, 160+ BPM, Explosive percussive stabs into rolling war drums, aggressive lute ostinatos, piercing recorder lead, and bright harp arpeggios weaving countermelodies, Constant layered tension, tight looping eight-bar structure with evolving drum accents and heroic yet desperate harmonic shifts; mix is upfront and dry for maximum impact in combat, piercing, medieval, harp
   ```
+
+### Google Flow Music으로 생성한 BGM (.m4a)
+
+아래 .m4a 파일들은 [Google Flow Music](https://www.flowmusic.app/)으로 생성했다.
+
+**Field BGM**
+- Echoes of the Horizon
+- Echoes of the Old Realm
+- First Light Waltz
+- Path of the Eternal Quest
+- Shadows of the Citadel
+- The Gallant Expedition
+- The Gilded Tankard Jig
+- The Hearth's Welcome
+- The Silent Frontier
+- Visions of the Realm
+- Visions of the Realm (Epic Orchestral Version)
+- Wanderer's Solitude
+
+**Battle BGM**
+- Clash of the Iron Realm
+- Radiant Vanguard Overdrive
+- The Abyssal March
+- Triumph of the Vanguard

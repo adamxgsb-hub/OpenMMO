@@ -32,12 +32,28 @@ const BGM_FILES = [
   'Dies of the Dragon King.mp3',
   'Shadowed Keep in G Minor.mp3',
   'The Great Gate of Kyiv.mp3',
+  'Echoes of the Horizon.m4a',
+  'Echoes of the Old Realm.m4a',
+  'First Light Waltz.m4a',
+  'Path of the Eternal Quest.m4a',
+  'Shadows of the Citadel.m4a',
+  'The Gallant Expedition.m4a',
+  'The Gilded Tankard Jig.m4a',
+  "The Hearth's Welcome.m4a",
+  'The Silent Frontier.m4a',
+  'Visions of the Realm (Epic Orchestral Version).m4a',
+  'Visions of the Realm.m4a',
+  "Wanderer's Solitude.m4a",
 ]
 
 const BATTLE_BGM_FILES = [
   'Blood and Bronze.mp3',
   'Blood and Bronze (1).mp3',
   'Drums of Valor.mp3',
+  'Clash of the Iron Realm.m4a',
+  'Radiant Vanguard Overdrive.m4a',
+  'The Abyssal March.m4a',
+  'Triumph of the Vanguard.m4a',
 ]
 const BATTLE_LINGER_MS = 5000
 const BATTLE_FADE_OUT_MS = 3000
@@ -132,7 +148,7 @@ function playTrack() {
   }
 
   const file = playlist[playlistIndex++]
-  const trackName = file.replace('.mp3', '')
+  const trackName = file.replace(/\.(mp3|m4a)$/, '')
 
   if (!audio) {
     audio = new Audio()
@@ -184,7 +200,7 @@ export function startBattleMusic() {
 
   const file =
     BATTLE_BGM_FILES[Math.floor(Math.random() * BATTLE_BGM_FILES.length)]
-  const trackName = file.replace('.mp3', '')
+  const trackName = file.replace(/\.(mp3|m4a)$/, '')
 
   if (!battleAudio) {
     battleAudio = new Audio()
