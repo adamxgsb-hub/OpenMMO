@@ -741,6 +741,13 @@
         handleObjectDelete()
       }
     }
+    if (
+      event.key === 'Escape' &&
+      currentTool === 'road' &&
+      currentRoadDrawStart
+    ) {
+      roadDrawStart.set(null)
+    }
   }
 
   function handleKeyUp(event: KeyboardEvent) {
