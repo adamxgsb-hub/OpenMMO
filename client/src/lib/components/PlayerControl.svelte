@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { useThrelte } from '@threlte/core'
   import * as THREE from 'three'
   import { gameStore, type LocalPlayer } from '../stores/gameStore'
   import { networkManager } from '../network/socket'
@@ -58,6 +59,8 @@
   playerFloorOffset.subscribe((v) => (floorOffset = v))
 
   let currentPlayer = $state<LocalPlayer | null>(null)
+
+  const { renderer } = useThrelte()
 
   const physics = createPlayerPhysics({
     getHeightManager: () => heightManager,
@@ -873,6 +876,7 @@
 
   onMount(() => {
     const removeInputListeners = inputHandler.setupEventListeners(
+      renderer.domElement,
       handleCanvasClickIntent
     )
 
