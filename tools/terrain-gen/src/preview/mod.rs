@@ -218,7 +218,7 @@ pub fn run(config: &WorldGenConfig, out_root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Write all 8 preview PNGs for a fully-populated global map into `dir`.
+/// Write all 9 preview PNGs for a fully-populated global map into `dir`.
 /// Shared between the `preview` command and `bake` (which dumps the same
 /// images alongside its baked tile artifacts so the same directory carries
 /// both the runtime-facing tiles and a human-facing overview).
@@ -261,6 +261,14 @@ pub fn write_pngs(
     )?;
     let coast_polys = coasts::extract_coasts(&map.land_mask, map.config.global_res as usize);
     features::write_coasts_png(map, &coast_polys, &hypso_cache, &dir.join("06_coasts.png"))?;
+    features::write_worldmap_png(
+        map,
+        river_map,
+        road_net,
+        settlements_list,
+        &hypso_cache,
+        &dir.join("07_worldmap.png"),
+    )?;
     eprintln!(
         "  wrote PNGs: {:.2}s ({} coast polylines)",
         t.elapsed().as_secs_f32(),

@@ -217,3 +217,90 @@ pub(super) fn write_coasts_png(
     finish_png(&mut img, map, path)?;
     Ok(())
 }
+
+/// Clean worldbuilding base map: full (undimmed) hypsometric relief with
+/// rivers, roads, and settlement dots — but no region grid, no edge labels,
+/// and no settlement ID text. Intended as the base layer for the hand-labelled
+/// lore map (`doc/`), where place names are stamped on afterwards.
+pub(super) fn write_worldmap_png(
+    map: &GlobalMap,
+    river_map: &RiverMap,
+    road_net: &RoadNetwork,
+    settlements_list: &[Settlement],
+    hypso_cache: &[Rgb<u8>],
+    path: &Path,
+) -> Result<()> {
+    let n = map.config.global_res as usize;
+    let mut img = ImageBuffer::<Rgb<u8>, Vec<u8>>::new(n as u32, n as u32);
+    // Full-strength hypsometric relief (identity dim) for an atlas-style base.
+    paint_hypso_bg(&mut img, map, hypso_cache, Rgb([26, 60, 108]), |c| c);
+
+    // Rivers: blue, thickness scaled by mouth flow (same model as 03_rivers).
+    for poly in &river_map.rivers {
+        if poly.points.is_empty() {
+            continue;
+        }
+        let mouth = *poly.points.last().unwrap();
+        let mouth_idx = (mouth.1 as usize) * n + (mouth.0 as usize);
+        let f = river_map.flow[mouth_idx];
+        let thickness = ((f.ln().max(1.0) * 0.6) as i32).clamp(1, 4);
+        for &(x, y) in &poly.points {
+            stamp_disk(
+                &mut img,
+                n,
+                x as i32,
+                y as i32,
+                thickness,
+                Rgb([70, 140, 215]),
+            );
+        }
+    }
+
+    // Roads: dark brown so they stay readable over green/brown land.
+    let road_radius = ((n as f32 / 2048.0).round() as i32).max(1);
+    for road in &road_net.roads {
+        for &(x, y) in &road.points {
+            stamp_disk(
+                &mut img,
+                n,
+                x as i32,
+                y as i32,
+                road_radius,
+                Rgb([110, 70, 40]),
+            );
+        }
+    }
+
+    // Settlement dots, radius scaled by score; no ID labels.
+    let max_score = settlements_list
+        .iter()
+        .map(|s| s.score)
+        .fold(0.0f32, f32::max)
+        .max(1e-6);
+    for s in settlements_list {
+        let t = s.score / max_score;
+        let inner = (2.0 + t * 3.0).round() as i32;
+        let outer = inner + 1;
+        stamp_disk(
+            &mut img,
+            n,
+            s.cell_x as i32,
+            s.cell_y as i32,
+            outer,
+            Rgb([30, 22, 12]),
+        );
+        stamp_disk(
+            &mut img,
+            n,
+            s.cell_x as i32,
+            s.cell_y as i32,
+            inner,
+            Rgb([245, 210, 80]),
+        );
+    }
+
+    // Deliberately no grid / edge labels — clean base for the lore overlay.
+    img.save(path)
+        .with_context(|| format!("failed to write {}", path.display()))?;
+    Ok(())
+}
