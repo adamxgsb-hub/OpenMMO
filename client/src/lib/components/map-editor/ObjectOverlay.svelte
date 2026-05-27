@@ -194,7 +194,9 @@ let lastBuildKey = ''
   const isEditing = () => isEditorMode && tool === 'object'
 
   function buildKey(p: ObjectPlacement[]): string {
-    return p.map((v) => `${v.id}:${v.type}:${v.x}:${v.y}:${v.z}:${v.rotation}`).join('|')
+    return p
+      .map((v) => `${v.id}:${v.type}:${v.x}:${v.y}:${v.z}:${v.rotation}:${v.text ?? ''}`)
+      .join('|')
   }
 
   function rebuild() {
@@ -235,6 +237,9 @@ let lastBuildKey = ''
       }
       clone.userData.objectId = p.id
       clone.userData.objectType = p.type
+      if (p.text) {
+        clone.userData.objectText = p.text
+      }
       const catDef = catalogById.get(p.type)
       if (catDef?.interaction) {
         clone.userData.objectInteraction = catDef.interaction

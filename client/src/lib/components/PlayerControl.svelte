@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { useThrelte } from '@threlte/core'
   import * as THREE from 'three'
-  import { gameStore, type LocalPlayer } from '../stores/gameStore'
+  import { gameStore, hoveredSignpost, type LocalPlayer } from '../stores/gameStore'
   import { networkManager } from '../network/socket'
   import { monsterManager } from '../managers/monsterManager'
   import { groundItemManager } from '../managers/groundItemManager'
@@ -874,11 +874,68 @@
     })
   }
 
+  // Hover speech bubble for placed objects that carry text (e.g. signposts).
+  // Driven by pointermove (event-based, not per-frame) and raycast only against
+  // the object overlay group, throttled to ~20 Hz — negligible cost.
+  let lastHoverRaycast = 0
+  let lastHoverKey: string | null = null
+  let hoverTrailing: ReturnType<typeof setTimeout> | null = null
+  let pendingHoverEvent: MouseEvent | null = null
+
+  function runHover(event: MouseEvent) {
+    lastHoverRaycast = performance.now()
+    const hit = inputHandler.processHover(event, camera, objectMeshes)
+    const key = hit
+      ? `${hit.text}@${hit.position.x.toFixed(1)},${hit.position.z.toFixed(1)}`
+      : null
+    if (key === lastHoverKey) return
+    lastHoverKey = key
+    hoveredSignpost.set(
+      hit
+        ? { x: hit.position.x, y: hit.position.y, z: hit.position.z, text: hit.text }
+        : null
+    )
+  }
+
+  function handlePointerHover(event: MouseEvent) {
+    pendingHoverEvent = event
+    const dt = performance.now() - lastHoverRaycast
+    if (dt >= 50) {
+      if (hoverTrailing) {
+        clearTimeout(hoverTrailing)
+        hoverTrailing = null
+      }
+      runHover(event)
+    } else if (!hoverTrailing) {
+      // Trailing edge: process the final position after the throttle window so a
+      // quick flick off a signpost (then stop, without leaving the canvas)
+      // doesn't strand the bubble over empty ground.
+      hoverTrailing = setTimeout(() => {
+        hoverTrailing = null
+        if (pendingHoverEvent) runHover(pendingHoverEvent)
+      }, 50 - dt)
+    }
+  }
+
+  function clearHover() {
+    if (hoverTrailing) {
+      clearTimeout(hoverTrailing)
+      hoverTrailing = null
+    }
+    if (lastHoverKey === null) return
+    lastHoverKey = null
+    hoveredSignpost.set(null)
+  }
+
   onMount(() => {
     const removeInputListeners = inputHandler.setupEventListeners(
       renderer.domElement,
       handleCanvasClickIntent
     )
+
+    const canvas = renderer.domElement
+    canvas.addEventListener('pointermove', handlePointerHover)
+    canvas.addEventListener('pointerleave', clearHover)
 
     const unsubscribeNetworkEvents = subscribePlayerNetworkEvents({
       isCurrentPlayerEligibleForRespawn: () =>
@@ -891,6 +948,9 @@
 
     return () => {
       removeInputListeners()
+      canvas.removeEventListener('pointermove', handlePointerHover)
+      canvas.removeEventListener('pointerleave', clearHover)
+      clearHover()
       unsubscribeNetworkEvents()
       if (standUpTimer) clearTimeout(standUpTimer)
       if (jumpFeedbackTimer) clearTimeout(jumpFeedbackTimer)

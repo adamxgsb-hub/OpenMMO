@@ -7,10 +7,12 @@
   import {
     gameStore,
     resetGameStore,
+    hoveredSignpost,
     type LocalPlayer,
     type RemotePlayer,
     type ChatBubble,
   } from '../stores/gameStore'
+  import SignpostBubble from './ChatBubble.svelte'
   import {
     startChatBubbleChecker,
     stopChatBubbleChecker,
@@ -150,6 +152,12 @@
   let housingLayerRef = $state<GameSceneHousingLayer | undefined>(undefined)
   let groundItemsLayerRef = $state<GameSceneGroundItemsLayer | undefined>(undefined)
   let objectOverlayRef = $state<ObjectOverlay | undefined>(undefined)
+  let signpostBubbleRef = $state<SignpostBubble | undefined>(undefined)
+  let signpostBubblePos = $derived(
+    $hoveredSignpost
+      ? new THREE.Vector3($hoveredSignpost.x, $hoveredSignpost.y, $hoveredSignpost.z)
+      : new THREE.Vector3()
+  )
   let entityClipGroup = $state<ClippingGroup | undefined>(undefined)
   /** ClippingGroup instance with Y=0 clip plane, starts disabled. */
   const entityClipGroupObj = (() => {
@@ -422,6 +430,9 @@
         'otherPlayerAnimation',
         performance.now() - otherPlayerAnimationStart
       )
+
+      // Keep the signpost hover bubble facing the camera
+      signpostBubbleRef?.update()
 
       // Update unified torch light flickering (single shadow-casting light)
       playersLayer?.updateUnifiedTorchFlicker(deltaTime / 1000)
@@ -951,6 +962,15 @@
   <NpcWaypointOverlay />
 {/if}
 <ObjectOverlay bind:this={objectOverlayRef} />
+
+{#if $hoveredSignpost && camera}
+  <SignpostBubble
+    bind:this={signpostBubbleRef}
+    position={signpostBubblePos}
+    {camera}
+    message={$hoveredSignpost.text}
+  />
+{/if}
 
 {#if $housingEditorMode}
   <HousingEditorCursor {camera} {terrainMeshes} heightManager={terrainHeightManager} grassDataManager={terrainGrassDataManager} treeDataManager={terrainTreeDataManager} housingGroup={housingLayerRef?.getGroup() ?? null} />

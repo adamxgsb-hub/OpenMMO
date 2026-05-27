@@ -57,9 +57,19 @@ export interface RaycastContext {
   isMonsterDead: (monsterId: string) => boolean
 }
 
+/** Result of hovering a placed object that carries display text (e.g. signpost). */
+export interface HoverText {
+  position: Position
+  text: string
+}
+
 class InputHandler {
   private keysPressed = new Set<string>()
   private _interactJustPressed = false
+  /** Dedicated raycaster reused across pointermove hover queries. */
+  private _hoverRaycaster = new Raycaster()
+  private readonly _hoverNDC = new Vector2()
+  private readonly _hoverWorldPos = new THREE.Vector3()
 
   get hasKeysPressed(): boolean {
     return this.keysPressed.size > 0
@@ -301,6 +311,48 @@ class InputHandler {
     }
 
     return { type: 'none' }
+  }
+
+  /**
+   * Raycast the pointer against the placed-object meshes only and return the
+   * display text of the first object that carries one (set on userData.objectText).
+   * Cheap enough to run on pointermove: it intersects just the object overlay
+   * group, not the whole scene. Returns null when nothing texted is under the cursor.
+   */
+  processHover(
+    event: MouseEvent,
+    camera: THREE.Camera,
+    objectMeshes: THREE.Object3D[]
+  ): HoverText | null {
+    if (objectMeshes.length === 0) return null
+    const rect = (event.target as HTMLCanvasElement).getBoundingClientRect()
+    this._hoverNDC.set(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1
+    )
+    this._hoverRaycaster.setFromCamera(this._hoverNDC, camera)
+    const hits = this._hoverRaycaster.intersectObjects(objectMeshes, true)
+    if (hits.length === 0) return null
+
+    let obj: THREE.Object3D | null = hits[0].object
+    while (obj) {
+      const text = obj.userData?.objectText
+      if (typeof text === 'string' && text.length > 0) {
+        // World position (robust if the overlay group is ever transformed);
+        // equals obj.position today since the group sits at the scene root.
+        obj.getWorldPosition(this._hoverWorldPos)
+        return {
+          position: {
+            x: this._hoverWorldPos.x,
+            y: this._hoverWorldPos.y,
+            z: this._hoverWorldPos.z,
+          },
+          text,
+        }
+      }
+      obj = obj.parent
+    }
+    return null
   }
 
   handleKeyDown(event: KeyboardEvent): boolean {

@@ -70,6 +70,16 @@ const initialGameState: GameState = {
 
 export const gameStore = writable<GameState>(initialGameState)
 
+/** World-space anchor + text of the placed object (e.g. signpost) currently
+ *  under the cursor, or null when none. Drives the hover speech bubble. */
+export interface HoveredSignpost {
+  x: number
+  y: number
+  z: number
+  text: string
+}
+export const hoveredSignpost = writable<HoveredSignpost | null>(null)
+
 export const resetGameStore = () => {
   gameStore.set({
     ...initialGameState,

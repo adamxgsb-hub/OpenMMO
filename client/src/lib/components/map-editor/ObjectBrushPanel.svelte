@@ -31,6 +31,9 @@
   let rotation = $state(0)
   let placements = $state<ObjectPlacement[]>([])
   let selectedPlacementId = $state<number | null>(null)
+  /** Live text-edit buffer for the selected placement; flushed on deselect/blur
+   *  so a canvas click (which doesn't blur the textarea) can't drop it. */
+  let textDraft = $state('')
   let subTool = $state<ObjectSubTool>('place')
   let floor = $state(-1)
   /** Anchors slider range so it doesn't drift while dragging. */
@@ -49,12 +52,17 @@
     objectRotation.subscribe((v) => (rotation = v)),
     currentObjectData.subscribe((v) => (placements = v.placements)),
     selectedObjectPlacementId.subscribe((id) => {
+      // Persist any pending text edit on the previously-selected placement
+      // before switching, so deselecting (e.g. clicking the canvas) keeps it.
+      flushTextDraft()
       selectedPlacementId = id
       if (id === null) {
         baseY = null
+        textDraft = ''
       } else {
         const p = get(currentObjectData).placements.find((p) => p.id === id)
         baseY = p?.y ?? null
+        textDraft = p?.text ?? ''
       }
     }),
     objectSubTool.subscribe((v) => (subTool = v)),
@@ -62,7 +70,10 @@
     editorHeightManager.subscribe((v) => (heightManager = v)),
     editorGrassDataManager.subscribe((v) => (grassManager = v)),
   ]
-  onDestroy(() => unsubs.forEach((u) => u()))
+  onDestroy(() => {
+    flushTextDraft()
+    unsubs.forEach((u) => u())
+  })
 
   onMount(async () => {
     if (get(objectCatalog).length > 0) return
@@ -102,6 +113,28 @@
   function commitY(newY: number) {
     const updated = applyY(newY)
     if (!updated) return
+    const region = get(currentEditorRegion)
+    if (region) {
+      objectManager.saveObject(region.rx, region.rz, updated)
+    }
+  }
+
+  /** Persist the per-instance text buffer (signposts etc.) to the selected
+   *  placement, saving only when it actually changed. Safe to call repeatedly. */
+  function flushTextDraft() {
+    if (selectedPlacementId === null) return
+    const data = get(currentObjectData)
+    const current = data.placements.find((p) => p.id === selectedPlacementId)
+    if (!current) return
+    const trimmed = textDraft.trim()
+    const next = trimmed.length > 0 ? trimmed : undefined
+    if ((current.text ?? undefined) === next) return
+    const updated: ObjectRegionData = {
+      placements: data.placements.map((p) =>
+        p.id === selectedPlacementId ? { ...p, text: next } : p
+      ),
+    }
+    currentObjectData.set(updated)
     const region = get(currentEditorRegion)
     if (region) {
       objectManager.saveObject(region.rx, region.rz, updated)
@@ -217,6 +250,12 @@
   let selectedPlacement = $derived(
     placements.find((p) => p.id === selectedPlacementId) ?? null
   )
+
+  let selectedDef = $derived(
+    selectedPlacement
+      ? (catalog.find((d) => d.id === selectedPlacement.type) ?? null)
+      : null
+  )
 </script>
 
 <div class="object-panel">
@@ -299,6 +338,19 @@
           <span class="info-label">Floor:</span>
           <span class="info-value">{selectedPlacement.floorLevel + 1}F</span>
         </div>
+        {#if selectedDef?.textLabel}
+          <div class="text-field">
+            <span class="info-label">Text:</span>
+            <textarea
+              class="text-input"
+              rows="2"
+              placeholder="Shown on hover…"
+              bind:value={textDraft}
+              onchange={flushTextDraft}
+              onblur={flushTextDraft}
+            ></textarea>
+          </div>
+        {/if}
         <button
           class="flatten-btn"
           onclick={flattenTerrain}
@@ -498,6 +550,43 @@
     width: 42px;
     text-align: right;
     flex-shrink: 0;
+  }
+
+  .text-field {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 3px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    background: rgba(68, 204, 255, 0.1);
+    border: 1px solid rgba(68, 204, 255, 0.2);
+  }
+
+  .text-field .info-label {
+    padding-top: 3px;
+  }
+
+  .text-input {
+    flex: 1;
+    min-width: 0;
+    resize: vertical;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 3px;
+    color: #e0e0e0;
+    font-family: inherit;
+    font-size: 10px;
+    padding: 3px 5px;
+  }
+
+  .text-input:focus {
+    outline: none;
+    border-color: rgba(68, 204, 255, 0.5);
+  }
+
+  .text-input::placeholder {
+    color: #666;
   }
 
   .flatten-btn {

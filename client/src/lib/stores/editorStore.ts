@@ -142,6 +142,9 @@ export interface ObjectDef {
   /** Lift the flatten brush's target Y above the model's foot (bury the
    *  abutment by this many metres). Optional; defaults to 0. */
   flattenBuryDepth?: number
+  /** Show a per-instance text field in the editor; the text renders as an
+   *  in-game speech bubble on hover (e.g. signposts). */
+  textLabel?: boolean
   kind?: 'bridge'
   bridge?: BridgeMeta
 }
@@ -154,6 +157,8 @@ export interface ObjectPlacement {
   z: number
   rotation: number
   floorLevel: number
+  /** Per-instance text shown as a speech bubble on hover (textLabel objects). */
+  text?: string
 }
 
 export interface ObjectRegionData {
