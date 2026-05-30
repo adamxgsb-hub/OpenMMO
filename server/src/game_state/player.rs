@@ -563,7 +563,7 @@ impl super::GameState {
             .filter(|id| id != player_id)
             .collect();
         let new_visible: HashSet<PlayerId> = self
-            .player_ids_within(player_id, super::AGENT_EVENT_DELIVERY_RADIUS)
+            .player_ids_within_position(&player.position, super::AGENT_EVENT_DELIVERY_RADIUS)
             .await
             .into_iter()
             .filter(|id| id != player_id)

@@ -92,12 +92,25 @@
 ## Monster
 
 - SCP939 https://sketchfab.com/3d-models/scp939-79a749a5073b453d9d85875797bf45d7
+- Orc https://create.verse8.io/ 에서 2d -> 3d 생성함
+  - 원화는 chatgpt.com에서 다음 프롬프트로 생성함
+    > T-pose, fantasy concept art of an orc warrior, muscular humanoid with greyish-green leathery skin, protruding lower tusks, heavy brow ridge, pointed ears, battle-scarred face, crude iron and bone armor, tribal war paint, dramatic rim lighting, dark earthy color palette, detailed character design sheet, painterly digital art, D&D fantasy aesthetic, highly detailed, 4k
+
+    > change it to simple background, character only, no texts
+
+    > make the background light grey
+
+    > make his skin more green
+    
+    ![원화](images/orc-concept.png)
+  
 
 ## Item
 
 - sword.glb https://www.fab.com/listings/5fe82d66-eaac-48e0-899d-1fedacdf409a
 - spear.glb https://sketchfab.com/3d-models/spear-f13ddd24e2fe47aa8aca23487afd893e
 - torch.glb https://sketchfab.com/3d-models/torch-stick-d8eadee1a5c14483aade99b1fe5bc150
+- goblin_sword.glb https://sketchfab.com/3d-models/goblin-sword-5717ea55e34341b79efa692517e8598b
 
 ## Furniture
 

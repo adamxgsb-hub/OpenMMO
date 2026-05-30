@@ -102,6 +102,17 @@
     "worldModel": "sword.glb",
     "damageDice": "1d4"
   },
+  "goblin_sword": {
+    "id": "goblin_sword",
+    "name": "Goblin Sword",
+    "description": "A crude short blade favored by goblins and orcs.",
+    "weight": 2,
+    "equipSlot": "main_hand",
+    "stackable": false,
+    "icon": "sword.png",
+    "worldModel": "goblin_sword.glb",
+    "damageDice": "1d4"
+  },
   "chain_mail": {
     "id": "chain_mail",
     "name": "Chain Mail",

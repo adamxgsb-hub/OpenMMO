@@ -10,6 +10,7 @@
 
   import type { MonsterData } from '../types/Monster'
   import { getMonsterDef } from '../data/monsterDefs'
+  import { getItemDef } from '../data/itemDefs'
 
   interface Props {
     position: { x: number; y: number; z: number }
@@ -34,8 +35,11 @@
   // Optional hand weapon, attached to a skeleton bone.
   const initialWeapon = initialDef?.weapon
   const initialWeaponBone = initialDef?.weaponBone
-  const weaponGltf = initialWeapon
-    ? useLoader(GLTFLoader).load(`/models/${initialWeapon}`)
+  const initialWeaponModel = initialWeapon
+    ? (getItemDef(initialWeapon)?.worldModel ?? initialWeapon)
+    : undefined
+  const weaponGltf = initialWeaponModel
+    ? useLoader(GLTFLoader).load(`/models/${initialWeaponModel}`)
     : undefined
 
   // Weapon grip transform relative to the attach bone, tuned by eye.

@@ -1,6 +1,6 @@
 use crate::game::{character_hp, combat};
 use crate::types::{MonsterState, PlayerId, ServerMessage};
-use onlinerpg_shared::inventory::EquipSlot;
+use onlinerpg_shared::inventory::{EquipSlot, GroundItem};
 use onlinerpg_shared::xp;
 use tracing::{info, warn};
 
@@ -111,6 +111,38 @@ impl super::GameState {
                         None,
                     )
                     .await;
+
+                    let dropped_weapon_item_def_id = self
+                        .monster_defs
+                        .get(&monster_type)
+                        .and_then(|def| def.weapon.as_deref())
+                        .and_then(|weapon| self.item_defs.item_def_id_for_weapon_ref(weapon));
+                    if let Some(item_def_id) = dropped_weapon_item_def_id {
+                        let instance_id = self.next_instance_id().await;
+                        let ground_item = GroundItem {
+                            instance_id,
+                            item_def_id,
+                            position: monster_position,
+                            floor_level: -1,
+                        };
+                        {
+                            let mut ground_items = self.ground_items.write().await;
+                            ground_items.insert(
+                                instance_id,
+                                super::ServerGroundItem {
+                                    item: ground_item.clone(),
+                                    dropped_at_ms: Self::now_ms(),
+                                },
+                            );
+                        }
+                        self.send_direct_message_to_players_within_position(
+                            &monster_position,
+                            super::AGENT_EVENT_DELIVERY_RADIUS,
+                            ServerMessage::GroundItemSpawned { item: ground_item },
+                            None,
+                        )
+                        .await;
+                    }
 
                     // Award XP to the player who killed the monster
                     let xp_def = self.monster_defs.get(&monster_type);
@@ -278,17 +310,22 @@ impl super::GameState {
 
                     if now.saturating_sub(monster.last_attack_at) >= attack_cooldown_ms {
                         monster.last_attack_at = now;
+                        let weapon_damage_roll = def
+                            .and_then(|d| d.weapon.as_deref())
+                            .and_then(|weapon| self.item_defs.damage_dice_for_weapon_model(weapon));
                         monster_data = Some((
                             monster.monster_type.clone(),
                             def.map(|d| d.hit_threshold).unwrap_or(10),
-                            def.map(|d| d.damage_roll.as_str()).unwrap_or("1d6"),
+                            def.map(|d| d.damage_roll.clone())
+                                .unwrap_or_else(|| "1d6".to_string()),
+                            weapon_damage_roll,
                         ));
                     }
                 }
             }
         }
 
-        let (_monster_type, hit_threshold, damage_roll) = match monster_data {
+        let (_monster_type, hit_threshold, damage_roll, weapon_damage_roll) = match monster_data {
             Some(data) => data,
             None => return,
         };
@@ -305,7 +342,12 @@ impl super::GameState {
             }
         }
 
-        let result = combat::roll_attack(hit_threshold, damage_roll, 0);
+        let result = combat::roll_attack_with_extra_damage_roll(
+            hit_threshold,
+            &damage_roll,
+            weapon_damage_roll.as_deref(),
+            0,
+        );
 
         info!(
             "Monster {} attacks player {}: Roll {}, Hit: {}, Damage: {}",
@@ -359,18 +401,8 @@ impl super::GameState {
             )
             .await;
         } else {
-            self.send_direct_message(
-                &target_player_id.to_string(),
-                ServerMessage::MonsterAttackedPlayer {
-                    monster_id: monster_id.to_string(),
-                    player_id: target_player_id.to_string(),
-                    hit: result.hit,
-                    roll: result.roll,
-                    damage: result.damage,
-                    current_health,
-                },
-            )
-            .await;
+            self.send_direct_message(&target_player_id.to_string(), attack_msg)
+                .await;
         }
 
         if did_die {

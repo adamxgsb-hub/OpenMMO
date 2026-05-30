@@ -32,7 +32,7 @@ impl super::GameState {
         start
     }
 
-    async fn next_instance_id(&self) -> u64 {
+    pub(super) async fn next_instance_id(&self) -> u64 {
         self.reserve_instance_ids(1).await
     }
 

@@ -22,6 +22,10 @@ pub struct MonsterDefinition {
     pub attack_cooldown: u32,
     #[serde(rename = "damageRoll")]
     pub damage_roll: String,
+    #[serde(default)]
+    pub weapon: Option<String>,
+    #[serde(rename = "weaponBone", default)]
+    pub weapon_bone: Option<String>,
     pub level: u8,
     pub guard: u8,
     #[serde(rename = "hitThreshold")]

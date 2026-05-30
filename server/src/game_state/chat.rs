@@ -1,6 +1,4 @@
 use crate::types::{PlayerId, ServerMessage};
-
-const CHAT_DELIVERY_RADIUS: f32 = super::AGENT_EVENT_DELIVERY_RADIUS;
 use tracing::{info, warn};
 
 impl super::GameState {
@@ -37,7 +35,7 @@ impl super::GameState {
         if let Some(player_name) = player_name {
             info!("Chat message from {}: {}", player_name, message);
             let recipients = self
-                .player_ids_within(player_id, CHAT_DELIVERY_RADIUS)
+                .player_ids_within(player_id, super::AGENT_EVENT_DELIVERY_RADIUS)
                 .await;
             self.send_direct_message_to_players(
                 &recipients,

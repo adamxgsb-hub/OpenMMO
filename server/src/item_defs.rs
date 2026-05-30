@@ -15,6 +15,8 @@ pub struct ItemDefinition {
     pub equip_slot: Option<EquipSlot>,
     #[serde(default)]
     pub stackable: bool,
+    #[serde(rename = "worldModel")]
+    pub world_model: Option<String>,
     #[serde(rename = "damageDice")]
     pub damage_dice: Option<String>,
 }
@@ -45,6 +47,30 @@ impl ItemDefs {
 
     pub fn get(&self, item_def_id: &str) -> Option<&ItemDefinition> {
         self.defs.get(item_def_id)
+    }
+
+    pub fn item_def_id_for_weapon_ref(&self, weapon_ref: &str) -> Option<String> {
+        if self.defs.contains_key(weapon_ref) {
+            return Some(weapon_ref.to_string());
+        }
+
+        if let Some(item_id) = weapon_ref
+            .strip_suffix(".glb")
+            .filter(|item_id| self.defs.contains_key(*item_id))
+        {
+            return Some(item_id.to_string());
+        }
+
+        self.defs
+            .values()
+            .find(|def| def.world_model.as_deref() == Some(weapon_ref))
+            .map(|def| def.id.clone())
+    }
+
+    pub fn damage_dice_for_weapon_model(&self, weapon_model: &str) -> Option<String> {
+        self.item_def_id_for_weapon_ref(weapon_model)
+            .and_then(|item_id| self.defs.get(&item_id))
+            .and_then(|def| def.damage_dice.clone())
     }
 
     pub fn weight(&self, item_def_id: &str) -> f32 {

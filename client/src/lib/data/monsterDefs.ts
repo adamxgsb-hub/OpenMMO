@@ -22,7 +22,7 @@ export interface MonsterDefinition {
   animHit: string
   animDie: string
   animDead: string
-  /** Optional weapon model (relative to /models/) attached to a hand bone. */
+  /** Optional weapon item id, or legacy model path relative to /models/. */
   weapon?: string
   /** Skeleton bone name the weapon is parented to (e.g. 'RightHand'). */
   weaponBone?: string
