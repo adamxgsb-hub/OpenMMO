@@ -69,6 +69,24 @@ class MonsterManager {
     return this.heightManager?.getHeightAtWorldPosition(x, z) ?? 0
   }
 
+  private snapPositionToTerrain(position: {
+    x: number
+    y: number
+    z: number
+  }): { x: number; y: number; z: number } {
+    if (
+      !this.heightManager ||
+      !this.heightManager.hasHeightDataForGrid(position.x, position.z)
+    ) {
+      return position
+    }
+    return {
+      x: position.x,
+      y: this.heightManager.getHeightAtWorldPosition(position.x, position.z),
+      z: position.z,
+    }
+  }
+
   setNoSpawnZones(zones: NoSpawnZone[]) {
     this.noSpawnZones = zones
   }
@@ -462,11 +480,18 @@ class MonsterManager {
   private processAiCommands(monster: MonsterData, commands: AiCommand[]) {
     for (const cmd of commands) {
       if (cmd.type === 'Move') {
-        if (cmd.target_position) {
-          monster.targetPosition = cmd.target_position
+        const position = cmd.position
+          ? this.snapPositionToTerrain(cmd.position)
+          : undefined
+        const targetPosition = cmd.target_position
+          ? this.snapPositionToTerrain(cmd.target_position)
+          : undefined
+
+        if (targetPosition) {
+          monster.targetPosition = targetPosition
         }
-        if (cmd.position) {
-          monster.position = cmd.position
+        if (position) {
+          monster.position = position
         }
         if (cmd.rotation !== undefined) {
           monster.rotation = cmd.rotation
@@ -477,10 +502,10 @@ class MonsterManager {
         }
         networkManager.sendMonsterMove(
           cmd.monster_id,
-          cmd.position ?? monster.position,
+          position ?? monster.position,
           cmd.rotation ?? monster.rotation,
           cmd.state ?? monster.state,
-          cmd.target_position ?? monster.position
+          targetPosition ?? monster.position
         )
       } else if (cmd.type === 'Attack' && cmd.target_player_id) {
         this.handleMonsterAttackStarted(cmd.monster_id)
@@ -507,14 +532,17 @@ class MonsterManager {
         monster.impactDelay !== undefined && monster.impactDelay > 0
       const shouldDelayNetworkHit = hasPendingImpact && state === 'hit'
 
-      monster.position = position
+      const snappedPosition = this.snapPositionToTerrain(position)
+      const snappedTargetPosition = this.snapPositionToTerrain(targetPosition)
+
+      monster.position = snappedPosition
       monster.rotation = rotation
       if (!shouldDelayNetworkHit) {
         monster.state = state
         this.updateMoveSpeedFromState(monster)
       }
 
-      monster.targetPosition = targetPosition
+      monster.targetPosition = snappedTargetPosition
       this.monsters.set(id, { ...monster })
     }
   }

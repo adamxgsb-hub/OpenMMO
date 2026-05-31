@@ -217,53 +217,88 @@ impl SharedState {
         }
     }
 
-    pub async fn send_command(&mut self, msg: ClientMessage) -> anyhow::Result<()> {
-        // Correct Y coordinate for PlayerMove using terrain height
-        let msg = if let ClientMessage::PlayerMove {
-            mut position,
-            rotation,
-            ..
-        } = msg
+    async fn snap_position_to_ground(&self, mut position: Position, context: &str) -> Position {
+        let original_y = position.y;
+        match self
+            .height_sampler
+            .sample_height(position.x, position.z)
+            .await
         {
-            // Only correct height on ground floor; upper floors use the Y from the caller
-            if self.self_floor_level == 0 {
-                let original_y = position.y;
-                match self
-                    .height_sampler
-                    .sample_height(position.x, position.z)
-                    .await
-                {
-                    Ok(terrain_y) => {
-                        tracing::debug!(
-                            "Height correction: ({:.1}, {:.1}) y: {:.2} -> {:.2}",
-                            position.x,
-                            position.z,
-                            original_y,
-                            terrain_y
-                        );
-                        position.y = terrain_y;
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            "Failed to sample terrain height at ({:.1}, {:.1}): {e}",
-                            position.x,
-                            position.z
-                        );
-                    }
+            Ok(terrain_y) => {
+                tracing::debug!(
+                    "{context} height correction: ({:.1}, {:.1}) y: {:.2} -> {:.2}",
+                    position.x,
+                    position.z,
+                    original_y,
+                    terrain_y
+                );
+                position.y = terrain_y;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to sample terrain height for {context} at ({:.1}, {:.1}): {e}",
+                    position.x,
+                    position.z
+                );
+            }
+        }
+        position
+    }
+
+    pub async fn send_command(&mut self, msg: ClientMessage) -> anyhow::Result<()> {
+        let msg = match msg {
+            ClientMessage::PlayerMove {
+                position, rotation, ..
+            } => {
+                let position = if self.self_floor_level == 0 {
+                    self.snap_position_to_ground(position, "PlayerMove").await
+                } else {
+                    position
+                };
+                // Update local position immediately so subsequent reads don't use stale data
+                if let Some(ref mut p) = self.self_player {
+                    p.position = position.clone();
+                    p.rotation = rotation;
+                }
+                ClientMessage::PlayerMove {
+                    position,
+                    rotation,
+                    floor_level: self.self_floor_level as i8,
                 }
             }
-            // Update local position immediately so subsequent reads don't use stale data
-            if let Some(ref mut p) = self.self_player {
-                p.position = position.clone();
-                p.rotation = rotation;
-            }
-            ClientMessage::PlayerMove {
+            ClientMessage::RequestSpawnMonster {
+                monster_type,
                 position,
                 rotation,
-                floor_level: self.self_floor_level as i8,
+            } => ClientMessage::RequestSpawnMonster {
+                monster_type,
+                position: self
+                    .snap_position_to_ground(position, "RequestSpawnMonster")
+                    .await,
+                rotation,
+            },
+            ClientMessage::MonsterMove {
+                monster_id,
+                position,
+                rotation,
+                state,
+                target_position,
+            } => {
+                // position and target_position are independent coordinates, so
+                // sample both terrain heights concurrently rather than serially.
+                let (position, target_position) = tokio::join!(
+                    self.snap_position_to_ground(position, "MonsterMove"),
+                    self.snap_position_to_ground(target_position, "MonsterMove target"),
+                );
+                ClientMessage::MonsterMove {
+                    monster_id,
+                    position,
+                    rotation,
+                    state,
+                    target_position,
+                }
             }
-        } else {
-            msg
+            other => other,
         };
         self.cmd_tx
             .send(msg)
@@ -653,9 +688,8 @@ impl SharedState {
     }
 
     /// Pick a spawn position 20–25m around the bot's own player, rejecting
-    /// houses and no-spawn zones (+ margin). Y is set to 0; the monster AI
-    /// corrects to terrain height on first move. (Headless bot has no terrain
-    /// data, so it cannot check grass/water like the real client does.)
+    /// houses and no-spawn zones (+ margin). The async send path snaps Y to
+    /// terrain height before the spawn request is sent.
     fn find_valid_spawn_position(&self) -> Option<Position> {
         // Mirror the server's NO_SPAWN_MARGIN / client's TOWN_MARGIN so the bot
         // doesn't generate spawn requests the server will reject around towns.
