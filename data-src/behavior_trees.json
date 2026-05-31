@@ -18,10 +18,7 @@
               },
               {
                 "type": "action",
-                "name": "return_to_spawn",
-                "params": {
-                  "arriveDist": 5.0
-                }
+                "name": "return_to_spawn"
               }
             ]
           },
@@ -60,10 +57,7 @@
               },
               {
                 "type": "condition",
-                "name": "target_in_range",
-                "params": {
-                  "range": 2.0
-                }
+                "name": "target_in_range"
               },
               {
                 "type": "action",
@@ -80,18 +74,11 @@
               },
               {
                 "type": "condition",
-                "name": "target_in_range",
-                "params": {
-                  "range": 15.0
-                }
+                "name": "target_in_range"
               },
               {
                 "type": "action",
-                "name": "chase_target",
-                "params": {
-                  "pathRecalcMs": 500.0,
-                  "targetMoveThreshold": 3.0
-                }
+                "name": "chase_target"
               }
             ]
           },
@@ -107,12 +94,7 @@
               },
               {
                 "type": "action",
-                "name": "wander",
-                "params": {
-                  "minMoveDist": 2.0,
-                  "maxMoveDist": 10.0,
-                  "checkMs": 1000.0
-                }
+                "name": "wander"
               }
             ]
           },
@@ -147,10 +129,7 @@
               },
               {
                 "type": "action",
-                "name": "return_to_spawn",
-                "params": {
-                  "arriveDist": 5.0
-                }
+                "name": "return_to_spawn"
               }
             ]
           },
@@ -163,10 +142,7 @@
               },
               {
                 "type": "condition",
-                "name": "target_in_range",
-                "params": {
-                  "range": 2.0
-                }
+                "name": "target_in_range"
               },
               {
                 "type": "action",
@@ -183,18 +159,11 @@
               },
               {
                 "type": "condition",
-                "name": "target_in_range",
-                "params": {
-                  "range": 25.0
-                }
+                "name": "target_in_range"
               },
               {
                 "type": "action",
-                "name": "chase_target",
-                "params": {
-                  "pathRecalcMs": 500.0,
-                  "targetMoveThreshold": 3.0
-                }
+                "name": "chase_target"
               }
             ]
           },
@@ -210,12 +179,7 @@
               },
               {
                 "type": "action",
-                "name": "wander",
-                "params": {
-                  "minMoveDist": 2.0,
-                  "maxMoveDist": 10.0,
-                  "checkMs": 1000.0
-                }
+                "name": "wander"
               }
             ]
           },

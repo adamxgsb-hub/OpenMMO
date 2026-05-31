@@ -122,9 +122,6 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    let ai_templates = monster_ai::MonsterAiManager::load_templates_from_json(include_str!(
-        "../../data-src/ai_templates.json"
-    ));
     let behavior_trees = monster_ai::MonsterAiManager::load_behavior_trees_from_json(include_str!(
         "../../data-src/behavior_trees.json"
     ));
@@ -134,7 +131,6 @@ async fn main() -> anyhow::Result<()> {
     let shared = Arc::new(SharedResources {
         height_sampler: Arc::new(create_height_sampler(&config.terrain_dir)),
         world_cache: Arc::new(std::sync::RwLock::new(state::WorldCache::new())),
-        ai_templates: Arc::new(ai_templates),
         behavior_trees: Arc::new(behavior_trees),
         type_mapping: Arc::new(type_mapping),
         movement_speeds: Arc::new(movement_speeds),

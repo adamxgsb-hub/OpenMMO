@@ -238,7 +238,7 @@ NetHack의 AC를 반전시킨 방어 수치. **높을수록 방어력이 좋다.
 | `guard` | u8 | 방어 수치 (높을수록 강함, XP 보너스에 영향) |
 | `hitThreshold` | u8 | 명중 판정 임계값 (d20 비교) |
 | `damageRoll` | string | 대미지 주사위 (예: `"1d6"`) |
-| `aiTemplate` | string | AI 행동 템플릿 이름 (`data-src/ai_templates.json`) |
+| `behavior` | string | 몬스터 행동 트리 이름 (`data-src/behavior_trees.json`, 없으면 `brave` 사용) |
 | `attackRange` | f32 | 근접 공격 가능 거리 |
 | `chaseRange` | f32 | 플레이어 추적 시작 거리 |
 | `attackCooldown` | u32 | 공격 간격 (밀리초) |
@@ -252,6 +252,7 @@ NetHack의 AC를 반전시킨 방어 수치. **높을수록 방어력이 좋다.
   "guard": 5,
   "hitThreshold": 10,
   "damageRoll": "1d6",
+  "behavior": "timid",
   "attackRange": 2,
   "chaseRange": 25,
   "attackCooldown": 1500

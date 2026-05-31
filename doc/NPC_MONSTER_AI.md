@@ -117,8 +117,8 @@ min_interval_secs = 5
 - 몬스터 ID 형식: `m{owner_number}_{spawn_count}`
 
 **클라이언트 측 (web client + agent-client 동일 로직):**
-- `monsterManager.ts` (TS) / `monster_ai.rs` (Rust) 양쪽 모두 동일한 FSM 구현
-- FSM 상태: `idle` → `walk`/`run` → `attack` (chase) → `hit` → `flee` → `return` → `idle` / `dead`
+- `monsterManager.ts` (TS) / `monster_ai.rs` (Rust) 양쪽 모두 behavior tree 런타임을 사용
+- 내부 상태: `idle` → `walk`/`run` → `attack` (chase) → `hit` → `flee` → `return` → `idle` / `dead`
   - **idle**: 1초 간격 체크, 30% 확률로 이동 전환
   - **walk/run**: A* 경로 탐색 + waypoint 추적, 도착 시 50% idle / 50% 새 이동
   - **attack**: `chaseRange` 내 타겟 추적, 500ms 간격 경로 재계산, `attackRange` 도달 시 공격

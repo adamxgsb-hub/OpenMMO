@@ -1,7 +1,9 @@
 //! Monster AI adapter — delegates to `onlinerpg_shared::monster_ai`.
 
 use onlinerpg_shared::monster_ai::{
-    self, AiCommand, AiTemplate, BehaviorTree, CachePathProvider, MonsterBrain, NearbyPlayer,
+    self, AiCommand, BehaviorTree, CachePathProvider, MonsterBrain, NearbyPlayer,
+    DEFAULT_ATTACK_COOLDOWN_MS, DEFAULT_ATTACK_RANGE, DEFAULT_BEHAVIOR, DEFAULT_CHASE_RANGE,
+    DEFAULT_RUN_SPEED, DEFAULT_WALK_SPEED,
 };
 use onlinerpg_shared::pathfinding::PassabilityCache;
 use onlinerpg_shared::{ClientMessage, Monster, Player};
@@ -11,10 +13,9 @@ use tracing::info;
 /// Manages all monster brains assigned to this agent-client.
 pub struct MonsterAiManager {
     brains: HashMap<String, MonsterBrain>,
-    templates: HashMap<String, AiTemplate>,
     behavior_trees: HashMap<String, BehaviorTree>,
-    /// Maps monster_type -> template name
-    type_to_template: HashMap<String, String>,
+    /// Maps monster_type -> behavior tree name.
+    type_to_behavior: HashMap<String, String>,
     type_to_movement: HashMap<String, MonsterMovement>,
 }
 
@@ -22,15 +23,19 @@ pub struct MonsterAiManager {
 pub struct MonsterMovement {
     pub walk_speed: f32,
     pub run_speed: f32,
+    pub attack_range: f32,
+    pub chase_range: f32,
     pub attack_cooldown_ms: f32,
 }
 
 impl Default for MonsterMovement {
     fn default() -> Self {
         Self {
-            walk_speed: 1.0,
-            run_speed: 8.0,
-            attack_cooldown_ms: 1500.0,
+            walk_speed: DEFAULT_WALK_SPEED,
+            run_speed: DEFAULT_RUN_SPEED,
+            attack_range: DEFAULT_ATTACK_RANGE,
+            chase_range: DEFAULT_CHASE_RANGE,
+            attack_cooldown_ms: DEFAULT_ATTACK_COOLDOWN_MS,
         }
     }
 }
@@ -39,16 +44,10 @@ impl MonsterAiManager {
     pub fn new() -> Self {
         Self {
             brains: HashMap::new(),
-            templates: HashMap::new(),
             behavior_trees: HashMap::new(),
-            type_to_template: HashMap::new(),
+            type_to_behavior: HashMap::new(),
             type_to_movement: HashMap::new(),
         }
-    }
-
-    /// Load AI templates from JSON (data-src/ai_templates.json).
-    pub fn load_templates_from_json(json: &str) -> HashMap<String, AiTemplate> {
-        monster_ai::load_templates(json).unwrap_or_default()
     }
 
     /// Load behavior trees from JSON (data-src/behavior_trees.json).
@@ -56,23 +55,27 @@ impl MonsterAiManager {
         monster_ai::load_behavior_trees(json).unwrap_or_default()
     }
 
-    /// Load per-type AI template names and movement speeds from generated monsters.json.
+    /// Load per-type behavior names and movement/combat constants from generated monsters.json.
     pub fn load_monster_data(
         monsters_json: &str,
     ) -> (HashMap<String, String>, HashMap<String, MonsterMovement>) {
         #[derive(serde::Deserialize)]
         struct RawMonster {
-            #[serde(rename = "aiTemplate", default = "default_template")]
-            ai_template: String,
+            #[serde(default = "default_behavior")]
+            behavior: String,
             #[serde(rename = "walkSpeed", default = "default_walk_speed")]
             walk_speed: f32,
             #[serde(rename = "runSpeed", default = "default_run_speed")]
             run_speed: f32,
+            #[serde(rename = "attackRange", default = "default_attack_range")]
+            attack_range: f32,
+            #[serde(rename = "chaseRange", default = "default_chase_range")]
+            chase_range: f32,
             #[serde(rename = "attackCooldown", default = "default_attack_cooldown_ms")]
             attack_cooldown_ms: f32,
         }
-        fn default_template() -> String {
-            "default".to_string()
+        fn default_behavior() -> String {
+            DEFAULT_BEHAVIOR.to_string()
         }
         fn default_walk_speed() -> f32 {
             MonsterMovement::default().walk_speed
@@ -80,30 +83,34 @@ impl MonsterAiManager {
         fn default_run_speed() -> f32 {
             MonsterMovement::default().run_speed
         }
+        fn default_attack_range() -> f32 {
+            MonsterMovement::default().attack_range
+        }
+        fn default_chase_range() -> f32 {
+            MonsterMovement::default().chase_range
+        }
         fn default_attack_cooldown_ms() -> f32 {
             MonsterMovement::default().attack_cooldown_ms
         }
 
         let raw: HashMap<String, RawMonster> =
             serde_json::from_str(monsters_json).unwrap_or_default();
-        let mut type_to_template = HashMap::with_capacity(raw.len());
+        let mut type_to_behavior = HashMap::with_capacity(raw.len());
         let mut type_to_movement = HashMap::with_capacity(raw.len());
         for (id, r) in raw {
-            type_to_template.insert(id.clone(), r.ai_template);
+            type_to_behavior.insert(id.clone(), r.behavior);
             type_to_movement.insert(
                 id,
                 MonsterMovement {
                     walk_speed: r.walk_speed,
                     run_speed: r.run_speed,
+                    attack_range: r.attack_range,
+                    chase_range: r.chase_range,
                     attack_cooldown_ms: r.attack_cooldown_ms,
                 },
             );
         }
-        (type_to_template, type_to_movement)
-    }
-
-    pub fn set_templates(&mut self, templates: HashMap<String, AiTemplate>) {
-        self.templates = templates;
+        (type_to_behavior, type_to_movement)
     }
 
     pub fn set_behavior_trees(&mut self, behavior_trees: HashMap<String, BehaviorTree>) {
@@ -111,19 +118,19 @@ impl MonsterAiManager {
     }
 
     pub fn set_type_mapping(&mut self, mapping: HashMap<String, String>) {
-        self.type_to_template = mapping;
+        self.type_to_behavior = mapping;
     }
 
     pub fn set_movement_speeds(&mut self, movement: HashMap<String, MonsterMovement>) {
         self.type_to_movement = movement;
     }
 
-    /// Resolve the template name for a monster type, falling back to "default".
-    fn template_name_for(&self, monster_type: &str) -> String {
-        self.type_to_template
+    /// Resolve the behavior tree name for a monster type, falling back to "default".
+    fn behavior_for(&self, monster_type: &str) -> String {
+        self.type_to_behavior
             .get(monster_type)
             .cloned()
-            .unwrap_or_else(|| "default".to_string())
+            .unwrap_or_else(|| DEFAULT_BEHAVIOR.to_string())
     }
 
     /// Register a newly assigned monster.
@@ -132,8 +139,7 @@ impl MonsterAiManager {
             "Monster AI: managing {} (type={})",
             monster.id, monster.monster_type
         );
-        let template_name = self.template_name_for(&monster.monster_type);
-        let template = template_by_name(&self.templates, &template_name);
+        let behavior = self.behavior_for(&monster.monster_type);
         let movement = self
             .type_to_movement
             .get(&monster.monster_type)
@@ -142,14 +148,15 @@ impl MonsterAiManager {
         let brain = MonsterBrain::new(
             monster.id.clone(),
             monster.monster_type.clone(),
-            template_name,
+            behavior,
             monster.position.clone(),
             monster.health,
             monster.max_health,
             movement.walk_speed,
             movement.run_speed,
+            movement.attack_range,
+            movement.chase_range,
             movement.attack_cooldown_ms,
-            template,
         );
         self.brains.insert(monster.id.clone(), brain);
     }
@@ -168,32 +175,12 @@ impl MonsterAiManager {
         attacker_id: &str,
         hit: bool,
         damage: u32,
-        passability_cache: &PassabilityCache,
+        _passability_cache: &PassabilityCache,
     ) -> Vec<ClientMessage> {
-        // Get template before mutable borrow
-        let (template, has_behavior_tree) = if let Some(brain) = self.brains.get(monster_id) {
-            (
-                template_by_name(&self.templates, &brain.template_name).clone(),
-                self.behavior_trees.contains_key(&brain.template_name),
-            )
-        } else {
+        let Some(brain) = self.brains.get_mut(monster_id) else {
             return vec![];
         };
-
-        let brain = self.brains.get_mut(monster_id).unwrap();
-        let path_provider = CachePathProvider {
-            cache: passability_cache,
-        };
-        let mut rng = rand::thread_rng();
-        let cmds = brain.handle_hit_policy(
-            attacker_id,
-            hit,
-            damage,
-            &template,
-            has_behavior_tree,
-            &path_provider,
-            &mut rng,
-        );
+        let cmds = brain.handle_hit_with_behavior_tree(attacker_id, hit, damage);
         cmds.into_iter().map(command_to_client_msg).collect()
     }
 
@@ -226,15 +213,16 @@ impl MonsterAiManager {
         let mut rng = rand::thread_rng();
 
         let mut all_commands = Vec::new();
-        let templates = &self.templates;
         let behavior_trees = &self.behavior_trees;
         for brain in self.brains.values_mut() {
-            let template = template_by_name(templates, &brain.template_name);
-            let behavior_tree = behavior_trees.get(&brain.template_name);
-            let result = brain.tick_policy(
+            let Some(behavior_tree) =
+                monster_ai::behavior_tree_for(behavior_trees, &brain.behavior)
+            else {
+                continue;
+            };
+            let result = brain.tick_with_behavior_tree(
                 delta_ms,
                 &players,
-                template,
                 behavior_tree,
                 &path_provider,
                 &mut rng,
@@ -248,17 +236,6 @@ impl MonsterAiManager {
     pub fn manages(&self, monster_id: &str) -> bool {
         self.brains.contains_key(monster_id)
     }
-}
-
-/// Look up a template by its resolved name, falling back to a shared default.
-/// Takes `&templates` (not `&self`) so it can be called inside a `values_mut`
-/// loop over `self.brains` without a borrow conflict.
-fn template_by_name<'a>(
-    templates: &'a HashMap<String, AiTemplate>,
-    template_name: &str,
-) -> &'a AiTemplate {
-    static DEFAULT: std::sync::LazyLock<AiTemplate> = std::sync::LazyLock::new(AiTemplate::default);
-    templates.get(template_name).unwrap_or(&DEFAULT)
 }
 
 fn command_to_client_msg(cmd: AiCommand) -> ClientMessage {

@@ -16,7 +16,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::housing;
 use crate::messages::{deserialize_server_msg, serialize_client_msg, ClientMessage};
-use crate::monster_ai::{self, AiTemplate, BehaviorTree, MonsterBrain, NearbyPlayer};
+use crate::monster_ai::{self, BehaviorTree, MonsterBrain, NearbyPlayer};
 use crate::pathfinding::{self, PassabilityCache};
 use crate::world::Position;
 
@@ -217,12 +217,7 @@ struct PathResultJs {
 
 thread_local! {
     static MONSTER_BRAINS: RefCell<HashMap<String, MonsterBrain>> = RefCell::new(HashMap::new());
-    static AI_TEMPLATES: RefCell<HashMap<String, AiTemplate>> = RefCell::new(HashMap::new());
     static AI_BEHAVIOR_TREES: RefCell<HashMap<String, BehaviorTree>> = RefCell::new(HashMap::new());
-}
-
-fn get_template(monster_type: &str) -> AiTemplate {
-    AI_TEMPLATES.with(|t| t.borrow().get(monster_type).cloned().unwrap_or_default())
 }
 
 struct WasmPathProvider;
@@ -252,14 +247,6 @@ impl monster_ai::PathProvider for WasmPathProvider {
 }
 
 #[wasm_bindgen]
-pub fn ai_load_templates(json: &str) -> Result<(), JsError> {
-    let templates = monster_ai::load_templates(json)
-        .map_err(|e| JsError::new(&format!("Failed to parse AI templates: {e}")))?;
-    AI_TEMPLATES.with(|t| *t.borrow_mut() = templates);
-    Ok(())
-}
-
-#[wasm_bindgen]
 pub fn ai_load_behavior_trees(json: &str) -> Result<(), JsError> {
     let trees = monster_ai::load_behavior_trees(json)
         .map_err(|e| JsError::new(&format!("Failed to parse behavior trees: {e}")))?;
@@ -279,26 +266,27 @@ pub fn ai_create_brain(val: JsValue) -> Result<(), JsError> {
         max_health: u32,
         walk_speed: f32,
         run_speed: f32,
+        attack_range: f32,
+        chase_range: f32,
         attack_cooldown: f32,
-        template_name: String,
+        behavior: String,
     }
 
     let args: CreateBrainArgs = serde_wasm_bindgen::from_value(val)
         .map_err(|e| JsError::new(&format!("Invalid brain args: {e}")))?;
 
-    let template = get_template(&args.template_name);
-
     let brain = MonsterBrain::new(
         args.monster_id.clone(),
         args.monster_type,
-        args.template_name,
+        args.behavior,
         args.position,
         args.health,
         args.max_health,
         args.walk_speed,
         args.run_speed,
+        args.attack_range,
+        args.chase_range,
         args.attack_cooldown,
-        &template,
     );
 
     MONSTER_BRAINS.with(|b| b.borrow_mut().insert(args.monster_id, brain));
@@ -326,19 +314,13 @@ pub fn ai_tick_brain(
             None => return None,
         };
 
-        let template = get_template(&brain.template_name);
         let mut rng = rand::thread_rng();
-        Some(AI_BEHAVIOR_TREES.with(|trees| {
+        AI_BEHAVIOR_TREES.with(|trees| {
             let trees = trees.borrow();
-            brain.tick_policy(
-                delta_ms,
-                &players,
-                &template,
-                trees.get(&brain.template_name),
-                &WasmPathProvider,
-                &mut rng,
-            )
-        }))
+            monster_ai::behavior_tree_for(&trees, &brain.behavior).map(|tree| {
+                brain.tick_with_behavior_tree(delta_ms, &players, tree, &WasmPathProvider, &mut rng)
+            })
+        })
     });
 
     match result {
@@ -361,19 +343,7 @@ pub fn ai_handle_hit(
             None => return vec![],
         };
 
-        let template = get_template(&brain.template_name);
-        let has_behavior_tree =
-            AI_BEHAVIOR_TREES.with(|t| t.borrow().contains_key(&brain.template_name));
-        let mut rng = rand::thread_rng();
-        brain.handle_hit_policy(
-            attacker_id,
-            hit,
-            damage,
-            &template,
-            has_behavior_tree,
-            &WasmPathProvider,
-            &mut rng,
-        )
+        brain.handle_hit_with_behavior_tree(attacker_id, hit, damage)
     });
 
     to_js(&commands)

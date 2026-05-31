@@ -21,7 +21,6 @@ import {
   PLAYER_ATTACK_IMPACT_DELAY_MS,
 } from '../data/combatTiming'
 import {
-  ai_load_templates,
   ai_load_behavior_trees,
   ai_create_brain,
   ai_remove_brain,
@@ -29,7 +28,6 @@ import {
   ai_handle_hit,
   ai_handle_death,
 } from '../wasm/onlinerpg_shared'
-import aiTemplatesJson from '../../../../data-src/ai_templates.json'
 import behaviorTreesJson from '../../../../data-src/behavior_trees.json'
 import monstersJson from '../../../../data/monsters.json'
 
@@ -58,6 +56,7 @@ const AMBIENT_MAX_DIST = 25
 const TOWN_MARGIN = 30 // keep spawns this far outside no-spawn zones too
 const WATER_MIN_HEIGHT = 0.3 // reject sea / submerged ground below this
 const MAX_SPAWN_ATTEMPTS = 12
+const DEFAULT_MONSTER_BEHAVIOR = 'brave'
 
 class MonsterManager {
   monsters = new SvelteMap<string, MonsterData>()
@@ -76,7 +75,6 @@ class MonsterManager {
 
   private ensureTemplatesLoaded() {
     if (!this.templatesLoaded) {
-      ai_load_templates(JSON.stringify(aiTemplatesJson))
       ai_load_behavior_trees(JSON.stringify(behaviorTreesJson))
       this.templatesLoaded = true
     }
@@ -141,9 +139,9 @@ class MonsterManager {
     if (ownerId === myPlayerId) {
       this.ensureTemplatesLoaded()
       const monsterDef = (
-        monstersJson as Record<string, { aiTemplate?: string }>
+        monstersJson as Record<string, { behavior?: string }>
       )[type]
-      const templateName = monsterDef?.aiTemplate ?? 'default'
+      const behavior = monsterDef?.behavior ?? DEFAULT_MONSTER_BEHAVIOR
       ai_create_brain({
         monsterId: id,
         monsterType: type,
@@ -152,9 +150,11 @@ class MonsterManager {
         maxHealth: maxHp,
         walkSpeed: def?.walkSpeed ?? 1,
         runSpeed: def?.runSpeed ?? 8,
+        attackRange: def?.attackRange ?? 2,
+        chaseRange: def?.chaseRange ?? 25,
         attackCooldown:
           def?.attackCooldown ?? DEFAULT_MONSTER_ATTACK_COOLDOWN_MS,
-        templateName,
+        behavior,
       })
     }
   }
