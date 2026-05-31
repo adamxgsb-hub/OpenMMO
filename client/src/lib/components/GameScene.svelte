@@ -952,7 +952,10 @@
     bind:monsterModels={monsterModels}
   />
 
-  <GameSceneGroundItemsLayer bind:this={groundItemsLayerRef} />
+  <GameSceneGroundItemsLayer
+    bind:this={groundItemsLayerRef}
+    heightManager={terrainHeightManager}
+  />
 </T>
 
 {#if $mapEditorMode}

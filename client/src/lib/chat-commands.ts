@@ -13,6 +13,9 @@ import { computeGrassPlacement, regenerateVegMeta } from './utils/grass-data'
 
 type CommandHandler = (args: string) => void
 
+// Debug `/drop` items use negative instance ids. Negative == client-only:
+// these spawns never hit the server (sendDropItem/sendPickupItem in socket.ts
+// reject id < 0, and onPickupGrab removes them locally instead of networking).
 let nextDebugDropInstanceId = -1
 
 const commands: Record<string, CommandHandler> = {

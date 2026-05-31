@@ -140,10 +140,14 @@
   }
 
   export function onPickupGrab() {
-    if (pendingPickupInstanceId !== null) {
-      networkManager.sendPickupItem(pendingPickupInstanceId)
-      groundItemManager.setInHand(pendingPickupInstanceId)
+    const id = pendingPickupInstanceId
+    if (id === null) return
+    groundItemManager.setInHand(id)
+    if (id < 0) {
+      groundItemManager.remove(id)
+      return
     }
+    networkManager.sendPickupItem(id)
   }
 
   $effect(() => {

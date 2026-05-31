@@ -2,7 +2,14 @@
   import { T } from '@threlte/core'
   import * as THREE from 'three'
   import { groundItemManager, nowMs } from '../../managers/groundItemManager'
+  import type { TerrainHeightManager } from '../../managers/terrainHeightManager'
   import GroundItem from '../GroundItem.svelte'
+
+  interface Props {
+    heightManager?: TerrainHeightManager
+  }
+
+  let { heightManager }: Props = $props()
 
   let spinAngle = $state(0)
   let animationTimeMs = $state(nowMs())
@@ -22,6 +29,6 @@
 
 <T.Group bind:ref={group}>
   {#each itemEntries as [id, data] (id)}
-    <GroundItem {data} rotation={spinAngle} {animationTimeMs} />
+    <GroundItem {data} rotation={spinAngle} {animationTimeMs} {heightManager} />
   {/each}
 </T.Group>

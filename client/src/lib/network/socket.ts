@@ -395,10 +395,20 @@ class NetworkManager {
   }
 
   sendDropItem(instanceId: number) {
+    // Negative ids are client-only debug items (see chat-commands.ts) and must
+    // never reach the server.
+    if (!Number.isSafeInteger(instanceId) || instanceId < 0) {
+      console.warn('Ignoring invalid drop item instance id:', instanceId)
+      return
+    }
     this.sendMessage({ DropItem: { instance_id: instanceId } })
   }
 
   sendPickupItem(instanceId: number) {
+    if (!Number.isSafeInteger(instanceId) || instanceId < 0) {
+      console.warn('Ignoring invalid pickup item instance id:', instanceId)
+      return
+    }
     this.sendMessage({ PickupItem: { instance_id: instanceId } })
   }
 
