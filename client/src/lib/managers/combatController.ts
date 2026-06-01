@@ -14,7 +14,7 @@ export type CombatUpdateResult =
   | { action: 'attacking'; rotation: number }
   | { action: 'attack_cycle'; monsterId: string; rotation: number }
 
-class CombatController {
+export class CombatController {
   private _targetMonsterId: string | null = null
   private _attackTimer = 0
   private _attackCounter = 0
@@ -119,6 +119,11 @@ class CombatController {
       monsterInfo.state !== 'dead' && !monsterInfo.isDeadPending
 
     if (this._attackTimer >= cooldownMs) {
+      if (dist > 2.5) {
+        this.cancelCombat()
+        return { action: 'idle' }
+      }
+
       if (isMonsterAlive) {
         this._attackTimer = 0
         this._attackCounter++

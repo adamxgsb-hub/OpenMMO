@@ -57,6 +57,7 @@ const TOWN_MARGIN = 30 // keep spawns this far outside no-spawn zones too
 const WATER_MIN_HEIGHT = 0.3 // reject sea / submerged ground below this
 const MAX_SPAWN_ATTEMPTS = 12
 const DEFAULT_MONSTER_BEHAVIOR = 'brave'
+const MONSTER_POSITION_EPSILON = 0.001
 
 class MonsterManager {
   monsters = new SvelteMap<string, MonsterData>()
@@ -73,7 +74,7 @@ class MonsterManager {
     x: number
     y: number
     z: number
-  }): { x: number; y: number; z: number } {
+  }): Position {
     if (
       !this.heightManager ||
       !this.heightManager.hasHeightDataForGrid(position.x, position.z)
@@ -209,7 +210,7 @@ class MonsterManager {
         monster.isDeadPending = true
       } else {
         // Otherwise die immediately
-        monster.state = 'dead'
+        this.applyMonsterPose(monster, { state: 'dead' })
         monster.stateTimer = 0
       }
       this.monsters.set(id, { ...monster })
@@ -220,7 +221,7 @@ class MonsterManager {
     const monster = this.monsters.get(id)
     if (!monster?.isDeadPending || monster.state !== 'hit') return
 
-    monster.state = 'dead'
+    this.applyMonsterPose(monster, { state: 'dead' })
     monster.stateTimer = 0
     monster.isDeadPending = false
     this.monsters.set(id, { ...monster })
@@ -266,7 +267,7 @@ class MonsterManager {
       return
     }
 
-    monster.state = 'attack'
+    this.applyMonsterPose(monster, { state: 'attack' })
     monster.attackCounter = (monster.attackCounter ?? 0) + 1
     monster.lastAttackStartedAt = now
     this.monsters.set(monsterId, { ...monster })
@@ -316,7 +317,9 @@ class MonsterManager {
           monster.position.z
         )
         if (Math.abs(monster.position.y - terrainY) > 0.001) {
-          monster.position = { ...monster.position, y: terrainY }
+          this.applyMonsterPose(monster, {
+            position: { ...monster.position, y: terrainY },
+          })
         }
       }
 
@@ -336,7 +339,9 @@ class MonsterManager {
             // clip (deathPlaysHit=false) go straight to the death clip.
             const leadWithHit =
               monster.isLastHitSuccess && this.deathPlaysHitFor(monster)
-            monster.state = leadWithHit ? 'hit' : 'dead'
+            this.applyMonsterPose(monster, {
+              state: leadWithHit ? 'hit' : 'dead',
+            })
             monster.stateTimer = 0
             if (!leadWithHit) {
               monster.isDeadPending = false
@@ -352,11 +357,11 @@ class MonsterManager {
             this.processAiCommands(monster, hitCommands)
           } else if (monster.isLastHitSuccess) {
             // Non-owner: show hit stagger visually
-            monster.state = 'hit'
+            this.applyMonsterPose(monster, { state: 'hit' })
             monster.stateTimer = 0
           } else if (monster.targetPlayerId && monster.state !== 'attack') {
             // Non-owner miss: show attack state visually
-            monster.state = 'attack'
+            this.applyMonsterPose(monster, { state: 'attack' })
             monster.stateTimer = 0
           }
         }
@@ -385,25 +390,22 @@ class MonsterManager {
         // ai_tick_brain returns a TickResult object with commands, position, rotation, state
         const result = raw as TickResult
 
-        // Always apply brain position/rotation (FSM moves internally via follow_path)
-        if (result.position) {
-          const terrainY = this.sampleHeight(
-            result.position.x,
-            result.position.z
-          )
-          monster.position = {
-            x: result.position.x,
-            y: terrainY,
-            z: result.position.z,
-          }
-        }
-        if (result.rotation !== undefined) {
-          monster.rotation = result.rotation
-        }
-        if (result.state) {
-          monster.state = result.state
-          this.updateMoveSpeedFromState(monster)
-        }
+        // Apply the brain snapshot through the same movement gate used by
+        // network and interpolation updates. Chasing AI reports its internal
+        // state as attack, then emits a Run Move command below; this prevents
+        // the intermediate attack snapshot from translating the model.
+        const resultPosition = result.position
+          ? {
+              x: result.position.x,
+              y: this.sampleHeight(result.position.x, result.position.z),
+              z: result.position.z,
+            }
+          : undefined
+        this.applyMonsterPose(monster, {
+          position: resultPosition,
+          rotation: result.rotation,
+          state: result.state,
+        })
 
         // Process transition commands (network sync, attacks)
         if (result.commands) {
@@ -417,9 +419,7 @@ class MonsterManager {
         if (
           monster.state !== 'dead' &&
           !monster.isDeadPending &&
-          (monster.state === 'walk' ||
-            monster.state === 'run' ||
-            monster.state === 'attack') &&
+          (monster.state === 'walk' || monster.state === 'run') &&
           monster.targetPosition
         ) {
           this.moveTowards(monster, monster.targetPosition, deltaTime)
@@ -477,6 +477,57 @@ class MonsterManager {
     }
   }
 
+  private isMovementState(state: MonsterData['state']) {
+    return state === 'walk' || state === 'run'
+  }
+
+  private hasXzMovement(from: Position, to: Position) {
+    return (
+      Math.abs(from.x - to.x) > MONSTER_POSITION_EPSILON ||
+      Math.abs(from.z - to.z) > MONSTER_POSITION_EPSILON
+    )
+  }
+
+  private applyMonsterPose(
+    monster: MonsterData,
+    update: {
+      position?: Position
+      rotation?: number
+      state?: MonsterState
+      targetPosition?: Position
+    }
+  ) {
+    const nextState = update.state ?? monster.state
+    const canMoveXz = this.isMovementState(nextState)
+
+    if (update.state) {
+      monster.state = update.state
+      this.updateMoveSpeedFromState(monster)
+    }
+
+    if (update.rotation !== undefined) {
+      monster.rotation = update.rotation
+    }
+
+    if (update.targetPosition !== undefined) {
+      monster.targetPosition = canMoveXz ? update.targetPosition : undefined
+    } else if (!canMoveXz) {
+      monster.targetPosition = undefined
+    }
+
+    if (!update.position) return
+
+    if (!this.hasXzMovement(monster.position, update.position) || canMoveXz) {
+      monster.position = update.position
+      return
+    }
+
+    // Non-movement states may still need terrain/deck height correction, but
+    // XZ translation must go through walk/run so the rendered pose has a
+    // locomotion animation to match it.
+    monster.position = { ...monster.position, y: update.position.y }
+  }
+
   private processAiCommands(monster: MonsterData, commands: AiCommand[]) {
     for (const cmd of commands) {
       if (cmd.type === 'Move') {
@@ -487,19 +538,12 @@ class MonsterManager {
           ? this.snapPositionToTerrain(cmd.target_position)
           : undefined
 
-        if (targetPosition) {
-          monster.targetPosition = targetPosition
-        }
-        if (position) {
-          monster.position = position
-        }
-        if (cmd.rotation !== undefined) {
-          monster.rotation = cmd.rotation
-        }
-        if (cmd.state) {
-          monster.state = cmd.state
-          this.updateMoveSpeedFromState(monster)
-        }
+        this.applyMonsterPose(monster, {
+          position,
+          rotation: cmd.rotation,
+          state: cmd.state,
+          targetPosition,
+        })
         networkManager.sendMonsterMove(
           cmd.monster_id,
           position ?? monster.position,
@@ -534,15 +578,14 @@ class MonsterManager {
 
       const snappedPosition = this.snapPositionToTerrain(position)
       const snappedTargetPosition = this.snapPositionToTerrain(targetPosition)
-
-      monster.position = snappedPosition
-      monster.rotation = rotation
-      if (!shouldDelayNetworkHit) {
-        monster.state = state
-        this.updateMoveSpeedFromState(monster)
-      }
-
-      monster.targetPosition = snappedTargetPosition
+      // When the hit is delayed, omit `state` so the current state is kept;
+      // applyMonsterPose then gates targetPosition on that state itself.
+      this.applyMonsterPose(monster, {
+        position: snappedPosition,
+        rotation,
+        state: shouldDelayNetworkHit ? undefined : state,
+        targetPosition: snappedTargetPosition,
+      })
       this.monsters.set(id, { ...monster })
     }
   }
@@ -560,24 +603,20 @@ class MonsterManager {
     const onUpperFloor = (monster.currentFloor ?? 0) > 0
 
     if (distance <= moveStep) {
-      if (!onUpperFloor) {
-        const y = this.sampleHeight(target.x, target.z)
-        if (y < 0) return true
-        monster.position = { ...target, y }
-      } else {
-        monster.position = { ...target }
-      }
+      const y = onUpperFloor ? target.y : this.sampleHeight(target.x, target.z)
+      if (!onUpperFloor && y < 0) return true
+      this.applyMonsterPose(monster, {
+        position: { x: target.x, y, z: target.z },
+      })
       return true
     } else {
       const newX = monster.position.x + (dx / distance) * moveStep
       const newZ = monster.position.z + (dz / distance) * moveStep
-      if (!onUpperFloor) {
-        const newY = this.sampleHeight(newX, newZ)
-        if (newY < 0) return true
-        monster.position = { x: newX, y: newY, z: newZ }
-      } else {
-        monster.position = { x: newX, y: target.y, z: newZ }
-      }
+      const y = onUpperFloor ? target.y : this.sampleHeight(newX, newZ)
+      if (!onUpperFloor && y < 0) return true
+      this.applyMonsterPose(monster, {
+        position: { x: newX, y, z: newZ },
+      })
       return false
     }
   }

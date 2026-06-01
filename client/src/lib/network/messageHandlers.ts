@@ -475,7 +475,10 @@ export function handleServerMessage(
     case 'MonsterAttackedPlayer': {
       const gameState = get(gameStore)
       const isCurrentPlayer = gameState.currentPlayer?.id === data.player_id
-      monsterManager.handleMonsterAttackStarted(data.monster_id, 250)
+      const monster = monsterManager.monsters.get(data.monster_id)
+      if (monster?.ownerId !== gameState.currentPlayer?.id) {
+        monsterManager.handleMonsterAttackStarted(data.monster_id, 250)
+      }
 
       if (isCurrentPlayer) {
         emitCurrentPlayerDamageInfo(

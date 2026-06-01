@@ -27,6 +27,10 @@
             "children": [
               {
                 "type": "condition",
+                "name": "has_target"
+              },
+              {
+                "type": "condition",
                 "name": "health_below_ratio",
                 "params": {
                   "ratio": 0.3

@@ -632,6 +632,10 @@ impl MonsterBrain {
         commands: &mut Vec<AiCommand>,
         path_provider: &dyn PathProvider,
     ) -> BehaviorStatus {
+        if self.target_player_id.is_none() && self.state != AiState::Flee {
+            return BehaviorStatus::Failure;
+        }
+
         let duration_ms = param(params, "durationMs", DEFAULT_FLEE_DURATION_MS);
         if self.state != AiState::Flee {
             self.transition_to_flee(commands, path_provider);
@@ -737,7 +741,7 @@ impl MonsterBrain {
             monster_id: self.monster_id.clone(),
             position: self.position.clone(),
             rotation: self.rotation,
-            state: MonsterState::Attack,
+            state: MonsterState::Run,
             target_position: target_pos,
         });
         BehaviorStatus::Running
@@ -852,12 +856,14 @@ impl MonsterBrain {
         self.state = AiState::Flee;
         self.state_timer_ms = 0.0;
         self.move_speed = self.run_speed;
+        self.target_position = Some(self.spawn_position.clone());
 
         self.compute_path(self.spawn_position.x, self.spawn_position.z, path_provider);
 
         if self.waypoints.is_empty() {
             self.state = AiState::Idle;
             self.state_timer_ms = 0.0;
+            self.target_position = None;
             return;
         }
 
@@ -1167,7 +1173,126 @@ mod tests {
             .commands
             .iter()
             .any(|c| matches!(c, AiCommand::Move { .. })));
+        assert!(result.commands.iter().any(|c| {
+            matches!(
+                c,
+                AiCommand::Move {
+                    state: MonsterState::Run,
+                    ..
+                }
+            )
+        }));
         assert_eq!(brain.state(), AiState::Attack);
+    }
+
+    #[test]
+    fn behavior_tree_flee_sends_run_target_to_spawn() {
+        let mut brain = make_brain();
+        brain.position.x = 20.0;
+        brain.target_player_id = Some("p1".into());
+        brain.health = 2;
+        let tree = BehaviorTree {
+            description: None,
+            root: BehaviorNode::Sequence {
+                children: vec![
+                    BehaviorNode::Condition {
+                        name: "health_below_ratio".into(),
+                        params: HashMap::from([("ratio".into(), 0.3)]),
+                    },
+                    BehaviorNode::Action {
+                        name: "flee_from_target".into(),
+                        params: HashMap::from([("durationMs".into(), 5000.0)]),
+                    },
+                ],
+            },
+        };
+        let mut rng = SmallRng::seed_from_u64(42);
+
+        let result = brain.tick_with_behavior_tree(16.0, &[], &tree, &DirectPath, &mut rng);
+
+        assert_eq!(brain.state(), AiState::Flee);
+        assert!(result.commands.iter().any(|c| {
+            matches!(
+                c,
+                AiCommand::Move {
+                    state: MonsterState::Run,
+                    target_position: Position {
+                        x: 10.0,
+                        z: 10.0,
+                        ..
+                    },
+                    ..
+                }
+            )
+        }));
+    }
+
+    #[test]
+    fn behavior_tree_does_not_flee_without_target() {
+        let mut brain = make_brain();
+        brain.position.x = 20.0;
+        brain.health = 2;
+        let tree = BehaviorTree {
+            description: None,
+            root: BehaviorNode::Sequence {
+                children: vec![
+                    BehaviorNode::Condition {
+                        name: "health_below_ratio".into(),
+                        params: HashMap::from([("ratio".into(), 0.3)]),
+                    },
+                    BehaviorNode::Action {
+                        name: "flee_from_target".into(),
+                        params: HashMap::from([("durationMs".into(), 5000.0)]),
+                    },
+                ],
+            },
+        };
+        let mut rng = SmallRng::seed_from_u64(42);
+
+        let result = brain.tick_with_behavior_tree(16.0, &[], &tree, &DirectPath, &mut rng);
+
+        assert_eq!(brain.state(), AiState::Idle);
+        assert!(result.commands.is_empty());
+    }
+
+    #[test]
+    fn behavior_tree_return_sends_walk_target_to_spawn() {
+        let mut brain = make_brain();
+        brain.position.x = 70.0;
+        let tree = BehaviorTree {
+            description: None,
+            root: BehaviorNode::Sequence {
+                children: vec![
+                    BehaviorNode::Condition {
+                        name: "is_beyond_leash".into(),
+                        params: HashMap::from([("range".into(), 30.0)]),
+                    },
+                    BehaviorNode::Action {
+                        name: "return_to_spawn".into(),
+                        params: HashMap::new(),
+                    },
+                ],
+            },
+        };
+        let mut rng = SmallRng::seed_from_u64(42);
+
+        let result = brain.tick_with_behavior_tree(16.0, &[], &tree, &DirectPath, &mut rng);
+
+        assert_eq!(brain.state(), AiState::Return);
+        assert!(result.commands.iter().any(|c| {
+            matches!(
+                c,
+                AiCommand::Move {
+                    state: MonsterState::Walk,
+                    target_position: Position {
+                        x: 10.0,
+                        z: 10.0,
+                        ..
+                    },
+                    ..
+                }
+            )
+        }));
     }
 
     #[test]
