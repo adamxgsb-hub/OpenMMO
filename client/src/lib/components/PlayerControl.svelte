@@ -434,10 +434,10 @@
               Math.abs(movementTarget.z - result.newTarget.z) > 0.1
             ) {
               movementTarget = result.newTarget
+              const dx = result.newTarget.x - currentPlayer.position.x
+              const dz = result.newTarget.z - currentPlayer.position.z
               if (movementState) {
                 movementState.targetPos = { ...result.newTarget }
-                const dx = result.newTarget.x - currentPlayer.position.x
-                const dz = result.newTarget.z - currentPlayer.position.z
                 movementState.totalDistance = Math.sqrt(dx * dx + dz * dz)
                 movementState.startPos = {
                   x: currentPlayer.position.x,
@@ -455,6 +455,8 @@
                   currentSpeed
                 )
               }
+              playerRotation = Math.atan2(dx, dz)
+              isMoving = true
               sendPlayerMove(result.newTarget, playerRotation)
             }
           }

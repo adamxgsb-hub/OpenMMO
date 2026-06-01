@@ -6,8 +6,9 @@ export interface MonsterInfo {
   isDeadPending?: boolean
 }
 
-// Distance at which combat breaks off (target stepped out of attack range).
-const ATTACK_BREAK_RANGE = 2.5
+// Player melee reach. Keep this aligned with click-to-attack arrival checks so
+// combat re-approaches once a moving monster drifts outside player range.
+const PLAYER_ATTACK_RANGE = 2.0
 
 export type CombatUpdateResult =
   | { action: 'none' }
@@ -56,6 +57,21 @@ export class CombatController {
     if (wasInCombat) stopBattleMusic()
   }
 
+  private startChase(
+    monsterObjPos: Position,
+    now = Date.now()
+  ): CombatUpdateResult {
+    this._lastChaseUpdate = now
+    return {
+      action: 'chasing',
+      newTarget: {
+        x: monsterObjPos.x,
+        y: monsterObjPos.y,
+        z: monsterObjPos.z,
+      },
+    }
+  }
+
   update(
     deltaTime: number,
     playerPos: Position,
@@ -88,30 +104,21 @@ export class CombatController {
 
     if (isMoving) {
       // CHASING phase
-      if (dist < 2.0) {
+      if (dist <= PLAYER_ATTACK_RANGE) {
         return { action: 'reached_attack_range' }
       }
 
       // Throttled chase target update
       const now = Date.now()
       if (now - this._lastChaseUpdate >= 1000) {
-        this._lastChaseUpdate = now
-        return {
-          action: 'chasing',
-          newTarget: {
-            x: monsterObjPos.x,
-            y: monsterObjPos.y,
-            z: monsterObjPos.z,
-          },
-        }
+        return this.startChase(monsterObjPos, now)
       }
       return { action: 'chasing' }
     }
 
     // COMBAT phase (in range)
-    if (dist > ATTACK_BREAK_RANGE && !isFinishingAttack) {
-      this.cancelCombat()
-      return { action: 'idle' }
+    if (dist > PLAYER_ATTACK_RANGE && !isFinishingAttack) {
+      return this.startChase(monsterObjPos)
     }
 
     // Still in range - rotate and attack
@@ -124,10 +131,9 @@ export class CombatController {
     if (this._attackTimer >= cooldownMs) {
       // A new attack cycle is about to fire: unlike the break check above this
       // applies even mid-finish, so a target that fled during the swing ends
-      // combat instead of starting another cycle out of range.
-      if (dist > ATTACK_BREAK_RANGE) {
-        this.cancelCombat()
-        return { action: 'idle' }
+      // the current swing and re-approaches instead of attacking out of range.
+      if (dist > PLAYER_ATTACK_RANGE) {
+        return this.startChase(monsterObjPos)
       }
 
       if (isMonsterAlive) {
