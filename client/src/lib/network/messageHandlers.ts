@@ -59,6 +59,7 @@ function emitCurrentPlayerDamageInfo(
   playerId: string,
   damage: number,
   hit: boolean,
+  currentHealth: number,
   delayMs: number
 ) {
   const emit = () => {
@@ -69,6 +70,7 @@ function emitCurrentPlayerDamageInfo(
       lastDamageInfo: {
         damage,
         hit,
+        currentHealth,
         trigger: (state.currentPlayer.lastDamageInfo?.trigger ?? 0) + 1,
       },
     })
@@ -480,6 +482,7 @@ export function handleServerMessage(
           data.player_id,
           data.damage,
           data.hit,
+          data.current_health,
           monsterManager.getMonsterAttackDamageTextDelayMs(data.monster_id)
         )
       }

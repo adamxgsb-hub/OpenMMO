@@ -9,6 +9,7 @@ export interface PlayerDamageInfo {
   damage: number
   hit: boolean
   trigger: number
+  currentHealth?: number
 }
 
 interface PlayerBase {

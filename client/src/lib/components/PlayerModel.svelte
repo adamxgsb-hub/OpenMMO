@@ -1,8 +1,22 @@
+<script module lang="ts">
+  import * as THREE from 'three'
+
+  const HEALTH_BAR_WIDTH = 1.0
+  const HEALTH_BAR_HEIGHT = 0.08
+
+  // Shared across all PlayerModel instances — the fill geometry never changes.
+  // Left-anchored via translate so the mesh only needs scale.x to grow/shrink.
+  const healthBarFillGeometry = new THREE.PlaneGeometry(
+    HEALTH_BAR_WIDTH,
+    HEALTH_BAR_HEIGHT
+  )
+  healthBarFillGeometry.translate(HEALTH_BAR_WIDTH / 2, 0, 0)
+</script>
+
 <script lang="ts">
   import { T } from '@threlte/core'
   import TextLabel from './TextLabel.svelte'
   import type { Vector3 } from 'three'
-  import * as THREE from 'three'
   import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
   import { onMount } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
@@ -110,6 +124,30 @@
 
   // Floating damage text
   let damageTextRef = $state<ReturnType<typeof DamageText>>()
+
+  // svelte-ignore state_referenced_locally
+  let displayedHealth = $state(health)
+
+  // Heals (and remote players) update the bar immediately; it never drops here.
+  $effect(() => {
+    if (!isCurrentPlayer || health >= displayedHealth) {
+      displayedHealth = health
+    }
+  })
+
+  // Damage drops the bar only when a new damage event arrives, keeping it in
+  // sync with the floating damage text (emitted on the same delay). A fresh
+  // lastDamageInfo object fires this once per hit; health is not a dependency,
+  // so a server health update alone won't drop the bar early.
+  $effect(() => {
+    if (isCurrentPlayer && lastDamageInfo) {
+      displayedHealth = lastDamageInfo.currentHealth ?? health
+    }
+  })
+
+  let displayedHealthRatio = $derived(
+    Math.max(0, Math.min(1, displayedHealth / (maxHealth || 1)))
+  )
 
   // Load only the active character model + shared animation packs via shared cache.
   // This cache persists across Threlte Canvas lifecycles, so GLBs loaded in
@@ -840,15 +878,15 @@
     <T.Group position.y={-0.3}>
       <!-- Background (black) -->
       <T.Mesh>
-        <T.PlaneGeometry args={[1.0, 0.08]} />
+        <T.PlaneGeometry args={[HEALTH_BAR_WIDTH, HEALTH_BAR_HEIGHT]} />
         <T.MeshBasicMaterial color="#000000" transparent opacity={0.5} />
       </T.Mesh>
       <!-- Foreground (red) -->
       <T.Mesh
-        position.x={-0.5 + (1.0 * Math.max(0, Math.min(1, health / (maxHealth || 1)))) / 2}
-        scale.x={Math.max(0.001, Math.min(1, health / (maxHealth || 1)))}
+        position.x={-HEALTH_BAR_WIDTH / 2}
+        scale.x={Math.max(0.001, displayedHealthRatio)}
       >
-        <T.PlaneGeometry args={[1.0, 0.08]} />
+        <T is={healthBarFillGeometry} />
         <T.MeshBasicMaterial color="#ff0000" />
       </T.Mesh>
     </T.Group>
