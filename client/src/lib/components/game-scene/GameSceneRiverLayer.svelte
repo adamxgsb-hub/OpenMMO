@@ -73,9 +73,8 @@
   /* eslint-disable-next-line svelte/prefer-svelte-reactivity */
   const tileMaterials = new Map<string, RiverFieldMaterialResult>()
 
-  /** Per-frame uniform sync. Reflection/refraction render targets are
-   *  captured at material creation (WebGPU bind groups freeze on first
-   *  compile) so reassigning them per frame is a no-op. */
+  /** Per-frame uniform sync. Reflection/refraction texture objects are fixed
+   *  at material creation time so they do not need per-frame reassignment. */
   export function updateUniforms() {
     for (const result of tileMaterials.values()) {
       const u = result.uniforms
@@ -151,7 +150,7 @@
     tileZ: number
   ): Promise<void> {
     if (inflightTiles.has(id) || tileMeshes.has(id)) return
-    if (!riverFieldManager || !heightManager || !normalMap) return
+    if (!riverFieldManager || !heightManager || !normalMap || !reflectionMap || !refractionMap) return
     inflightTiles.add(id)
     try {
       const [, field] = await Promise.all([
@@ -204,7 +203,8 @@
   }
 
   $effect(() => {
-    if (!riverFieldManager || !heightManager) return
+    if (!riverFieldManager || !heightManager || !normalMap || !reflectionMap || !refractionMap)
+      return
 
     const currentIds = new Set(terrainTiles.map((t) => t.id))
     for (const id of [...tileMeshes.keys()]) {

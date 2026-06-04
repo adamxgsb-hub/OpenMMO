@@ -699,8 +699,11 @@
 
     const unsubscribeViewportSize = size.subscribe((nextSize) => {
       viewportSize = nextSize
-      if (refractionManager) refractionManager.resize(nextSize.width, nextSize.height)
-      if (reflectionManager) reflectionManager.resize(nextSize.width, nextSize.height)
+      // Keep refraction/reflection targets stable across viewport changes.
+      // Chrome's debugging banner changes the viewport height when it attaches
+      // or detaches; resizing RenderTarget disposes its GPU texture, and
+      // three.js WebGPU can render a transparent material once with a stale
+      // bind group before the replacement texture is visible to all bindings.
     })
 
     const unsubscribeCameraReset = cameraResetNonce.subscribe((nonce) => {

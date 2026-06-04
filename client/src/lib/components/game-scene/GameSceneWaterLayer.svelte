@@ -77,9 +77,6 @@
       if (sunColor) u.uSunColor.value.copy(sunColor)
       if (cameraDirection) u.uCameraDirection.value.copy(cameraDirection)
       u.uMoonBrightness.value = moonBrightness
-      if (refractionMap) u.uRefractionMap.value = refractionMap
-      if (reflectionMap) u.uReflectionMap.value = reflectionMap
-
       // Capture + decay only every other frame (wetness changes slowly;
       // the decay formula uses actual dt so skipping frames is safe)
       if (doCapture) {
@@ -130,7 +127,8 @@
     const pooled = waterMatPool.pop()
     if (pooled) return pooled
     // Shared textures must be loaded before creating a new material
-    if (!normalMap || !foamMap || !causticsMap) return null
+    if (!normalMap || !foamMap || !causticsMap || !refractionMap || !reflectionMap)
+      return null
     const result = createWaterMaterial({
       heightmapTexture: waterHeightFallbackTex,
       normalMap,
@@ -181,12 +179,12 @@
         // First time — create new texture + acquire pooled material
         const tex = heightManager.getHeightmapTexture(tileX, tileZ)
         if (tex) {
-          heightTexMap.set(id, tex)
-          waterTileSet.set(id, true)
           // Acquire material from pool and set ALL textures before rendering
           if (!waterMatMap.has(id)) {
             const matResult = acquireWaterMaterial()
             if (!matResult) return // shared textures not ready yet
+            heightTexMap.set(id, tex)
+            waterTileSet.set(id, true)
             const u = matResult.uniforms
             u.uHeightmapTexture.value = tex
             if (normalMap) u.uNormalMap.value = normalMap
@@ -274,7 +272,16 @@
 
   // Initial tile loading + tile list changes
   $effect(() => {
-    if (!terrainGeometry || !heightManager) return
+    if (
+      !terrainGeometry ||
+      !heightManager ||
+      !normalMap ||
+      !foamMap ||
+      !causticsMap ||
+      !refractionMap ||
+      !reflectionMap
+    )
+      return
 
     const currentTileIds = new Set(terrainTiles.map((t) => t.id))
 
