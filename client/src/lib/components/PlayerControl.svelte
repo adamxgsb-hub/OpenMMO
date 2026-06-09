@@ -82,7 +82,7 @@
     resetAttackInRangeRuntime,
     transitionAttackToIdle,
   } from './player-control/fsm/combat'
-  import { resolveControlStateName } from './player-control/fsm/control-state'
+  import type { PlayerControlStateName } from './player-control/fsm/control-state'
   import { createLocalPlayerControlMachine } from './player-control/fsm/state-definitions'
 
   interface Props {
@@ -170,12 +170,14 @@
     if (transition.kind === 'cooldown') return
 
     setPlayerState(transition.nextPlayerState)
+    transitionTo('jump_feedback')
 
     clearJumpFeedbackTimer()
     jumpFeedbackTimer = setTimeout(() => {
       jumpFeedbackTimer = null
       if (shouldFinishJumpFeedback(playerState)) {
         updatePlayerState()
+        transitionTo('idle')
       }
     }, JUMP_FEEDBACK_DURATION_MS)
   }
@@ -196,6 +198,7 @@
 
     finishPendingPickup()
     setPlayerState(transition.nextPlayerState)
+    transitionTo('idle')
   }
 
   function onInteractionFinished() {
@@ -236,6 +239,7 @@
     }
 
     setPlayerState(buildExitObjectInteraction(playerState))
+    transitionTo('idle')
 
     if (notify) {
       networkManager.sendStopInteraction()
@@ -272,6 +276,20 @@
       standUpTimer = null
     }
     updatePlayerState()
+  }
+
+  // Explicitly drive the machine's owned state. The machine no longer derives
+  // its state name from flags — callers transition at the real decision points.
+  function transitionTo(name: PlayerControlStateName) {
+    playerControlMachine.transition(name)
+  }
+
+  // Stop movement and settle into idle (blocked path, keyboard release-to-idle).
+  // Distinct from the bare stopMovement() used by arrive(), which then routes to
+  // pickup/attack/idle itself.
+  function stopMovementToIdle() {
+    stopMovement()
+    transitionTo('idle')
   }
 
   // Wrapper for sending move packets to track last sent position
@@ -371,6 +389,7 @@
 
     applyRuntimePatch(createAttackRuntimePatch(result))
     setPlayerState(result.nextPlayerState)
+    transitionTo('attacking')
   }
 
   // Transition from attack to idle state
@@ -378,6 +397,7 @@
     const transition = transitionAttackToIdle(playerState)
     if (transition.kind === 'ignored') return
     setPlayerState(transition.nextPlayerState)
+    transitionTo('idle')
   }
 
   function transitionToDead() {
@@ -389,6 +409,7 @@
     finishPendingPickup()
 
     setPlayerState(transition.nextPlayerState)
+    transitionTo('dead')
   }
 
   function transitionToRespawned() {
@@ -405,6 +426,7 @@
     finishPendingPickup()
 
     setPlayerState(transition.nextPlayerState)
+    transitionTo('idle')
   }
 
   /** Check E key interaction (door toggle). Call from game loop. */
@@ -449,22 +471,27 @@
       movementState = nextMovementState
       playerRotation = nextRotation
       isMoving = true
+      // Chase reports as 'moving' (playerState stays 'moving' while pathing to
+      // the monster); the 'attacking' name is reserved for in-range swinging.
+      transitionTo('moving')
     },
     showAttackState: (nextRotation: number) => {
       playerRotation = nextRotation
       const transition = ensureAttackState(playerState, nextRotation)
       if (transition.kind === 'ignored') return
       setPlayerState(transition.nextPlayerState)
+      transitionTo('attacking')
     },
     sendAttackCycle: (monsterId: string, nextRotation: number) => {
       playerRotation = nextRotation
       networkManager.sendPlayerAttack(monsterId)
       updatePlayerState()
+      transitionTo('attacking')
     },
   }
 
   const movementTickActions = {
-    stopMovement,
+    stopMovement: stopMovementToIdle,
     triggerJumpFeedback,
     setNextWaypoint: (
       nextCurrentSpeed: number,
@@ -483,6 +510,8 @@
       currentSpeed = nextCurrentSpeed
       playerRotation = nextPlayerRotation
       const pickupAfterArrival = pendingPickupAfterMoveInstanceId
+      // Bare stopMovement() here (not stopMovementToIdle): arrive routes to
+      // pickup/attack/idle itself below.
       stopMovement()
 
       if (pickupAfterArrival !== null) {
@@ -492,7 +521,10 @@
 
       if (combatController.isInCombat) {
         initiateAttack(combatController.targetMonsterId!)
+        return
       }
+
+      transitionTo('idle')
     },
     continueMovement: (
       nextCurrentSpeed: number,
@@ -516,15 +548,17 @@
     cancelCombat: () => combatController.cancelCombat(),
     markMoving: () => {
       isMoving = true
+      transitionTo('keyboard_moving')
     },
     setKeyboardIdleRuntime: () => {
       isMoving = false
       currentSpeed = 0
+      transitionTo('idle')
     },
     emitKeyboardPlayerState: () => {
       updatePlayerState(isMoving ? 100 : undefined)
     },
-    stopMovement,
+    stopMovement: stopMovementToIdle,
     triggerJumpFeedback,
     setMoved: (nextCurrentSpeed: number, nextPlayerRotation: number) => {
       currentSpeed = nextCurrentSpeed
@@ -628,6 +662,7 @@
         const patch = createStartedMovementRuntimePatch(runtime)
         applyRuntimePatch(patch)
         updatePlayerState(patch.totalDistance)
+        transitionTo('moving')
       },
     }
   }
@@ -671,6 +706,7 @@
 
     applyRuntimePatch(createObjectInteractionRuntimePatch(result))
     setPlayerState(result.nextPlayerState)
+    transitionTo('object_interacting')
 
     if (currentPlayer) {
       applyObjectInteractionPosition(currentPlayer, result.entryPosition, {
@@ -695,6 +731,7 @@
 
     applyRuntimePatch(createPickupInteractionRuntimePatch(result))
     setPlayerState(result.nextPlayerState)
+    transitionTo('picking_up')
   }
 
   function approachAndPickup(intent: Extract<ClickIntent, { type: 'pickup_ground_item' }>) {
@@ -780,12 +817,6 @@
 
   const playerControlMachine = createLocalPlayerControlMachine({
     dispatchEvent: dispatchPlayerControlEvent,
-    getStateName: () =>
-      resolveControlStateName({
-        playerState,
-        isMoving,
-        hasKeyboardInput: inputHandler.hasKeysPressed,
-      }),
     stateActions: {
       onInteractionFinished,
       onPickupGrab,

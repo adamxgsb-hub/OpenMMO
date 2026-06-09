@@ -4,11 +4,11 @@ import type { PlayerControlStateDefinitions } from './state-definitions'
 
 export interface PlayerControlMachineHandlers {
   dispatchEvent: (event: PlayerControlEvent) => void
-  getStateName: () => PlayerControlStateName
 }
 
 export interface PlayerControlMachineOptions {
   states?: PlayerControlStateDefinitions
+  initialStateName?: PlayerControlStateName
 }
 
 export class PlayerControlMachine {
@@ -20,12 +20,27 @@ export class PlayerControlMachine {
     private readonly handlers: PlayerControlMachineHandlers,
     private readonly options: PlayerControlMachineOptions = {}
   ) {
-    this.currentStateName = handlers.getStateName()
+    this.currentStateName = options.initialStateName ?? 'idle'
     this.enterState(this.currentStateName)
   }
 
   get stateName() {
     return this.currentStateName
+  }
+
+  /**
+   * Explicit state transition. The machine OWNS its current state: it changes
+   * only through this method, never by polling/deriving a name from external
+   * flags. Callers transition at the actual decision points (move start,
+   * arrival, attack, interact enter/exit, dead/respawn, jump). A transition to
+   * the state we are already in is a no-op (no exit/enter re-fire).
+   */
+  transition(nextStateName: PlayerControlStateName) {
+    if (this.disposed) return
+    if (nextStateName === this.currentStateName) return
+    this.exitState(this.currentStateName)
+    this.currentStateName = nextStateName
+    this.enterState(nextStateName)
   }
 
   enqueueEvent(event: PlayerControlEvent) {
@@ -63,14 +78,6 @@ export class PlayerControlMachine {
     this.queuedEvents = []
   }
 
-  private setObservedStateName(nextStateName: PlayerControlStateName) {
-    if (nextStateName === this.currentStateName) return
-
-    this.exitState(this.currentStateName)
-    this.currentStateName = nextStateName
-    this.enterState(nextStateName)
-  }
-
   private enterState(stateName: PlayerControlStateName) {
     this.options.states?.[stateName]?.enter?.()
   }
@@ -83,30 +90,22 @@ export class PlayerControlMachine {
     return this.options.states?.[this.currentStateName]
   }
 
-  private refreshObservedStateName() {
-    this.setObservedStateName(this.handlers.getStateName())
-  }
-
   private dispatchEvent(event: PlayerControlEvent) {
     const consumed = this.currentState?.handleEvent?.(event) === true
     if (!consumed) {
       this.handlers.dispatchEvent(event)
     }
-    this.refreshObservedStateName()
   }
 
   private handleInteractKey() {
     this.currentState?.handleInteractKey?.()
-    this.refreshObservedStateName()
   }
 
   private handleKeyboard() {
     this.currentState?.handleKeyboard?.()
-    this.refreshObservedStateName()
   }
 
   private tick(deltaTime: number) {
     this.currentState?.tick?.(deltaTime)
-    this.refreshObservedStateName()
   }
 }

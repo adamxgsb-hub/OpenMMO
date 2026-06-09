@@ -272,7 +272,6 @@ describe('createLocalPlayerControlMachine', () => {
     const tick = vi.fn()
     const machine = createLocalPlayerControlMachine({
       dispatchEvent: vi.fn(),
-      getStateName: () => 'picking_up',
       stateActions: {
         onInteractionFinished: vi.fn(),
         onPickupGrab,
@@ -285,6 +284,8 @@ describe('createLocalPlayerControlMachine', () => {
       },
     })
 
+    // The picking_up state's handleEvent consumes anim_pickup_grab → onPickupGrab.
+    machine.transition('picking_up')
     machine.update(16, {
       editorMode: false,
       events: [{ type: 'anim_pickup_grab' }],

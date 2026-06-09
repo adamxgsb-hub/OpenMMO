@@ -8,12 +8,11 @@ function makeEvent(type: 'anim_pickup_grab' | 'anim_interaction_finished') {
 }
 
 describe('PlayerControlMachine', () => {
-  it('drains queued events before per-frame polling and tick', () => {
+  it('drains queued events before per-frame phases and tick', () => {
     const calls: string[] = []
     const machine = new PlayerControlMachine(
       {
         dispatchEvent: (event) => calls.push(`event:${event.type}`),
-        getStateName: () => 'idle',
       },
       {
         states: createPlayerControlStateDefinitions({
@@ -47,14 +46,13 @@ describe('PlayerControlMachine', () => {
     ])
   })
 
-  it('skips interact and keyboard polling in editor mode but still ticks', () => {
+  it('skips interact and keyboard phases in editor mode but still ticks', () => {
     const handleInteractKey = vi.fn()
     const handleKeyboard = vi.fn()
     const tick = vi.fn()
     const machine = new PlayerControlMachine(
       {
         dispatchEvent: vi.fn(),
-        getStateName: () => 'idle',
       },
       {
         states: createPlayerControlStateDefinitions({
@@ -76,10 +74,7 @@ describe('PlayerControlMachine', () => {
 
   it('clears queued events after dispose', () => {
     const dispatchEvent = vi.fn()
-    const machine = new PlayerControlMachine({
-      dispatchEvent,
-      getStateName: () => 'idle',
-    })
+    const machine = new PlayerControlMachine({ dispatchEvent })
 
     machine.enqueueEvent(makeEvent('anim_pickup_grab'))
     machine.dispose()
@@ -88,57 +83,46 @@ describe('PlayerControlMachine', () => {
     expect(dispatchEvent).not.toHaveBeenCalled()
   })
 
-  it('refreshes the current state name after the frame tick', () => {
-    let stateName: 'idle' | 'moving' = 'idle'
+  it('starts in the initial state and changes only via explicit transition', () => {
     const machine = new PlayerControlMachine(
-      {
-        dispatchEvent: vi.fn(),
-        getStateName: () => stateName,
-      },
+      { dispatchEvent: vi.fn() },
       {
         states: createPlayerControlStateDefinitions({
-          idle: {
-            tick: () => {
-              stateName = 'moving'
-            },
-          },
+          // A tick that does NOT call transition must leave the state unchanged.
+          idle: { tick: () => undefined },
         }),
+        initialStateName: 'idle',
       }
     )
 
     expect(machine.stateName).toBe('idle')
-
     machine.update(16, { editorMode: false })
+    expect(machine.stateName).toBe('idle')
 
+    machine.transition('moving')
     expect(machine.stateName).toBe('moving')
   })
 
-  it('runs lifecycle hooks when the observed state changes', () => {
+  it('fires exit(old) then enter(new) on transition, and exits current on dispose', () => {
     const calls: string[] = []
-    let stateName: 'idle' | 'moving' = 'idle'
     const machine = new PlayerControlMachine(
-      {
-        dispatchEvent: vi.fn(),
-        getStateName: () => stateName,
-      },
+      { dispatchEvent: vi.fn() },
       {
         states: createPlayerControlStateDefinitions({
           idle: {
             enter: () => calls.push('enter:idle'),
             exit: () => calls.push('exit:idle'),
-            tick: () => {
-              stateName = 'moving'
-            },
           },
           moving: {
             enter: () => calls.push('enter:moving'),
             exit: () => calls.push('exit:moving'),
           },
         }),
+        initialStateName: 'idle',
       }
     )
 
-    machine.update(16, { editorMode: false })
+    machine.transition('moving')
     machine.dispose()
 
     expect(calls).toEqual([
@@ -149,12 +133,32 @@ describe('PlayerControlMachine', () => {
     ])
   })
 
+  it('treats a transition to the current state as a no-op', () => {
+    const calls: string[] = []
+    const machine = new PlayerControlMachine(
+      { dispatchEvent: vi.fn() },
+      {
+        states: createPlayerControlStateDefinitions({
+          idle: {
+            enter: () => calls.push('enter:idle'),
+            exit: () => calls.push('exit:idle'),
+          },
+        }),
+        initialStateName: 'idle',
+      }
+    )
+
+    machine.transition('idle')
+
+    expect(machine.stateName).toBe('idle')
+    expect(calls).toEqual(['enter:idle'])
+  })
+
   it('lets the current state consume events before the fallback dispatcher', () => {
     const dispatchEvent = vi.fn()
     const machine = new PlayerControlMachine(
       {
         dispatchEvent,
-        getStateName: () => 'idle',
       },
       {
         states: createPlayerControlStateDefinitions({
@@ -178,7 +182,6 @@ describe('PlayerControlMachine', () => {
     const machine = new PlayerControlMachine(
       {
         dispatchEvent,
-        getStateName: () => 'idle',
       },
       {
         states: createPlayerControlStateDefinitions({

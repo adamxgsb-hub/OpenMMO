@@ -265,19 +265,16 @@ export function createLocalPlayerControlStateDefinitions(
 
 interface CreateLocalPlayerControlMachineInput {
   dispatchEvent: (event: PlayerControlEvent) => void
-  getStateName: () => PlayerControlStateName
   stateActions: LocalPlayerControlStateActions
 }
 
 export function createLocalPlayerControlMachine({
   dispatchEvent,
-  getStateName,
   stateActions,
 }: CreateLocalPlayerControlMachineInput) {
   return new PlayerControlMachine(
     {
       dispatchEvent,
-      getStateName,
     },
     {
       states: createLocalPlayerControlStateDefinitions(stateActions),
