@@ -22,6 +22,7 @@
   import { monsterManager } from '../managers/monsterManager'
   import type PlayerModel from './PlayerModel.svelte'
   import type PlayerControl from './PlayerControl.svelte'
+  import type { PlayerControlEvent } from './player-control/events'
   import type Monster from './Monster.svelte'
   import GameSceneTerrainLayer from './game-scene/GameSceneTerrainLayer.svelte'
   import GameSceneWaterLayer from './game-scene/GameSceneWaterLayer.svelte'
@@ -310,6 +311,11 @@
   // Reference to PlayerControl and PlayersLayer components
   let playerControl = $state<PlayerControl>()
   let playersLayer = $state<GameScenePlayersLayer>()
+  let pendingPlayerControlEvents: PlayerControlEvent[] = []
+
+  function enqueuePlayerControlEvent(event: PlayerControlEvent) {
+    pendingPlayerControlEvents.push(event)
+  }
 
   // Handle player state changes from PlayerControl
   function handlePlayerStateChange(newState: PlayerState) {
@@ -381,11 +387,12 @@
       // Movement runs in map/housing editor so right-click-to-move works.
       const playerControlStart = performance.now()
       if (playerControl) {
-        if (!$mapEditorMode && !$housingEditorMode) {
-          playerControl.checkInteraction()
-          playerControl.updateKeyboardMovement()
-        }
-        playerControl.updatePlayerMovement(deltaTime)
+        const events = pendingPlayerControlEvents
+        pendingPlayerControlEvents = []
+        playerControl.updatePlayerControl(deltaTime, {
+          editorMode: $mapEditorMode || $housingEditorMode,
+          events,
+        })
       }
       tileManager.updateFromPlayerPosition(currentPlayer?.position ?? null)
       if (terrainTiles.length < graphicsPreset.terrainQueueDrainTilesBeforeStagger) {
@@ -975,6 +982,7 @@
     torchLightCastsShadow={graphicsPreset.enableTorchShadows}
     heightManager={terrainHeightManager}
     onStateChange={handlePlayerStateChange}
+    onPlayerControlEvent={enqueuePlayerControlEvent}
     onAttackDuration={(duration) => (playerAttackDuration = duration)}
     {onCurrentPlayerDyingFinished}
     bind:isCurrentPlayerLoading={isCurrentPlayerLoading}

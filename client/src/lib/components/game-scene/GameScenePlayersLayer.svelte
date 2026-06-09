@@ -5,6 +5,7 @@
   import { SvelteMap } from 'svelte/reactivity'
   import PlayerModel from '../PlayerModel.svelte'
   import PlayerControl from '../PlayerControl.svelte'
+  import type { PlayerControlEvent } from '../player-control/events'
   import type {
     ChatBubble,
     LocalPlayer,
@@ -43,6 +44,7 @@
     playerAttackDuration: number
     heightManager: TerrainHeightManager
     onStateChange: (newState: PlayerState) => void
+    onPlayerControlEvent?: (event: PlayerControlEvent) => void
     onAttackDuration: (duration: number) => void
     onCurrentPlayerDyingFinished?: () => void
     isCurrentPlayerLoading?: boolean
@@ -70,6 +72,7 @@
     playerAttackDuration,
     heightManager,
     onStateChange,
+    onPlayerControlEvent,
     onAttackDuration,
     onCurrentPlayerDyingFinished,
     isCurrentPlayerLoading = $bindable(false),
@@ -209,8 +212,12 @@
     maxHealth={currentPlayer.maxHealth}
     onAttackDuration={onAttackDuration}
     onDyingFinished={onCurrentPlayerDyingFinished}
-    onInteractionFinished={() => playerControl?.onInteractionFinished()}
-    onPickupGrab={() => playerControl?.onPickupGrab()}
+    onInteractionFinished={() => {
+      onPlayerControlEvent?.({ type: 'anim_interaction_finished' })
+    }}
+    onPickupGrab={() => {
+      onPlayerControlEvent?.({ type: 'anim_pickup_grab' })
+    }}
     bind:isLoading={isCurrentPlayerLoading}
     lastDamageInfo={currentPlayer.lastDamageInfo}
     lastRegenInfo={currentPlayer.lastRegenInfo}

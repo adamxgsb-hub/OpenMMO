@@ -81,5 +81,6 @@ export function buildPickupState(prev: PlayerState): PlayerState {
     state: 'interact',
     speed: 0,
     interactionAnim: 'pickup',
+    interactOffsetY: 0,
   }
 }
