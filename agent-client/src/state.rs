@@ -352,6 +352,10 @@ impl SharedState {
             // Urgent: kicked
             ServerMessage::Kicked { .. } => EventUrgency::Urgent,
 
+            // Urgent: verdict on our haggling offer — the NPC should follow
+            // up in the ongoing conversation (e.g. correct a clamped price).
+            ServerMessage::DealResult { .. } => EventUrgency::Urgent,
+
             // Urgent: another player attacks a monster (so we can join in)
             ServerMessage::PlayerAttacked { player_id, .. } => {
                 if self_id != Some(player_id.as_str()) {

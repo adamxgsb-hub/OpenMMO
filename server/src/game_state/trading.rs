@@ -1,7 +1,10 @@
 use crate::merchant_defs::{merchant_defs, MerchantDefinition};
 use crate::types::{PlayerId, ServerMessage};
 use onlinerpg_shared::inventory::ItemInstance;
+use onlinerpg_shared::messages::DealKind;
 use tracing::info;
+
+use super::deals::{buy_price, sell_payout};
 
 /// Maximum distance between player and merchant for any shop interaction.
 const MAX_TRADE_DISTANCE: f32 = 6.0;
@@ -55,6 +58,7 @@ impl super::GameState {
     pub async fn open_shop(&self, player_id: &PlayerId, merchant_player_id: &str) {
         match self.validate_merchant(player_id, merchant_player_id).await {
             Ok(def) => {
+                let active_deals = self.active_deals_for(player_id, &def.npc_name).await;
                 self.send_direct_message(
                     player_id,
                     ServerMessage::ShopState {
@@ -62,6 +66,7 @@ impl super::GameState {
                         merchant_name: def.npc_name.clone(),
                         catalog: def.catalog.clone(),
                         sell_rate_percent: def.sell_rate_percent,
+                        active_deals,
                     },
                 )
                 .await;
@@ -90,7 +95,7 @@ impl super::GameState {
                 .await;
         }
 
-        let Some(price) = self
+        let Some(base_price) = self
             .item_defs
             .get(item_def_id)
             .and_then(|item| item.base_price)
@@ -99,6 +104,12 @@ impl super::GameState {
                 .send_trade_error(player_id, "That item has no price")
                 .await;
         };
+
+        // Single-use haggled modifier; must be restored if the buy fails.
+        let deal = self
+            .take_deal(player_id, &def.npc_name, item_def_id, DealKind::Buy)
+            .await;
+        let price = buy_price(base_price, deal.as_ref().map_or(0, |d| d.modifier_pct));
 
         let item_weight = self.item_defs.weight(item_def_id);
         let max_weight = self.max_carry_weight(player_id).await;
@@ -109,20 +120,28 @@ impl super::GameState {
         let snapshot = {
             let mut gold_map = self.player_gold.write().await;
             let Some(gold) = gold_map.get_mut(player_id) else {
+                self.restore_deal(player_id, &def.npc_name, item_def_id, DealKind::Buy, deal)
+                    .await;
                 return;
             };
             if *gold < price {
                 drop(gold_map);
+                self.restore_deal(player_id, &def.npc_name, item_def_id, DealKind::Buy, deal)
+                    .await;
                 return self.send_trade_error(player_id, "Not enough gold").await;
             }
 
             let mut inventories = self.inventories.write().await;
             let Some(inv) = inventories.get_mut(player_id) else {
+                self.restore_deal(player_id, &def.npc_name, item_def_id, DealKind::Buy, deal)
+                    .await;
                 return;
             };
             if self.calc_total_weight(inv) + item_weight > max_weight {
                 drop(inventories);
                 drop(gold_map);
+                self.restore_deal(player_id, &def.npc_name, item_def_id, DealKind::Buy, deal)
+                    .await;
                 return self.send_trade_error(player_id, "Too heavy to carry").await;
             }
 
@@ -135,6 +154,16 @@ impl super::GameState {
             inv.clone()
         };
 
+        if let Some(entry) = deal {
+            info!(
+                target: "deal",
+                "deal redeemed: npc={} player={player_id} item={item_def_id} kind=Buy \
+                 modifier={} base={base_price} paid={price}",
+                def.npc_name, entry.modifier_pct
+            );
+            self.send_deal_cleared(player_id, merchant_player_id, item_def_id, DealKind::Buy)
+                .await;
+        }
         info!(
             "{} bought {} from {} for {}",
             player_id, item_def_id, def.npc_name, price
@@ -165,39 +194,62 @@ impl super::GameState {
             Err(reason) => return self.send_trade_error(player_id, reason).await,
         };
 
-        let (snapshot, item_def_id, payout) = {
-            let mut gold_map = self.player_gold.write().await;
-            let Some(gold) = gold_map.get_mut(player_id) else {
-                return;
-            };
-
-            let mut inventories = self.inventories.write().await;
-            let Some(inv) = inventories.get_mut(player_id) else {
-                return;
-            };
-
-            let Some(idx) = inv.bag.iter().position(|i| i.instance_id == instance_id) else {
-                drop(inventories);
-                drop(gold_map);
+        // Resolve the item def up front so any haggled sell bonus can be
+        // looked up before taking the gold/inventory locks.
+        let item_def_id = {
+            let inventories = self.inventories.read().await;
+            let Some(item) = inventories
+                .get(player_id)
+                .and_then(|inv| inv.bag.iter().find(|i| i.instance_id == instance_id))
+            else {
                 return self
                     .send_trade_error(player_id, "Item not found in bag")
                     .await;
             };
+            item.item_def_id.clone()
+        };
+        let Some(base_price) = self
+            .item_defs
+            .get(&item_def_id)
+            .and_then(|item| item.base_price)
+        else {
+            return self
+                .send_trade_error(player_id, "The merchant will not buy that")
+                .await;
+        };
 
-            let item_def_id = inv.bag[idx].item_def_id.clone();
-            let Some(base_price) = self
-                .item_defs
-                .get(&item_def_id)
-                .and_then(|item| item.base_price)
+        // Single-use haggled modifier; must be restored if the sell fails.
+        let deal = self
+            .take_deal(player_id, &def.npc_name, &item_def_id, DealKind::Sell)
+            .await;
+        let payout = sell_payout(
+            base_price,
+            def.sell_rate_percent,
+            deal.as_ref().map_or(0, |d| d.modifier_pct),
+        );
+
+        let snapshot = {
+            let mut gold_map = self.player_gold.write().await;
+            let Some(gold) = gold_map.get_mut(player_id) else {
+                self.restore_deal(player_id, &def.npc_name, &item_def_id, DealKind::Sell, deal)
+                    .await;
+                return;
+            };
+
+            let mut inventories = self.inventories.write().await;
+            let Some(idx) = inventories
+                .get_mut(player_id)
+                .and_then(|inv| inv.bag.iter().position(|i| i.instance_id == instance_id))
             else {
                 drop(inventories);
                 drop(gold_map);
+                self.restore_deal(player_id, &def.npc_name, &item_def_id, DealKind::Sell, deal)
+                    .await;
                 return self
-                    .send_trade_error(player_id, "The merchant will not buy that")
+                    .send_trade_error(player_id, "Item not found in bag")
                     .await;
             };
-
-            let payout = (base_price * i64::from(def.sell_rate_percent) / 100).max(1);
+            let inv = inventories.get_mut(player_id).expect("checked above");
 
             if inv.bag[idx].quantity > 1 {
                 inv.bag[idx].quantity -= 1;
@@ -206,9 +258,19 @@ impl super::GameState {
             }
             *gold += payout;
 
-            (inv.clone(), item_def_id, payout)
+            inv.clone()
         };
 
+        if let Some(entry) = deal {
+            info!(
+                target: "deal",
+                "deal redeemed: npc={} player={player_id} item={item_def_id} kind=Sell \
+                 modifier={} base={base_price} paid={payout}",
+                def.npc_name, entry.modifier_pct
+            );
+            self.send_deal_cleared(player_id, merchant_player_id, &item_def_id, DealKind::Sell)
+                .await;
+        }
         info!(
             "{} sold {} to {} for {}",
             player_id, item_def_id, def.npc_name, payout

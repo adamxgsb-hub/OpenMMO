@@ -47,6 +47,26 @@ pub(super) enum AgentAction {
     },
     #[serde(rename = "respawn")]
     Respawn,
+    /// Haggling (merchants only): offer a price modifier on one item to a
+    /// nearby player. The server clamps/validates; see `doc/ECONOMY.md`.
+    #[serde(rename = "offer_deal")]
+    OfferDeal {
+        #[serde(alias = "target", alias = "player_name", alias = "target_player")]
+        player: String,
+        #[serde(alias = "item_def_id", alias = "item_id")]
+        item: String,
+        /// "buy" (player buys from you, default) or "sell" (player sells to you).
+        #[serde(default)]
+        kind: Option<String>,
+        #[serde(
+            alias = "modifier",
+            alias = "modifier_percent",
+            alias = "discount_pct"
+        )]
+        modifier_pct: i32,
+        #[serde(default)]
+        reason: Option<String>,
+    },
     #[serde(rename = "wait", alias = "idle", alias = "observe", alias = "none")]
     Wait,
 }
@@ -145,6 +165,9 @@ pub(super) fn action_to_command(
             })
         }
         AgentAction::Respawn => Some(ClientMessage::RequestRespawn),
+        // Needs player-name → id resolution from SharedState; handled in
+        // `execute::handle_response`, not here.
+        AgentAction::OfferDeal { .. } => None,
         AgentAction::Wait => None,
     }
 }

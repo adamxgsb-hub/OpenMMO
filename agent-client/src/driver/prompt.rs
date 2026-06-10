@@ -266,6 +266,19 @@ fn format_event(state: &SharedState, msg: &ServerMessage) -> Option<String> {
             ))
         }
         ServerMessage::Kicked { reason, .. } => Some(format!("[Kicked] {reason}")),
+        ServerMessage::DealResult {
+            target_player_name,
+            item_def_id,
+            kind,
+            accepted,
+            applied_modifier_pct,
+            message,
+            ..
+        } => Some(format!(
+            "[DealResult] your offer on {item_def_id} ({kind:?}) for {target_player_name}: {} \
+             at {applied_modifier_pct}% — {message}",
+            if *accepted { "GRANTED" } else { "REJECTED" }
+        )),
         // Skip unknown/unhandled event types
         _ => None,
     }

@@ -49,6 +49,8 @@ pub type GameStateReceiver = broadcast::Receiver<BroadcastMessage>;
 
 mod chat;
 mod combat;
+mod deals;
+pub(crate) use deals::band_invariant_holds;
 mod inventory;
 mod monster;
 mod player;
@@ -115,6 +117,10 @@ pub struct GameState {
     ground_items: Arc<RwLock<HashMap<u64, ServerGroundItem>>>,
     /// Monotonically increasing counter for item instance IDs.
     next_item_instance_id: Arc<RwLock<u64>>,
+    /// Live haggled price modifiers granted by LLM NPCs (economy phase 2).
+    deals: Arc<RwLock<HashMap<deals::DealKey, deals::DealEntry>>>,
+    /// Daily haggling budgets and cooldowns.
+    deal_ledgers: Arc<RwLock<deals::DealLedgers>>,
 }
 
 impl GameState {
@@ -150,6 +156,8 @@ impl GameState {
             inventories: Arc::new(RwLock::new(HashMap::new())),
             ground_items: Arc::new(RwLock::new(HashMap::new())),
             next_item_instance_id: Arc::new(RwLock::new(1)),
+            deals: Arc::new(RwLock::new(HashMap::new())),
+            deal_ledgers: Arc::new(RwLock::new(deals::DealLedgers::default())),
         }
     }
 

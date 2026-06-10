@@ -17,7 +17,11 @@ import { objectManager } from '../managers/objectManager'
 import { groundItemManager } from '../managers/groundItemManager'
 import { deathDropDelayQueue } from '../managers/deathDropDelay'
 import { setInventory, playerGold } from '../stores/inventoryStore'
-import { shopSession } from '../stores/tradeStore'
+import {
+  shopSession,
+  applyDealUpdate,
+  setMerchantDeals,
+} from '../stores/tradeStore'
 import { editorTreeDataManager } from '../stores/editorStore'
 import type { MonsterData } from '../types/Monster'
 import { requestCameraReset } from '../stores/cameraStore'
@@ -705,6 +709,7 @@ export function handleServerMessage(
         catalog: data.catalog ?? [],
         sellRatePercent: data.sell_rate_percent,
       })
+      setMerchantDeals(data.merchant_player_id, data.active_deals ?? [])
       break
 
     case 'GoldUpdate':
@@ -713,6 +718,16 @@ export function handleServerMessage(
 
     case 'TradeError':
       addChatMessage({ text: data.message, sender: 'system' })
+      break
+
+    case 'DealUpdated':
+      applyDealUpdate(
+        data.merchant_player_id,
+        data.item_def_id,
+        data.kind,
+        data.modifier_pct,
+        data.expires_in_secs
+      )
       break
 
     case 'XpGained': {

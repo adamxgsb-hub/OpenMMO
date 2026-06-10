@@ -23,7 +23,7 @@ pub use character::{Character, CharacterAttributes, CharacterClass, Gender};
 pub use entity::{Monster, MonsterState, Player};
 pub use messages::{
     deserialize_client_msg, deserialize_server_msg, serialize_client_msg, serialize_server_msg,
-    ClientMessage, PlayerId, ServerMessage,
+    ActiveDeal, ClientMessage, DealKind, PlayerId, ServerMessage,
 };
 pub use world::{GameDateTime, NoSpawnZone, Position, NPC_SIGHT_RADIUS};
 

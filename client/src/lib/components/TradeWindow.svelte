@@ -1,6 +1,11 @@
 <script lang="ts">
   import { get } from 'svelte/store'
-  import { shopSession } from '../stores/tradeStore'
+  import {
+    shopSession,
+    shopDeals,
+    dealKey,
+    type DealKind,
+  } from '../stores/tradeStore'
   import { gameStore } from '../stores/gameStore'
   import { remotePlayerManager } from '../managers/remotePlayerManager'
   import { inventoryStore, playerGold } from '../stores/inventoryStore'
@@ -22,10 +27,15 @@
     /** Per-unit price, fixed when the entry is added (prices cannot change
      *  within a shop session). */
     unitPrice: number
+    /** Haggled modifier baked into unitPrice. Deal entries are single-use
+     *  (the server consumes the deal on the first traded unit), so they
+     *  stay at qty 1. */
+    dealPct?: number
   }
 
   let cart = $state<CartEntry[]>([])
   let portraitFailed = $state(false)
+  let now = $state(Date.now())
 
   // Reset the cart whenever the shop session changes (open/close/refresh).
   $effect(() => {
@@ -47,6 +57,7 @@
     if (!session) return
     const merchantId = session.merchantPlayerId
     const timer = setInterval(() => {
+      now = Date.now()
       const me = get(gameStore).currentPlayer
       const merchant = remotePlayerManager.players.get(merchantId)
       if (!me || !merchant) {
@@ -72,11 +83,32 @@
       )
   })
 
-  function sellPrice(def: ItemDefinition): number {
+  /** Live haggled modifier for an item, 0 when none (or expired). */
+  function dealPct(itemDefId: string, kind: DealKind): number {
+    if (!session) return 0
+    const deal = $shopDeals[dealKey(session.merchantPlayerId, itemDefId, kind)]
+    if (!deal || deal.expiresAt <= now) return 0
+    return deal.modifierPct
+  }
+
+  /** True when a modifier works against the player (red badge):
+   *  paying more on a buy, or being paid less on a sell. */
+  function isMarkup(kind: DealKind, pct: number): boolean {
+    return kind === 'buy' ? pct > 0 : pct < 0
+  }
+
+  // Mirrors the server's integer price math (deals.rs).
+  function buyPrice(def: ItemDefinition, pct: number): number {
+    return Math.max(1, Math.floor(((def.basePrice ?? 0) * (100 + pct)) / 100))
+  }
+
+  function sellPrice(def: ItemDefinition, pct: number): number {
     if (!session) return 0
     return Math.max(
       1,
-      Math.floor(((def.basePrice ?? 0) * session.sellRatePercent) / 100)
+      Math.floor(
+        ((def.basePrice ?? 0) * session.sellRatePercent * (100 + pct)) / 10000
+      )
     )
   }
 
@@ -90,11 +122,25 @@
   const netCost = $derived(buyTotal - sellTotal)
   const canConfirm = $derived(cart.length > 0 && netCost <= $playerGold)
 
-  const findSellEntry = (instanceId: number) =>
-    cart.find((e) => e.kind === 'sell' && e.instanceId === instanceId)
-
   function addBuy(itemDefId: string, def: ItemDefinition) {
-    const existing = cart.find((e) => e.kind === 'buy' && e.itemDefId === itemDefId)
+    // The first added unit carries any haggled deal (single-use server-side).
+    const pct = dealPct(itemDefId, 'buy')
+    const hasDealEntry = cart.some(
+      (e) => e.kind === 'buy' && e.itemDefId === itemDefId && e.dealPct
+    )
+    if (pct !== 0 && !hasDealEntry) {
+      cart.push({
+        kind: 'buy',
+        itemDefId,
+        qty: 1,
+        unitPrice: buyPrice(def, pct),
+        dealPct: pct,
+      })
+      return
+    }
+    const existing = cart.find(
+      (e) => e.kind === 'buy' && e.itemDefId === itemDefId && !e.dealPct
+    )
     if (existing) {
       existing.qty += 1
     } else {
@@ -103,16 +149,33 @@
   }
 
   function addSell(item: ItemInstance, def: ItemDefinition) {
-    const existing = findSellEntry(item.instance_id)
-    if (existing) {
-      if (existing.qty < item.quantity) existing.qty += 1
-    } else {
+    const pct = dealPct(item.item_def_id, 'sell')
+    const hasDealEntry = cart.some(
+      (e) => e.kind === 'sell' && e.itemDefId === item.item_def_id && e.dealPct
+    )
+    if (pct !== 0 && !hasDealEntry) {
       cart.push({
         kind: 'sell',
         itemDefId: item.item_def_id,
         instanceId: item.instance_id,
         qty: 1,
-        unitPrice: sellPrice(def),
+        unitPrice: sellPrice(def, pct),
+        dealPct: pct,
+      })
+      return
+    }
+    const existing = cart.find(
+      (e) => e.kind === 'sell' && e.instanceId === item.instance_id && !e.dealPct
+    )
+    if (existing) {
+      if (reservedQty(item.instance_id) < item.quantity) existing.qty += 1
+    } else if (reservedQty(item.instance_id) < item.quantity) {
+      cart.push({
+        kind: 'sell',
+        itemDefId: item.item_def_id,
+        instanceId: item.instance_id,
+        qty: 1,
+        unitPrice: sellPrice(def, 0),
       })
     }
   }
@@ -126,13 +189,20 @@
 
   /** Units of this bag item already reserved in the cart. */
   function reservedQty(instanceId: number): number {
-    return findSellEntry(instanceId)?.qty ?? 0
+    return cart
+      .filter((e) => e.kind === 'sell' && e.instanceId === instanceId)
+      .reduce((sum, e) => sum + e.qty, 0)
   }
 
   function onConfirm() {
     if (!session || !canConfirm) return
+    // Deal entries go first so the server applies the single-use modifier
+    // to the unit the cart priced with it.
+    const ordered = [...cart].sort(
+      (a, b) => Number(Boolean(b.dealPct)) - Number(Boolean(a.dealPct))
+    )
     // Sells go first so their proceeds can fund the buys.
-    for (const entry of cart) {
+    for (const entry of ordered) {
       if (entry.kind !== 'sell' || entry.instanceId === undefined) continue
       const owned = $inventoryStore.bag.find(
         (i) => i.instance_id === entry.instanceId
@@ -142,7 +212,7 @@
         networkManager.sendSellItem(session.merchantPlayerId, entry.instanceId)
       }
     }
-    for (const entry of cart) {
+    for (const entry of ordered) {
       if (entry.kind !== 'buy') continue
       for (let i = 0; i < entry.qty; i++) {
         networkManager.sendBuyItem(session.merchantPlayerId, entry.itemDefId)
@@ -175,10 +245,14 @@
           {#each session.catalog as itemDefId (itemDefId)}
             {@const def = getItemDef(itemDefId)}
             {#if def}
+              {@const pct = dealPct(itemDefId, 'buy')}
               <button class="item-row" onclick={() => addBuy(itemDefId, def)}>
                 <img class="item-icon" src="/items/{def.icon}" alt="" draggable="false" />
                 <span class="item-name">{def.name}</span>
-                <span class="item-price"><GoldAmount copper={def.basePrice ?? 0} /></span>
+                {#if pct !== 0}
+                  <span class="deal-badge" class:markup={isMarkup('buy', pct)}>{pct > 0 ? '+' : ''}{pct}%</span>
+                {/if}
+                <span class="item-price"><GoldAmount copper={buyPrice(def, pct)} /></span>
               </button>
             {/if}
           {/each}
@@ -192,7 +266,7 @@
         </div>
         <div class="column-title">Cart</div>
         <div class="item-list">
-          {#each cart as entry (entry.kind + ':' + (entry.instanceId ?? entry.itemDefId))}
+          {#each cart as entry (entry.kind + ':' + (entry.instanceId ?? entry.itemDefId) + (entry.dealPct ? ':deal' : ''))}
             {@const def = getItemDef(entry.itemDefId)}
             {#if def}
               <button class="item-row" onclick={() => removeOne(entry)}>
@@ -203,6 +277,11 @@
                 <span class="item-name">
                   {def.name}{entry.qty > 1 ? ` ×${entry.qty}` : ''}
                 </span>
+                {#if entry.dealPct}
+                  <span class="deal-badge" class:markup={isMarkup(entry.kind, entry.dealPct)}>
+                    {entry.dealPct > 0 ? '+' : ''}{entry.dealPct}%
+                  </span>
+                {/if}
                 <span class="item-price {entry.kind}">
                   {entry.kind === 'buy' ? '−' : '+'}<GoldAmount
                     copper={entry.unitPrice * entry.qty}
@@ -238,6 +317,7 @@
         <div class="item-list">
           {#each sellEntries as { item, def } (item.instance_id)}
             {@const reserved = reservedQty(item.instance_id)}
+            {@const pct = dealPct(item.item_def_id, 'sell')}
             <button
               class="item-row"
               disabled={reserved >= item.quantity}
@@ -247,7 +327,10 @@
               <span class="item-name">
                 {def.name}{item.quantity > 1 ? ` ×${item.quantity}` : ''}
               </span>
-              <span class="item-price"><GoldAmount copper={sellPrice(def)} /></span>
+              {#if pct !== 0}
+                <span class="deal-badge" class:markup={isMarkup('sell', pct)}>{pct > 0 ? '+' : ''}{pct}%</span>
+              {/if}
+              <span class="item-price"><GoldAmount copper={sellPrice(def, pct)} /></span>
             </button>
           {:else}
             <div class="empty-note">Nothing to sell</div>
@@ -428,6 +511,20 @@
 
   .cart-kind.sell {
     color: #8ae29a;
+  }
+
+  .deal-badge {
+    flex-shrink: 0;
+    padding: 0 4px;
+    border-radius: 3px;
+    font-weight: 700;
+    background: rgba(60, 110, 60, 0.85);
+    color: #b8f0b8;
+  }
+
+  .deal-badge.markup {
+    background: rgba(120, 60, 60, 0.85);
+    color: #f0b8b8;
   }
 
   .cart-current {

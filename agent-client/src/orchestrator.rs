@@ -535,6 +535,15 @@ fn build_system_prompt(npc: &NpcConfig) -> anyhow::Result<String> {
         if let Some(ref instance_path) = npc.instance_prompt {
             parts.push(driver::load_system_prompt(instance_path)?);
         }
+        // Merchants get their catalog and prices for roleplay; the server
+        // re-validates every trade and haggle.
+        if let Some(shop) = npc
+            .character_name
+            .as_deref()
+            .and_then(crate::shop_info::shop_prompt_for)
+        {
+            parts.push(shop);
+        }
         if let Some(ref memory_path) = npc.memory_file {
             match std::fs::read_to_string(memory_path) {
                 Ok(content) if !content.trim().is_empty() => {

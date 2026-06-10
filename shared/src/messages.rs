@@ -15,6 +15,27 @@ use crate::entity::{Monster, MonsterState, Player};
 use crate::world::{GameDateTime, NoSpawnZone, Position};
 use crate::{housing, inventory};
 
+/// Which side of a merchant trade a haggled deal applies to.
+/// `Buy` = the player buys from the merchant, `Sell` = the player sells to
+/// the merchant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DealKind {
+    Buy,
+    Sell,
+}
+
+/// A haggled price modifier on one item, as included in `ShopState`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActiveDeal {
+    pub item_def_id: String,
+    pub kind: DealKind,
+    /// Percentage points added to the normal price (negative = discount on
+    /// buys, positive = bonus on sells).
+    pub modifier_pct: i32,
+    pub expires_in_secs: u32,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ClientMessage {
     Authenticate {
@@ -129,6 +150,19 @@ pub enum ClientMessage {
     SellItem {
         merchant_player_id: String,
         instance_id: u64,
+    },
+    /// NPC-only (LLM haggling): offer a price modifier on one item to a
+    /// nearby player. The server clamps the modifier to the player's price
+    /// band and enforces budgets/cooldowns; see `doc/ECONOMY.md`.
+    OfferDeal {
+        target_player_id: String,
+        item_def_id: String,
+        kind: DealKind,
+        /// Requested percentage points off/on the normal price
+        /// (negative = discount on buys, positive = bonus on sells).
+        modifier_pct: i32,
+        /// LLM's stated reason for the decision (logged server-side).
+        reason: String,
     },
 }
 
@@ -336,6 +370,10 @@ pub enum ServerMessage {
         merchant_name: String,
         catalog: Vec<String>,
         sell_rate_percent: u32,
+        /// Haggled price modifiers this player currently holds with this
+        /// merchant.
+        #[serde(default)]
+        active_deals: Vec<ActiveDeal>,
     },
     /// Direct message: the receiving player's current gold (smallest unit).
     GoldUpdate {
@@ -343,6 +381,27 @@ pub enum ServerMessage {
     },
     /// A shop request failed.
     TradeError {
+        message: String,
+    },
+    /// Direct to a player: a haggled price modifier changed on one item.
+    /// `modifier_pct == 0` means the deal was consumed or cleared.
+    DealUpdated {
+        merchant_player_id: String,
+        item_def_id: String,
+        kind: DealKind,
+        modifier_pct: i32,
+        expires_in_secs: u32,
+    },
+    /// Direct to the offering NPC: the server's verdict on its `OfferDeal`.
+    DealResult {
+        target_player_id: String,
+        target_player_name: String,
+        item_def_id: String,
+        kind: DealKind,
+        accepted: bool,
+        /// The modifier actually in effect (after band clamping); 0 when
+        /// rejected.
+        applied_modifier_pct: i32,
         message: String,
     },
 }

@@ -94,6 +94,46 @@ pub(super) async fn handle_response(
             last_attack_target = Some(monster_id.clone());
         }
 
+        // Haggling: resolve the target player's name to an id and send the
+        // offer. The server clamps the modifier and enforces budgets.
+        if let AgentAction::OfferDeal {
+            player,
+            item,
+            kind,
+            modifier_pct,
+            reason,
+        } = action
+        {
+            let mut s = state.lock().await;
+            let target_id = s
+                .nearby_players
+                .iter()
+                .find(|(id, p)| p.name.eq_ignore_ascii_case(player) || *id == player)
+                .map(|(id, _)| id.clone());
+            let Some(target_id) = target_id else {
+                warn!("offer_deal: no nearby player named '{player}'");
+                s.push_agent_event(format!(
+                    "[DealFailed] No player named '{player}' is nearby; the offer was not sent."
+                ));
+                continue;
+            };
+            let kind = match kind.as_deref() {
+                Some("sell") => onlinerpg_shared::messages::DealKind::Sell,
+                _ => onlinerpg_shared::messages::DealKind::Buy,
+            };
+            let cmd = onlinerpg_shared::ClientMessage::OfferDeal {
+                target_player_id: target_id,
+                item_def_id: item.clone(),
+                kind,
+                modifier_pct: *modifier_pct,
+                reason: reason.clone().unwrap_or_default(),
+            };
+            if let Err(e) = s.send_command(cmd).await {
+                error!("Failed to send offer_deal: {e}");
+            }
+            continue;
+        }
+
         // Handle move actions with pathfinding
         if let AgentAction::Move {
             x,

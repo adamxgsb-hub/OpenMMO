@@ -50,6 +50,17 @@ impl MerchantDefs {
         let by_id: HashMap<String, MerchantDefinition> =
             serde_json::from_str(data).expect("Failed to parse merchants.json");
 
+        // Money-pump invariant: even with maximum haggling in both
+        // directions, buying must always cost more than selling pays.
+        for def in by_id.values() {
+            assert!(
+                crate::game_state::band_invariant_holds(def.sell_rate_percent),
+                "merchant {} sellRatePercent {} breaks the haggling band invariant",
+                def.id,
+                def.sell_rate_percent
+            );
+        }
+
         info!("Loaded {} merchant definition(s)", by_id.len());
         let by_npc_name = by_id
             .into_values()

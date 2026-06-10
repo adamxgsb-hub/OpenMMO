@@ -771,6 +771,27 @@ async fn handle_client_message(
                     .await;
             }
         }
+
+        ClientMessage::OfferDeal {
+            target_player_id,
+            item_def_id,
+            kind,
+            modifier_pct,
+            reason,
+        } => {
+            if let Some(id) = &state.player_id {
+                game_state
+                    .offer_deal(
+                        id,
+                        &target_player_id,
+                        &item_def_id,
+                        kind,
+                        modifier_pct,
+                        &reason,
+                    )
+                    .await;
+            }
+        }
     }
 
     Ok(vec![])

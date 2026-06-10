@@ -6,6 +6,7 @@ mod llm_scheduler;
 mod monster_ai;
 mod openrouter;
 mod orchestrator;
+mod shop_info;
 mod state;
 mod ws;
 
@@ -195,5 +196,7 @@ pub fn msg_name(msg: &onlinerpg_shared::ServerMessage) -> &'static str {
         ServerMessage::ShopState { .. } => "ShopState",
         ServerMessage::GoldUpdate { .. } => "GoldUpdate",
         ServerMessage::TradeError { .. } => "TradeError",
+        ServerMessage::DealUpdated { .. } => "DealUpdated",
+        ServerMessage::DealResult { .. } => "DealResult",
     }
 }
