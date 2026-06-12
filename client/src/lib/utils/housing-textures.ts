@@ -166,6 +166,14 @@ export const HOUSING_TEXTURES: HousingTextureEntry[] = [
     internal: true,
     transparent: true,
   },
+  {
+    // Untextured near-black material for dungeon entrance pits. Empty glb
+    // skips texture loading; the fallback color is the whole point.
+    label: 'Void',
+    glb: '',
+    fallbackColor: 0x050505,
+    internal: true,
+  },
 ]
 
 /** Per-texture-index material cache (module-level singleton). */
@@ -229,6 +237,7 @@ export function initHousingTextures(): Promise<void> {
 
   _initPromise = (async () => {
     const promises = HOUSING_TEXTURES.map(async (entry, idx) => {
+      if (!entry.glb) return // color-only entries (e.g. Void)
       try {
         const layer = await loadSplatLayer(entry.glb, 1.0)
         const mat = getHousingMaterial(idx)

@@ -26,6 +26,8 @@ export interface SceneLightingUpdateParams {
   scene: THREE.Scene
   sunLightSnapshot: SunLightSnapshot
   eclipseFactor: number
+  /** Dungeon render mode: no sun/moon, dim cold ambient, dark background. */
+  underground?: boolean
 }
 
 export interface SceneLightingController {
@@ -74,8 +76,50 @@ export function createSceneLightingController(): SceneLightingController {
     return snappedOffset
   }
 
+  const undergroundAmbientColor = new THREE.Color('#8090b0')
+  const undergroundBackground = new THREE.Color('#060606')
+  let savedBackground: THREE.Scene['background'] = null
+  let wasUnderground = false
+
+  /**
+   * Underground branch: celestial lighting is fully overridden every
+   * frame anyway, so we just write different values — ambient-only cave
+   * light, directional off (shadow toggle goes through the same latch),
+   * near-black background. The unified torch PointLight is untouched and
+   * becomes the main light source.
+   */
+  function updateUnderground(params: SceneLightingUpdateParams) {
+    if (!wasUnderground) {
+      savedBackground = params.scene.background
+      params.scene.background = undergroundBackground
+      wasUnderground = true
+    }
+    if (params.ambientLight) {
+      params.ambientLight.color.copy(undergroundAmbientColor)
+      params.ambientLight.intensity = 0.25
+    }
+    params.scene.environmentIntensity = 0.03
+    if (params.directionalLight) {
+      params.directionalLight.intensity = 0
+      if (lastDirectionalCastShadow !== false) {
+        params.directionalLight.castShadow = false
+        lastDirectionalCastShadow = false
+      }
+    }
+  }
+
   function update(params: SceneLightingUpdateParams) {
     if (!params.currentPlayerPosition) return
+
+    if (params.underground) {
+      updateUnderground(params)
+      return
+    }
+    if (wasUnderground) {
+      params.scene.background = savedBackground
+      savedBackground = null
+      wasUnderground = false
+    }
 
     const sunLightState = params.sunLightSnapshot
     const celestialLightState = computeCelestialLightState(

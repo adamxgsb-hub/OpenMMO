@@ -178,6 +178,111 @@ pub fn passability_get_floor_y_base(x: f32, z: f32, floor_level: u8) -> f32 {
     with_cache(|c| pathfinding::get_floor_y_base(c, x, z, floor_level).unwrap_or(f32::NAN))
 }
 
+// --- Dungeon (procedural, seed-deterministic) ---
+
+/// Full layout of every floor of a dungeon, generated from the entrance
+/// id. Identical to what the server generates natively from the same id.
+#[wasm_bindgen]
+pub fn dungeon_layout(entrance_id: &str) -> Result<JsValue, JsError> {
+    let floors = crate::dungeon::generate_dungeon(crate::dungeon::dungeon_seed(entrance_id));
+    to_js(&floors)
+}
+
+/// Shared dungeon constants so the TS side never hardcodes them.
+#[wasm_bindgen]
+pub fn dungeon_constants() -> Result<JsValue, JsError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct DungeonConstants {
+        grid: i32,
+        floor_height: f32,
+        wall_height: f32,
+        floor_index_base: u8,
+        shaft_w: i32,
+        shaft_len: i32,
+        max_depth: u8,
+        path_max_nodes: u32,
+    }
+    to_js(&DungeonConstants {
+        grid: crate::dungeon::GRID,
+        floor_height: crate::dungeon::DUNGEON_FLOOR_HEIGHT,
+        wall_height: crate::dungeon::DUNGEON_WALL_HEIGHT,
+        floor_index_base: crate::dungeon::DUNGEON_FLOOR_INDEX_BASE,
+        shaft_w: crate::dungeon::SHAFT_W,
+        shaft_len: crate::dungeon::SHAFT_LEN,
+        max_depth: crate::dungeon::MAX_DEPTH,
+        path_max_nodes: crate::dungeon::DUNGEON_PATH_MAX_NODES as u32,
+    })
+}
+
+/// Generate the dungeon's passability (all floors + stair shafts,
+/// including the surface entrance stairwell) and register it in the same
+/// cache houses use. Movement collision, click-to-move A* and monster AI
+/// pathing then work in the dungeon unchanged.
+#[wasm_bindgen]
+pub fn dungeon_add_passability(
+    entrance_id: &str,
+    entrance_x: f32,
+    entrance_y: f32,
+    entrance_z: f32,
+) {
+    let floors = crate::dungeon::generate_dungeon(crate::dungeon::dungeon_seed(entrance_id));
+    let rp = crate::dungeon::dungeon_passability(
+        &Position {
+            x: entrance_x,
+            y: entrance_y,
+            z: entrance_z,
+        },
+        &floors,
+    );
+    with_cache_mut(|c| {
+        c.insert(crate::dungeon::dungeon_cache_key(entrance_id), rp);
+    });
+}
+
+#[wasm_bindgen]
+pub fn dungeon_remove_passability(entrance_id: &str) {
+    with_cache_mut(|c| c.remove(&crate::dungeon::dungeon_cache_key(entrance_id)));
+}
+
+/// `passability_find_path` with an explicit node budget — dungeon floors
+/// are mazes and cross-floor routes can exhaust the housing default.
+#[wasm_bindgen]
+pub fn passability_find_path_budget(
+    start_x: f32,
+    start_z: f32,
+    start_floor: u8,
+    goal_x: f32,
+    goal_z: f32,
+    goal_floor: u8,
+    max_nodes: u32,
+) -> Result<JsValue, JsError> {
+    let result = with_cache(|c| {
+        pathfinding::find_and_smooth_path(
+            start_x,
+            start_z,
+            start_floor,
+            goal_x,
+            goal_z,
+            goal_floor,
+            c,
+            max_nodes as usize,
+        )
+    });
+    to_js(&PathResultJs {
+        waypoints: result
+            .waypoints
+            .iter()
+            .map(|w| WaypointJs {
+                x: w.x,
+                z: w.z,
+                floor: w.floor,
+            })
+            .collect(),
+        found: result.found,
+    })
+}
+
 #[wasm_bindgen]
 pub fn passability_debug_info() -> Result<JsValue, JsError> {
     with_cache(|c| {
@@ -270,12 +375,16 @@ pub fn ai_create_brain(val: JsValue) -> Result<(), JsError> {
         chase_range: f32,
         attack_cooldown: f32,
         behavior: String,
+        /// Passability floor for path queries (dungeon monsters use their
+        /// depth's floor index; defaults to overworld).
+        #[serde(default)]
+        path_floor: u8,
     }
 
     let args: CreateBrainArgs = serde_wasm_bindgen::from_value(val)
         .map_err(|e| JsError::new(&format!("Invalid brain args: {e}")))?;
 
-    let brain = MonsterBrain::new(
+    let mut brain = MonsterBrain::new(
         args.monster_id.clone(),
         args.monster_type,
         args.behavior,
@@ -288,6 +397,7 @@ pub fn ai_create_brain(val: JsValue) -> Result<(), JsError> {
         args.chase_range,
         args.attack_cooldown,
     );
+    brain.path_floor = args.path_floor;
 
     MONSTER_BRAINS.with(|b| b.borrow_mut().insert(args.monster_id, brain));
     Ok(())

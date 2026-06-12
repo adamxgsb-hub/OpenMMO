@@ -348,6 +348,10 @@ class NetworkManager {
     this.sendMessage({ DebugTeleport: { position } })
   }
 
+  sendOpenDungeonChest(entranceId: string) {
+    this.sendMessage({ OpenDungeonChest: { entrance_id: entranceId } })
+  }
+
   sendTorchToggle(enabled: boolean) {
     this.sendMessage({ TorchToggle: { enabled } })
   }

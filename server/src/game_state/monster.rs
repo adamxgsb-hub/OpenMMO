@@ -17,16 +17,24 @@ impl super::GameState {
     }
 
     /// Create a monster, notify nearby players, and return it (or None if limit reached).
+    /// `floor_level` < 0 marks dungeon monsters; `level_override` applies
+    /// depth scaling (health here, combat stats in combat.rs). Dungeon
+    /// spawns skip the ambient per-player cap — their spawn slots are the cap.
     pub async fn spawn_monster(
         &self,
         monster_type: String,
         position: Position,
         rotation: f32,
         owner_id: Option<String>,
+        floor_level: i8,
+        level_override: Option<u8>,
     ) -> Option<crate::types::Monster> {
         let max_total = crate::world_config::world_config().max_monsters_total as usize;
-        let max_per_player =
-            Self::find_ambient_rule(&monster_type).map(|r| r.max_per_player as usize);
+        let max_per_player = if floor_level < 0 {
+            None
+        } else {
+            Self::find_ambient_rule(&monster_type).map(|r| r.max_per_player as usize)
+        };
 
         // Read lock: single-pass check of both global and per-player limits
         {
@@ -73,7 +81,16 @@ impl super::GameState {
         let id = format!("m{}_{}", owner_number, spawn_count);
 
         let def = self.monster_defs.get(&monster_type);
-        let health = def.map(|d| d.max_health()).unwrap_or(10);
+        let base_health = def.map(|d| d.max_health()).unwrap_or(10);
+        // Depth scaling never weakens a monster below its definition
+        // health (bosses have a hand-tuned health larger than their
+        // level's formula value).
+        let health = match level_override {
+            Some(level) => {
+                base_health.max(crate::game::combat::monster_max_health_for_level(level))
+            }
+            None => base_health,
+        };
         let monster = crate::types::Monster {
             id: id.clone(),
             monster_type: monster_type.clone(),
@@ -83,6 +100,8 @@ impl super::GameState {
             owner_id,
             health,
             max_health: health,
+            floor_level,
+            level_override,
             last_attack_at: 0,
         };
 
@@ -249,10 +268,14 @@ impl super::GameState {
             players
                 .iter()
                 .filter(|(_, player)| {
-                    !player.is_npc
-                        || human_positions
-                            .iter()
-                            .any(|hp| player.position.dist_xz_sq(hp) <= radius_sq)
+                    // Dungeon players get slot-based spawns, not ambient
+                    // ones (spawn validation is XZ-only and would place
+                    // surface monsters right above the dungeon).
+                    player.floor_level >= 0
+                        && (!player.is_npc
+                            || human_positions
+                                .iter()
+                                .any(|hp| player.position.dist_xz_sq(hp) <= radius_sq))
                 })
                 .map(|(id, _)| id.clone())
                 .collect()

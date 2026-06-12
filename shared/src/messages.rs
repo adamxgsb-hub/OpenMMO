@@ -98,6 +98,11 @@ pub enum ClientMessage {
         target_player_id: String,
     },
     RequestRespawn,
+    /// Open the treasure chest on a dungeon's final floor. The server
+    /// validates proximity, boss state and the per-player cooldown.
+    OpenDungeonChest {
+        entrance_id: String,
+    },
     DebugTeleport {
         position: Position,
     },
@@ -229,6 +234,16 @@ pub enum ServerMessage {
         player_id: String,
         position: Position,
         rotation: f32,
+        #[serde(default)]
+        floor_level: i8,
+    },
+    /// A dungeon treasure chest was opened (loot already delivered to the
+    /// opener's inventory/wallet; broadcast nearby for the celebration).
+    DungeonChestOpened {
+        entrance_id: String,
+        player_id: String,
+        item_def_ids: Vec<String>,
+        gold: i64,
     },
     ChatMessage {
         player_id: String,

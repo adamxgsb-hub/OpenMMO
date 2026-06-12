@@ -455,6 +455,24 @@ async fn handle_client_message(
                 player.health = saved_health.min(max_hp);
             }
             player.floor_level = selected_character.floor_level;
+            // A negative floor means the player logged out inside a
+            // dungeon: re-prime that dungeon's runtime, or fall back to
+            // the world spawn if the entrance no longer exists.
+            if player.floor_level < 0 {
+                let ok = game_state
+                    .rehydrate_dungeon_player(&player.id, &player.position, player.floor_level)
+                    .await;
+                if !ok {
+                    let spawn = &crate::world_config::world_config().spawn_position;
+                    player.position = Position {
+                        x: spawn.x,
+                        y: spawn.y,
+                        z: spawn.z,
+                    };
+                    player.rotation = spawn.rotation;
+                    player.floor_level = 0;
+                }
+            }
             let id = player.id.clone();
 
             state.direct_rx = Some(game_state.register_direct_channel(&id).await);
@@ -496,8 +514,17 @@ async fn handle_client_message(
                 gold: selected_character.gold,
             });
 
+            let rejoin_floor = player.floor_level;
+            let rejoin_pos = player.position.clone();
             if let Some(game_state_msg) = game_state.add_player(player).await {
                 responses.push(game_state_msg);
+            }
+            if rejoin_floor < 0 {
+                // Rejoining inside a dungeon: enter its floor (occupancy
+                // + lazy monster spawn with this player as AI owner).
+                game_state
+                    .handle_player_floor_change(&id, 0, rejoin_floor, &rejoin_pos, &rejoin_pos)
+                    .await;
             }
 
             state.player_id = Some(id);
@@ -547,7 +574,7 @@ async fn handle_client_message(
                         position.x, position.z, monster_type
                     );
                 } else if let Some(monster) = game_state
-                    .spawn_monster(monster_type, position, rotation, Some(id.clone()))
+                    .spawn_monster(monster_type, position, rotation, Some(id.clone()), 0, None)
                     .await
                 {
                     game_state
@@ -610,6 +637,14 @@ async fn handle_client_message(
             }
         }
 
+        ClientMessage::OpenDungeonChest { entrance_id } => {
+            if let Some(id) = &state.player_id {
+                game_state.open_dungeon_chest(id, &entrance_id).await;
+            } else {
+                warn!("Received chest open from client that is not in game");
+            }
+        }
+
         ClientMessage::DebugTeleport { position } => {
             if let Some(id) = &state.player_id {
                 let rotation = game_state
@@ -617,7 +652,12 @@ async fn handle_client_message(
                     .await
                     .map(|(_, rot)| rot)
                     .unwrap_or(0.0);
-                game_state.teleport_player(id, position, rotation).await;
+                // Debug teleports can land inside a dungeon; infer the
+                // floor from the target Y instead of trusting the old one.
+                let floor_level = game_state.dungeon_floor_for_position(&position).await;
+                game_state
+                    .teleport_player(id, position, rotation, floor_level)
+                    .await;
             } else {
                 warn!("Received debug teleport from client that is not in game");
             }

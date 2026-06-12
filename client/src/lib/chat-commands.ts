@@ -10,6 +10,7 @@ import {
 } from './stores/editorStore'
 import { riverWireframeVisible } from './stores/debugStore'
 import { computeGrassPlacement, regenerateVegMeta } from './utils/grass-data'
+import { dungeonManager } from './managers/dungeonManager'
 
 type CommandHandler = (args: string) => void
 
@@ -62,6 +63,52 @@ const commands: Record<string, CommandHandler> = {
     networkManager.sendDebugSetTime(hour, minute)
     addChatMessage({
       text: `Time: requested jump to ${hour}:${String(minute).padStart(2, '0')}`,
+      sender: 'system',
+    })
+  },
+
+  '/dungeon': (args) => {
+    const player = get(gameStore).currentPlayer
+    if (!player) {
+      addChatMessage({ text: 'Dungeon: player unknown', sender: 'system' })
+      return
+    }
+
+    const arg = args.trim()
+    if (arg === 'exit') {
+      const ent = dungeonManager.entrancePos
+      if (ent) {
+        networkManager.sendDebugTeleport({ x: ent.x, y: ent.y, z: ent.z })
+      }
+      dungeonManager.exit()
+      addChatMessage({ text: 'Dungeon: exited to surface', sender: 'system' })
+      return
+    }
+
+    const requested = Math.max(1, parseInt(arg || '1', 10) || 1)
+    if (!dungeonManager.active) {
+      // Debug dungeon anchored at the player's current position.
+      dungeonManager.enter('debug', {
+        x: player.position.x,
+        y: player.position.y,
+        z: player.position.z,
+      })
+    }
+    const total = dungeonManager.floors.length
+    const depth = Math.min(requested, total)
+    const layout = dungeonManager.layoutAt(depth)
+    if (!layout) {
+      addChatMessage({ text: 'Dungeon: layout missing', sender: 'system' })
+      return
+    }
+    const target = dungeonManager.cellCenter(
+      depth,
+      dungeonManager.shaftExitCell(layout.upShaft)
+    )
+    dungeonManager.setDepth(depth)
+    networkManager.sendDebugTeleport(target)
+    addChatMessage({
+      text: `Dungeon: depth ${depth}/${total} (rooms=${layout.rooms.length}, spawns=${layout.spawns.length})`,
       sender: 'system',
     })
   },

@@ -29,4 +29,6 @@ export interface MonsterData {
   maxHealth: number
   spawnPosition?: { x: number; y: number; z: number }
   currentFloor?: number
+  /** Wire floor_level: 0 = overworld, 1..3 housing, negative = dungeon depth. */
+  floorLevel?: number
 }

@@ -51,6 +51,7 @@ mod chat;
 mod combat;
 mod deals;
 pub(crate) use deals::band_invariant_holds;
+mod dungeon;
 mod inventory;
 mod monster;
 mod player;
@@ -125,6 +126,12 @@ pub struct GameState {
     /// Last game day NPC salaries were paid for; `None` until the first
     /// salary tick after boot.
     npc_salary_last_day: Arc<RwLock<Option<i64>>>,
+    /// Dungeon entrance registry (data/dungeons.json).
+    dungeon_defs: crate::dungeon_defs::DungeonDefs,
+    /// Live dungeon runtimes, keyed by entrance id. Created lazily.
+    dungeons: Arc<RwLock<HashMap<String, dungeon::DungeonRuntime>>>,
+    /// monster_id → dungeon spawn slot, for respawn bookkeeping on death.
+    dungeon_monsters: Arc<RwLock<HashMap<String, dungeon::DungeonMonsterRef>>>,
 }
 
 impl GameState {
@@ -134,6 +141,7 @@ impl GameState {
         initial_datetime: crate::types::GameDateTime,
         housing_io: Arc<HousingIO>,
         no_spawn_zones: Vec<NoSpawnZone>,
+        dungeon_defs: crate::dungeon_defs::DungeonDefs,
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(1000);
 
@@ -163,6 +171,9 @@ impl GameState {
             deals: Arc::new(RwLock::new(HashMap::new())),
             deal_ledgers: Arc::new(RwLock::new(deals::DealLedgers::default())),
             npc_salary_last_day: Arc::new(RwLock::new(None)),
+            dungeon_defs,
+            dungeons: Arc::new(RwLock::new(HashMap::new())),
+            dungeon_monsters: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -261,8 +272,10 @@ fn is_player_near_door(
     player_pos: &Position,
     player_floor: i8,
 ) -> bool {
-    // Floor check (-1 means outside, allow interaction with any floor)
-    if player_floor != -1 && player_floor != room.floor_level as i8 {
+    // Exact floor match. Clients report 0 outdoors (entering a ground
+    // floor door is floor 0 on both sides); negative floors are dungeon
+    // depths and never match house doors.
+    if player_floor != room.floor_level as i8 {
         warn!(
             "toggle_door: wrong floor — player floor={} door floor={}",
             player_floor, room.floor_level

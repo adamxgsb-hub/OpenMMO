@@ -413,11 +413,10 @@ impl super::GameState {
             return;
         }
 
-        // -1 = outside, can interact with any floor
-        if player_floor != -1
-            && ground_item.floor_level != -1
-            && player_floor != ground_item.floor_level
-        {
+        // Exact floor match. Negative floors are dungeon depths now, so
+        // the old "-1 matches any floor" wildcard is gone (outdoors and
+        // house ground floors are both 0).
+        if player_floor != ground_item.floor_level {
             self.send_inventory_error(player_id, "Item is on a different floor")
                 .await;
             return;

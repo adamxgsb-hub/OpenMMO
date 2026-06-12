@@ -15,6 +15,7 @@ import { housingManager } from '../managers/housingManager'
 import { bridgeManager } from '../managers/bridgeManager'
 import { objectManager } from '../managers/objectManager'
 import { groundItemManager } from '../managers/groundItemManager'
+import { dungeonManager } from '../managers/dungeonManager'
 import { deathDropDelayQueue } from '../managers/deathDropDelay'
 import { setInventory, playerGold } from '../stores/inventoryStore'
 import {
@@ -181,6 +182,12 @@ export function handleServerMessage(
         ...state,
         currentPlayer: player,
       }))
+      // Players who logged out inside a dungeon reconnect there.
+      dungeonManager.syncFromFloorLevel(
+        serverPlayer.floor_level ?? 0,
+        serverPlayer.position.x,
+        serverPlayer.position.z
+      )
       events.joinSuccess.emit()
       break
     }
@@ -302,6 +309,11 @@ export function handleServerMessage(
           data.position.y,
           data.position.z
         )
+        dungeonManager.syncFromFloorLevel(
+          data.floor_level ?? 0,
+          data.position.x,
+          data.position.z
+        )
         requestCameraReset()
         break
       }
@@ -371,7 +383,8 @@ export function handleServerMessage(
               monster.position,
               monster.owner_id,
               monster.health,
-              monster.max_health
+              monster.max_health,
+              monster.floor_level
             )
           }
         )
@@ -405,7 +418,8 @@ export function handleServerMessage(
         monster.position,
         monster.owner_id,
         monster.health,
-        monster.max_health
+        monster.max_health,
+        monster.floor_level
       )
       break
     }
@@ -423,13 +437,16 @@ export function handleServerMessage(
 
     case 'MonsterAssigned': {
       const assigned: ServerMonster = data.monster
-      monsterManager.spawnWithId(
+      // May be a reassignment of a monster we already track (dungeon
+      // owner handover): update the owner and (re)create our brain.
+      monsterManager.adoptOwnership(
         assigned.id,
         assigned.monster_type as MonsterData['type'],
         assigned.position,
         assigned.owner_id,
         assigned.health,
-        assigned.max_health
+        assigned.max_health,
+        assigned.floor_level
       )
       break
     }
@@ -564,6 +581,12 @@ export function handleServerMessage(
           health: serverPlayer.health,
           maxHealth: serverPlayer.max_health,
         })
+        // Death exits the dungeon: respawn is always on the surface.
+        dungeonManager.syncFromFloorLevel(
+          serverPlayer.floor_level ?? 0,
+          serverPlayer.position.x,
+          serverPlayer.position.z
+        )
         requestCameraReset()
         addChatMessage({ text: 'You have respawned.', sender: 'system' })
       } else {
@@ -640,6 +663,20 @@ export function handleServerMessage(
     case 'InteractionRejected':
       events.interactionRejected.emit(data.reason)
       break
+
+    case 'DungeonChestOpened': {
+      const state = get(gameStore)
+      const isMe = state.currentPlayer?.id === data.player_id
+      const who = isMe
+        ? 'You'
+        : (state.otherPlayers.get(data.player_id)?.name ?? 'Someone')
+      const items = (data.item_def_ids as string[]).join(', ')
+      addChatMessage({
+        text: `${who} opened the treasure chest: ${items} + ${data.gold} gold!`,
+        sender: 'system',
+      })
+      break
+    }
 
     case 'HouseSpawned':
       housingManager.handleRemoteHouseSpawned(data.house)

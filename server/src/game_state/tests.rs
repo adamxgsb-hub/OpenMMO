@@ -41,6 +41,7 @@ fn make_test_game_state(test_name: &str) -> GameState {
         GameState::default_start_datetime(),
         housing_io,
         vec![],
+        crate::dungeon_defs::DungeonDefs::load(),
     )
 }
 
@@ -247,6 +248,8 @@ async fn movement_into_aoi_sends_existing_monsters_and_ground_items() {
                 owner_id: None,
                 health: 10,
                 max_health: 10,
+                floor_level: 0,
+                level_override: None,
                 last_attack_at: 0,
             },
         );

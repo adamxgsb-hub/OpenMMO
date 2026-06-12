@@ -5,6 +5,7 @@
 //! type now lives.
 
 pub mod character;
+pub mod dungeon;
 pub mod entity;
 pub mod housing;
 pub mod inventory;

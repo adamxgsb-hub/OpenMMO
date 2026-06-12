@@ -1,0 +1,72 @@
+//! Dungeon entrance registry, embedded at compile time from
+//! data/dungeons.json (generated from data-src/dungeons.csv by the cargo
+//! build script). The entrance id seeds the deterministic layout
+//! generator in the shared crate; the client embeds the same JSON at vite
+//! build, so both sides agree on entrances without any network exchange.
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use serde::Deserialize;
+use tracing::info;
+
+use onlinerpg_shared::dungeon::{dungeon_origin, GRID};
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DungeonEntranceDef {
+    pub id: String,
+    pub name: String,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    #[serde(default)]
+    pub rotation: f32,
+}
+
+impl DungeonEntranceDef {
+    pub fn position(&self) -> onlinerpg_shared::Position {
+        onlinerpg_shared::Position {
+            x: self.x,
+            y: self.y,
+            z: self.z,
+        }
+    }
+
+    /// Whether (x, z) lies inside this dungeon's grid footprint.
+    pub fn footprint_contains(&self, x: f32, z: f32) -> bool {
+        let (ox, oz) = dungeon_origin(self.x, self.z);
+        x >= ox && x < ox + GRID as f32 && z >= oz && z < oz + GRID as f32
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DungeonDefs {
+    defs: Arc<HashMap<String, DungeonEntranceDef>>,
+}
+
+impl DungeonDefs {
+    pub fn load() -> Self {
+        let data = include_str!("../../data/dungeons.json");
+        let defs: HashMap<String, DungeonEntranceDef> =
+            serde_json::from_str(data).expect("Failed to parse dungeons.json");
+        info!("Loaded {} dungeon entrances", defs.len());
+        for def in defs.values() {
+            info!(
+                "  {} \"{}\" at ({:.1}, {:.1}, {:.1})",
+                def.id, def.name, def.x, def.y, def.z
+            );
+        }
+        Self {
+            defs: Arc::new(defs),
+        }
+    }
+
+    pub fn get(&self, id: &str) -> Option<&DungeonEntranceDef> {
+        self.defs.get(id)
+    }
+
+    /// Entrance whose grid footprint contains the given XZ position.
+    pub fn entrance_at(&self, x: f32, z: f32) -> Option<&DungeonEntranceDef> {
+        self.defs.values().find(|d| d.footprint_contains(x, z))
+    }
+}

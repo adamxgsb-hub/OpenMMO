@@ -31,6 +31,13 @@
   import GameSceneRiverLayer from './game-scene/GameSceneRiverLayer.svelte'
   import GameSceneWindParticles from './game-scene/GameSceneWindParticles.svelte'
   import GameSceneHousingLayer from './game-scene/GameSceneHousingLayer.svelte'
+  import GameSceneDungeonLayer from './game-scene/GameSceneDungeonLayer.svelte'
+  import { isUnderground } from '../stores/dungeonStore'
+  import {
+    playerFloorLevel,
+    playerFloorOffset,
+    playerInsideHouseId,
+  } from '../stores/housingStore'
   import { drainTileWork } from '../utils/tileWorkQueue'
   import { bootstrapSceneAssets } from './game-scene/asset-bootstrap'
   import GameScenePlayersLayer from './game-scene/GameScenePlayersLayer.svelte'
@@ -151,6 +158,7 @@
   let riverLayerRef = $state<GameSceneRiverLayer | undefined>(undefined)
   let windParticlesRef = $state<GameSceneWindParticles | undefined>(undefined)
   let housingLayerRef = $state<GameSceneHousingLayer | undefined>(undefined)
+  let dungeonLayerRef = $state<GameSceneDungeonLayer | undefined>(undefined)
   let groundItemsLayerRef = $state<GameSceneGroundItemsLayer | undefined>(undefined)
   let objectOverlayRef = $state<ObjectOverlay | undefined>(undefined)
   let signpostBubbleRef = $state<SignpostBubble | undefined>(undefined)
@@ -266,6 +274,31 @@
   })
 
   const sceneLighting = createSceneLightingController()
+
+  // Underground render mode: hide the overworld while in a dungeon.
+  // Visibility toggle only — never unmount (avoids pipeline recompiles).
+  $effect(() => {
+    const underground = $isUnderground
+    if (terrainGroup) terrainGroup.visible = !underground
+    if (waterGroup) waterGroup.visible = !underground
+    const grassGroup = grassLayerRef?.getGroup()
+    if (grassGroup) grassGroup.visible = !underground
+    const treeGroup = treeLayerRef?.getGroup()
+    if (treeGroup) treeGroup.visible = !underground
+    const housingGroup = housingLayerRef?.getGroup()
+    if (housingGroup) housingGroup.visible = !underground
+    const riverGroup = riverLayerRef?.getGroup?.()
+    if (riverGroup) riverGroup.visible = !underground
+    const windGroup = windParticlesRef?.getGroup?.()
+    if (windGroup) windGroup.visible = !underground
+    if (underground) {
+      // The housing layer's per-frame detection is skipped underground;
+      // clear its state so stale floor offsets can't leak into physics.
+      playerInsideHouseId.set(null)
+      playerFloorLevel.set(-1)
+      playerFloorOffset.set(0)
+    }
+  })
 
   $effect(() => {
     if (!directionalLight) return
@@ -400,11 +433,14 @@
       }
       drainTileWork(graphicsPreset.terrainTileWorkPerFrame)
       syncTileMeshes()
-      // Finalize teleport once full 3x3 heightmap grid is loaded
+      // Finalize teleport once full 3x3 heightmap grid is loaded.
+      // Underground the dungeon owns Y — never snap to terrain height.
       if ($teleportLoading && currentPlayer &&
           terrainHeightManager.hasHeightDataForGrid(currentPlayer.position.x, currentPlayer.position.z)) {
-        currentPlayer.position.y = terrainHeightManager.getHeightAtWorldPosition(
-          currentPlayer.position.x, currentPlayer.position.z)
+        if (!$isUnderground) {
+          currentPlayer.position.y = terrainHeightManager.getHeightAtWorldPosition(
+            currentPlayer.position.x, currentPlayer.position.z)
+        }
         teleportLoading.set(false)
         resetCameraToInitialState()
         cameraOffset = { ...CAMERA_OFFSET }
@@ -481,11 +517,18 @@
       }
       loopProfiler.record('monsterLogic', performance.now() - monsterLogicStart)
 
-      // Update housing (player-inside detection + front wall toggling)
-      {
+      // Update housing (player-inside detection + front wall toggling).
+      // Skipped underground so house-floor detection can't fight the
+      // dungeon height provider.
+      if (!$isUnderground) {
         const housingStart = performance.now()
         housingLayerRef?.update(deltaTime)
         loopProfiler.record('housingUpdate', performance.now() - housingStart)
+      }
+
+      // Dungeon stair-shaft floor transitions
+      if (currentPlayer) {
+        dungeonLayerRef?.update(currentPlayer.position.x, currentPlayer.position.z)
       }
 
       // Update tree occlusion (hide trees that block camera view of player)
@@ -544,8 +587,8 @@
         multiPassRenderer,
         refractionManager,
         reflectionManager,
-        refractionEnabled: $refractionEnabled,
-        reflectionEnabled: $reflectionEnabled,
+        refractionEnabled: $refractionEnabled && !$isUnderground,
+        reflectionEnabled: $reflectionEnabled && !$isUnderground,
         waterGroup,
         terrainGroup,
         terrainMeshes,
@@ -660,6 +703,7 @@
       scene,
       sunLightSnapshot,
       eclipseFactor: eclipseState.factor,
+      underground: $isUnderground,
     })
   }
 
@@ -896,6 +940,8 @@
   />
 {/if}
 
+<GameSceneDungeonLayer bind:this={dungeonLayerRef} />
+
 {#if graphicsPreset.enableGrassLayer}
   <GameSceneGrassLayer
     bind:this={grassLayerRef}
@@ -973,6 +1019,7 @@
     {currentPlayerState}
     {terrainMeshes}
     housingGroup={housingLayerRef?.getGroup() ?? null}
+    dungeonGroup={dungeonLayerRef?.getGroup() ?? null}
     doorMeshes={housingLayerRef?.getDoorMeshes() ?? []}
     objectMeshes={objectOverlayRef ? [objectOverlayRef.getGroup()] : []}
     groundItemMeshes={groundItemsLayerRef?.getGroup() ? [groundItemsLayerRef.getGroup()!] : []}

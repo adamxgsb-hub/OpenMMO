@@ -14,6 +14,7 @@ import {
   getMaterialMissSoundUrl,
 } from '../data/materialImpactSounds'
 import { deathDropDelayQueue } from './deathDropDelay'
+import { dungeonManager } from './dungeonManager'
 import type { Position } from '../utils/movementUtils'
 import type { TerrainHeightManager } from './terrainHeightManager'
 import type { TerrainSplatManager } from './terrainSplatManager'
@@ -82,6 +83,34 @@ class MonsterManager {
     return this.heightManager?.getHeightAtWorldPosition(x, z) ?? 0
   }
 
+  /** Ground height on the monster's floor: dungeon floor Y or terrain. */
+  private monsterGroundY(monster: MonsterData, x: number, z: number): number {
+    const fl = monster.floorLevel ?? 0
+    if (fl < 0) {
+      return dungeonManager.floorHeightAt(-fl, x, z) ?? monster.position.y
+    }
+    return this.sampleHeight(x, z)
+  }
+
+  private snapToMonsterGround(
+    monster: MonsterData,
+    position: { x: number; y: number; z: number }
+  ): Position {
+    if ((monster.floorLevel ?? 0) < 0) {
+      return {
+        x: position.x,
+        y:
+          dungeonManager.floorHeightAt(
+            -(monster.floorLevel ?? 0),
+            position.x,
+            position.z
+          ) ?? position.y,
+        z: position.z,
+      }
+    }
+    return this.snapPositionToTerrain(position)
+  }
+
   private snapPositionToTerrain(position: {
     x: number
     y: number
@@ -135,13 +164,68 @@ class MonsterManager {
     return undefined
   }
 
+  /**
+   * MonsterAssigned handler: either a fresh spawn assigned to us or an
+   * ownership handover of a monster we already track (dungeon floors
+   * reassign AI when the previous owner leaves).
+   */
+  adoptOwnership(
+    id: string,
+    type: MonsterData['type'],
+    position: { x: number; y: number; z: number },
+    ownerId?: string,
+    health?: number,
+    maxHealth?: number,
+    floorLevel?: number
+  ) {
+    const existing = this.monsters.get(id)
+    if (!existing) {
+      this.spawnWithId(id, type, position, ownerId, health, maxHealth, floorLevel)
+      return
+    }
+    existing.ownerId = ownerId
+    if (floorLevel !== undefined) existing.floorLevel = floorLevel
+    this.monsters.set(id, { ...existing })
+
+    const myPlayerId = get(gameStore).currentPlayer?.id
+    if (ownerId === myPlayerId && existing.state !== 'dead') {
+      // Recreate the brain from the monster's live state.
+      ai_remove_brain(id)
+      const def = getMonsterDef(type)
+      this.ensureTemplatesLoaded()
+      const monsterDef = (
+        monstersJson as Record<string, { behavior?: string }>
+      )[type]
+      const fl = existing.floorLevel ?? 0
+      ai_create_brain({
+        monsterId: id,
+        monsterType: type,
+        position: existing.position,
+        health: existing.health,
+        maxHealth: existing.maxHealth,
+        walkSpeed: def?.walkSpeed ?? 1,
+        runSpeed: def?.runSpeed ?? 8,
+        attackRange: def?.attackRange ?? 2,
+        chaseRange: def?.chaseRange ?? 25,
+        attackCooldown:
+          def?.attackCooldown ?? DEFAULT_MONSTER_ATTACK_COOLDOWN_MS,
+        behavior: monsterDef?.behavior ?? DEFAULT_MONSTER_BEHAVIOR,
+        pathFloor:
+          fl < 0 && dungeonManager.active
+            ? dungeonManager.passabilityFloor(-fl)
+            : 0,
+      })
+    }
+  }
+
   spawnWithId(
     id: string,
     type: MonsterData['type'],
     position: { x: number; y: number; z: number },
     ownerId?: string,
     health?: number,
-    maxHealth?: number
+    maxHealth?: number,
+    floorLevel?: number
   ) {
     if (this.monsters.has(id)) return
 
@@ -164,6 +248,7 @@ class MonsterManager {
       health: hp,
       maxHealth: maxHp,
       spawnPosition: { ...position },
+      floorLevel: floorLevel ?? 0,
     })
 
     // Create WASM brain for owned monsters
@@ -175,6 +260,13 @@ class MonsterManager {
         monstersJson as Record<string, { behavior?: string }>
       )[type]
       const behavior = monsterDef?.behavior ?? DEFAULT_MONSTER_BEHAVIOR
+      // Dungeon monsters path on their depth's passability floor so the
+      // maze walls apply; surface monsters use the open overworld (0).
+      const fl = floorLevel ?? 0
+      const pathFloor =
+        fl < 0 && dungeonManager.active
+          ? dungeonManager.passabilityFloor(-fl)
+          : 0
       ai_create_brain({
         monsterId: id,
         monsterType: type,
@@ -188,6 +280,7 @@ class MonsterManager {
         attackCooldown:
           def?.attackCooldown ?? DEFAULT_MONSTER_ATTACK_COOLDOWN_MS,
         behavior,
+        pathFloor,
       })
     }
   }
@@ -357,9 +450,11 @@ class MonsterManager {
     const nearbyPlayers = this.buildNearbyPlayers(gameState)
 
     for (const monster of this.monsters.values()) {
-      // Keep non-owned monster Y aligned with terrain (owned monsters get Y from TickResult)
+      // Keep non-owned monster Y aligned with its floor's ground (owned
+      // monsters get Y from TickResult)
       if (monster.ownerId !== myPlayerId) {
-        const terrainY = this.sampleHeight(
+        const terrainY = this.monsterGroundY(
+          monster,
           monster.position.x,
           monster.position.z
         )
@@ -447,7 +542,11 @@ class MonsterManager {
         const resultPosition = result.position
           ? {
               x: result.position.x,
-              y: this.sampleHeight(result.position.x, result.position.z),
+              y: this.monsterGroundY(
+                monster,
+                result.position.x,
+                result.position.z
+              ),
               z: result.position.z,
             }
           : undefined
@@ -595,10 +694,10 @@ class MonsterManager {
     for (const cmd of commands) {
       if (cmd.type === 'Move') {
         const position = cmd.position
-          ? this.snapPositionToTerrain(cmd.position)
+          ? this.snapToMonsterGround(monster, cmd.position)
           : undefined
         const targetPosition = cmd.target_position
-          ? this.snapPositionToTerrain(cmd.target_position)
+          ? this.snapToMonsterGround(monster, cmd.target_position)
           : undefined
 
         this.applyMonsterPose(monster, {
@@ -639,8 +738,11 @@ class MonsterManager {
         monster.impactDelay !== undefined && monster.impactDelay > 0
       const shouldDelayNetworkHit = hasPendingImpact && state === 'hit'
 
-      const snappedPosition = this.snapPositionToTerrain(position)
-      const snappedTargetPosition = this.snapPositionToTerrain(targetPosition)
+      const snappedPosition = this.snapToMonsterGround(monster, position)
+      const snappedTargetPosition = this.snapToMonsterGround(
+        monster,
+        targetPosition
+      )
       // Authoritative update: apply position/target directly (no movement gate).
       // When the hit is delayed, omit `state` so the current state is kept until
       // the pending impact resolves.
@@ -665,10 +767,15 @@ class MonsterManager {
 
     const moveStep = (monster.moveSpeed * deltaTime) / 1000
     const onUpperFloor = (monster.currentFloor ?? 0) > 0
+    // Dungeon floors live below Y=0, so the "stepped into water" guard
+    // only applies to surface monsters.
+    const inDungeon = (monster.floorLevel ?? 0) < 0
 
     if (distance <= moveStep) {
-      const y = onUpperFloor ? target.y : this.sampleHeight(target.x, target.z)
-      if (!onUpperFloor && y < 0) return true
+      const y = onUpperFloor
+        ? target.y
+        : this.monsterGroundY(monster, target.x, target.z)
+      if (!onUpperFloor && !inDungeon && y < 0) return true
       this.applyMonsterPose(monster, {
         position: { x: target.x, y, z: target.z },
       })
@@ -676,8 +783,10 @@ class MonsterManager {
     } else {
       const newX = monster.position.x + (dx / distance) * moveStep
       const newZ = monster.position.z + (dz / distance) * moveStep
-      const y = onUpperFloor ? target.y : this.sampleHeight(newX, newZ)
-      if (!onUpperFloor && y < 0) return true
+      const y = onUpperFloor
+        ? target.y
+        : this.monsterGroundY(monster, newX, newZ)
+      if (!onUpperFloor && !inDungeon && y < 0) return true
       this.applyMonsterPose(monster, {
         position: { x: newX, y, z: newZ },
       })

@@ -75,6 +75,13 @@ pub struct Monster {
     pub owner_id: Option<String>,
     pub health: u32,
     pub max_health: u32,
+    /// 0 = overworld, 1..3 housing floors, negative = dungeon depth.
+    #[serde(default)]
+    pub floor_level: i8,
+    /// Depth-scaled combat level for dungeon monsters; `None` uses the
+    /// monster definition's level.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level_override: Option<u8>,
     #[serde(skip)]
     pub last_attack_at: u64,
 }

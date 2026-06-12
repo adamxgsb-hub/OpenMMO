@@ -245,6 +245,10 @@ pub struct MonsterBrain {
     path_elapsed_ms: f32,
     last_known_target_pos: Option<Position>,
     spawn_position: Position,
+    /// Passability floor for path queries. 0 = overworld/house ground;
+    /// dungeon monsters use their depth's passability floor index.
+    #[serde(default)]
+    pub path_floor: u8,
 }
 
 impl MonsterBrain {
@@ -292,6 +296,7 @@ impl MonsterBrain {
             last_known_target_pos: None,
             spawn_position: position.clone(),
             position,
+            path_floor: 0,
         }
     }
 
@@ -960,8 +965,14 @@ impl MonsterBrain {
     }
 
     fn compute_path(&mut self, goal_x: f32, goal_z: f32, path_provider: &dyn PathProvider) {
-        let result =
-            path_provider.find_path(self.position.x, self.position.z, 0, goal_x, goal_z, 0);
+        let result = path_provider.find_path(
+            self.position.x,
+            self.position.z,
+            self.path_floor,
+            goal_x,
+            goal_z,
+            self.path_floor,
+        );
         self.waypoints = result.waypoints;
         self.current_waypoint_idx = 0;
         self.path_elapsed_ms = 0.0;

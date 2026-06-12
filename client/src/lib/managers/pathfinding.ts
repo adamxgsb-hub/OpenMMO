@@ -1,4 +1,8 @@
-import { passability_find_path } from '../wasm/onlinerpg_shared'
+import {
+  passability_find_path,
+  passability_find_path_budget,
+} from '../wasm/onlinerpg_shared'
+import { dungeonManager } from './dungeonManager'
 
 export interface PathWaypoint {
   x: number
@@ -23,6 +27,20 @@ export function findPath(
   goalZ: number,
   goalFloor: number
 ): PathResult {
+  // Dungeon floors are 56×56 mazes; cross-floor routes can exhaust the
+  // housing default node budget, so dungeon queries get a bigger one.
+  const c = dungeonManager.consts
+  if (startFloor >= c.floorIndexBase || goalFloor >= c.floorIndexBase) {
+    return passability_find_path_budget(
+      startX,
+      startZ,
+      startFloor,
+      goalX,
+      goalZ,
+      goalFloor,
+      c.pathMaxNodes
+    ) as PathResult
+  }
   return passability_find_path(
     startX,
     startZ,

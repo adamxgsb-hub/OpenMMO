@@ -227,6 +227,21 @@ impl super::GameState {
     }
 
     pub async fn remove_player(&self, player_id: &PlayerId) {
+        // A player disconnecting inside a dungeon leaves its floor first,
+        // so its monsters get reassigned (or despawned) instead of being
+        // dropped by remove_monsters_by_owner below.
+        let dungeon_exit = {
+            let players = self.players.read().await;
+            players
+                .get(player_id)
+                .filter(|p| p.floor_level < 0)
+                .map(|p| (p.floor_level, p.position.clone()))
+        };
+        if let Some((floor, position)) = dungeon_exit {
+            self.handle_player_floor_change(player_id, floor, 0, &position, &position)
+                .await;
+        }
+
         self.remove_monsters_by_owner(player_id).await;
 
         let removed_player_number = {
@@ -277,6 +292,25 @@ impl super::GameState {
         new_rotation: f32,
         floor_level: i8,
     ) {
+        // Dungeon floors (negative) are validated against the entrance
+        // registry and the floor's expected world Y before being stored.
+        let current_floor = {
+            let players = self.players.read().await;
+            match players.get(player_id) {
+                Some(p) => p.floor_level,
+                None => {
+                    warn!("Attempted to move non-existent player: {}", player_id);
+                    return;
+                }
+            }
+        };
+        let floor_level = if floor_level < 0 || current_floor < 0 {
+            self.validated_dungeon_floor(player_id, current_floor, floor_level, &new_position)
+                .await
+        } else {
+            floor_level
+        };
+
         let (old_position, moved_player) = {
             let mut players = self.players.write().await;
 
@@ -295,6 +329,16 @@ impl super::GameState {
         self.move_player_spatial_cell(player_id, &old_position, &new_position)
             .await;
         self.mark_dirty(player_id).await;
+        if current_floor != floor_level {
+            self.handle_player_floor_change(
+                player_id,
+                current_floor,
+                floor_level,
+                &old_position,
+                &new_position,
+            )
+            .await;
+        }
         self.fanout_player_position_update(
             player_id,
             &old_position,
@@ -314,23 +358,39 @@ impl super::GameState {
         player_id: &PlayerId,
         new_position: Position,
         new_rotation: f32,
+        new_floor_level: i8,
     ) {
         let moved = {
             let mut players = self.players.write().await;
             if let Some(player) = players.get_mut(player_id) {
                 let old_position = player.position.clone();
+                let old_floor = player.floor_level;
                 player.position = new_position.clone();
                 player.rotation = new_rotation;
-                Some((old_position, player.clone()))
+                player.floor_level = new_floor_level;
+                Some((old_position, old_floor, player.clone()))
             } else {
                 None
             }
         };
 
-        if let Some((old_position, moved_player)) = moved {
+        if let Some((old_position, old_floor, moved_player)) = moved {
             self.move_player_spatial_cell(player_id, &old_position, &new_position)
                 .await;
             self.mark_dirty(player_id).await;
+            if old_floor != new_floor_level {
+                // Teleports can jump straight into/out of dungeon floors
+                // (debug teleport, world map) — run the same occupancy and
+                // monster bookkeeping as walking the stairs.
+                self.handle_player_floor_change(
+                    player_id,
+                    old_floor,
+                    new_floor_level,
+                    &old_position,
+                    &new_position,
+                )
+                .await;
+            }
             self.fanout_player_position_update(
                 player_id,
                 &old_position,
@@ -339,6 +399,7 @@ impl super::GameState {
                     player_id: player_id.clone(),
                     position: new_position,
                     rotation: new_rotation,
+                    floor_level: new_floor_level,
                 },
             )
             .await;
@@ -357,6 +418,7 @@ impl super::GameState {
                     return;
                 }
                 player.health = player.max_health;
+                let old_floor = player.floor_level;
                 let old_position = player.position.clone();
                 let spawn = &world_config().spawn_position;
                 player.position = Position {
@@ -365,17 +427,31 @@ impl super::GameState {
                     z: spawn.z,
                 };
                 player.rotation = spawn.rotation;
-                Some((old_position, player.clone()))
+                // Death always returns to the surface — clears dungeon
+                // depths and stale housing floors alike.
+                player.floor_level = 0;
+                Some((old_floor, old_position, player.clone()))
             } else {
                 None
             }
         };
 
-        if let Some((old_position, player)) = respawned_player {
+        if let Some((old_floor, old_position, player)) = respawned_player {
             info!("Player {} ({}) respawned", player.name, player.id);
             self.move_player_spatial_cell(player_id, &old_position, &player.position)
                 .await;
             self.mark_dirty(player_id).await;
+            if old_floor < 0 {
+                // Dying in a dungeon leaves its floor (monster handover).
+                self.handle_player_floor_change(
+                    player_id,
+                    old_floor,
+                    0,
+                    &old_position,
+                    &player.position,
+                )
+                .await;
+            }
             self.fanout_player_position_update(
                 player_id,
                 &old_position,

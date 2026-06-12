@@ -1,6 +1,7 @@
 mod auth;
 mod celestial;
 mod connection;
+mod dungeon_defs;
 mod game;
 mod game_state;
 mod housing;
@@ -104,6 +105,7 @@ async fn main() {
         initial_game_time,
         Arc::clone(&housing_io),
         no_spawn_zones,
+        dungeon_defs::DungeonDefs::load(),
     ));
     // Monster spawn tick task
     let game_state_for_spawns = Arc::clone(&game_state);
@@ -113,6 +115,16 @@ async fn main() {
         loop {
             interval.tick().await;
             game_state_for_spawns.tick_monster_spawns().await;
+        }
+    });
+
+    // Dungeon spawn-slot refill tick (respawns on occupied floors)
+    let game_state_for_dungeons = Arc::clone(&game_state);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            game_state_for_dungeons.tick_dungeons().await;
         }
     });
 

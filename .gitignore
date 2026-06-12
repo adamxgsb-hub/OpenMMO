@@ -58,6 +58,7 @@ __pycache__/
 
 # Generated data files
 data/*.db
+data/dungeons.json
 data/items.json
 data/map_labels.json
 data/merchants.json

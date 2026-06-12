@@ -18,6 +18,8 @@
 
   import { applyTorchFlickerWorld, TORCH_BASE_DISTANCE, TORCH_BASE_DECAY, TORCH_BASE_POSITION } from '../../utils/torchFlicker'
   import { playerFloorLevel, playerInsideHouseId } from '../../stores/housingStore'
+  import { currentDungeonDepth } from '../../stores/dungeonStore'
+  import { dungeonManager } from '../../managers/dungeonManager'
   import { housingManager } from '../../managers/housingManager'
   import { bridgeManager } from '../../managers/bridgeManager'
   import { OFFSCREEN_Y } from '../../utils/house-geo-utils'
@@ -37,6 +39,7 @@
     currentPlayerState: PlayerState
     terrainMeshes: (THREE.Mesh | undefined)[]
     housingGroup: THREE.Group | null
+    dungeonGroup: THREE.Group | null
     doorMeshes: THREE.Object3D[]
     objectMeshes: THREE.Object3D[]
     groundItemMeshes: THREE.Object3D[]
@@ -65,6 +68,7 @@
     currentPlayerState,
     terrainMeshes,
     housingGroup,
+    dungeonGroup,
     doorMeshes,
     objectMeshes,
     groundItemMeshes,
@@ -90,8 +94,15 @@
 
   let localFloorLevel = $derived(Math.max(0, $playerFloorLevel))
   let localHouseId = $derived($playerInsideHouseId)
+  let localDungeonDepth = $derived($currentDungeonDepth)
 
   function isRemotePlayerVisible(remoteFloorLevel: number, pos: { x: number; y: number; z: number }): boolean {
+    // Dungeon: only players on the same depth are visible; from the
+    // surface, underground players are hidden (and vice versa).
+    if (localDungeonDepth >= 1) {
+      return remoteFloorLevel === -localDungeonDepth
+    }
+    if (remoteFloorLevel < 0) return false
     const remoteHouse = housingManager.findHouseAtPoint(pos.x, pos.y, pos.z)
     if (localHouseId) {
       return remoteFloorLevel === localFloorLevel && remoteHouse?.id === localHouseId
@@ -123,7 +134,10 @@
   const _torchOffsetTmp = new THREE.Vector3()
 
   function setTorchTargetFromPose(x: number, z: number, fallbackY: number, rotation: number): THREE.Vector3 {
-    const y = heightManager.getHeightAtWorldPosition(x, z) ?? fallbackY
+    const y =
+      dungeonManager.sampleHeightAt(x, z) ??
+      heightManager.getHeightAtWorldPosition(x, z) ??
+      fallbackY
     _torchOffsetTmp.copy(TORCH_OFFSET).applyAxisAngle(Y_AXIS, rotation)
     return _unifiedTorchTmp.set(x + _torchOffsetTmp.x, y + _torchOffsetTmp.y, z + _torchOffsetTmp.z)
   }
@@ -177,10 +191,12 @@
     onStateChange={onStateChange}
     {camera}
     {heightManager}
-    groundMeshes={[
-      ...terrainMeshes.filter((mesh) => mesh !== undefined) as THREE.Mesh[],
-      ...(housingGroup ? [housingGroup] : []),
-    ]}
+    groundMeshes={localDungeonDepth >= 1 && dungeonGroup
+      ? [dungeonGroup]
+      : [
+          ...terrainMeshes.filter((mesh) => mesh !== undefined) as THREE.Mesh[],
+          ...(housingGroup ? [housingGroup] : []),
+        ]}
     monsterMeshes={monsterModels
       .map((model) => model?.getMeshGroup())
       .filter((group) => group !== undefined) as THREE.Group[]}
@@ -236,7 +252,7 @@
     {@const remotePlayer = remotePlayers.get(player.id)}
     {#if remotePlayer}
       {@const visible = remoteVisibility.get(player.id) ?? false}
-      {@const baseY = player.floorLevel > 0
+      {@const baseY = player.floorLevel > 0 || player.floorLevel < 0
         ? remotePlayer.position.y
         : (bridgeManager.findDeckYAt(remotePlayer.position.x, remotePlayer.position.z, null)
             ?? heightManager.getHeightAtWorldPosition(remotePlayer.position.x, remotePlayer.position.z)

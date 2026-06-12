@@ -79,6 +79,20 @@ impl ItemDefs {
             .and_then(|def| def.damage_dice.clone())
     }
 
+    /// Equippable items at or above a price floor — the dungeon treasure
+    /// chest loot pool. Sorted for determinism before the caller shuffles.
+    pub fn equipment_ids_with_min_price(&self, min_price: i64) -> Vec<String> {
+        let mut ids: Vec<String> = self
+            .defs
+            .values()
+            .filter(|def| def.equip_slot.is_some())
+            .filter(|def| def.base_price.is_some_and(|p| p >= min_price))
+            .map(|def| def.id.clone())
+            .collect();
+        ids.sort();
+        ids
+    }
+
     pub fn weight(&self, item_def_id: &str) -> f32 {
         self.defs.get(item_def_id).map(|d| d.weight).unwrap_or(1.0)
     }

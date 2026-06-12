@@ -23,6 +23,8 @@
   } from '../utils/movementUtils'
   import type { TerrainHeightManager } from '../managers/terrainHeightManager'
   import { playerFloorOffset, playerFloorLevel } from '../stores/housingStore'
+  import { currentDungeonDepth } from '../stores/dungeonStore'
+  import { dungeonManager } from '../managers/dungeonManager'
   import { housingManager } from '../managers/housingManager'
   import { findPath } from '../managers/pathfinding'
   import { passability_get_floor_at } from '../wasm/onlinerpg_shared'
@@ -272,10 +274,14 @@
     return s.name === 'picking_up' ? s : null
   }
 
-  // Wrapper for sending move packets to track last sent position
+  // Wrapper for sending move packets to track last sent position.
+  // Wire format: dungeon depth d is floor_level -d; housing floors stay
+  // 0..3 (client-internal -1 "outdoors" is clamped to 0).
   function sendPlayerMove(position: Position, rotation: number) {
     lastSentPosition = { ...position }
-    networkManager.sendPlayerMove(position, rotation, Math.max(0, get(playerFloorLevel)))
+    const depth = get(currentDungeonDepth)
+    const floorLevel = depth >= 1 ? -depth : Math.max(0, get(playerFloorLevel))
+    networkManager.sendPlayerMove(position, rotation, floorLevel)
   }
 
   function writePlayerPosition(position: Position, rotation: number) {
@@ -669,6 +675,30 @@
     }
   }
 
+  /** Passability floor for path queries: dungeon depths map to 4+. */
+  function currentPassabilityFloor(): number {
+    const depth = get(currentDungeonDepth)
+    if (depth >= 1) return dungeonManager.passabilityFloor(depth)
+    return Math.max(0, get(playerFloorLevel))
+  }
+
+  /**
+   * Floor lookup for click targets. The dungeon passability grids cover
+   * their whole footprint at every depth, so on the surface a raw lookup
+   * near an entrance would return a dungeon floor index — clamp those to
+   * the surface unless we're actually underground.
+   */
+  function getFloorAtForClick(x: number, z: number, y: number): number {
+    const floor = passability_get_floor_at(x, z, y)
+    if (
+      get(currentDungeonDepth) < 1 &&
+      floor >= dungeonManager.consts.floorIndexBase
+    ) {
+      return 0
+    }
+    return floor
+  }
+
   function handleClickToMove(
     clickPosition: Position,
     options: { pickupAfterArrival?: number | null } = {}
@@ -682,8 +712,8 @@
       interactionExit: getInteractionExitKind(playerState),
       isMoving: isMovingNow(),
       hasKeyboardInput: inputHandler.hasKeysPressed,
-      currentFloor: Math.max(0, get(playerFloorLevel)),
-      getFloorAt: passability_get_floor_at,
+      currentFloor: currentPassabilityFloor(),
+      getFloorAt: getFloorAtForClick,
       findPath,
       sampleHeight,
       sendPlayerMove,

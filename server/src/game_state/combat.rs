@@ -49,14 +49,19 @@ mod tests {
 impl super::GameState {
     pub async fn broadcast_player_attack(&self, player_id: &PlayerId, monster_id: String) {
         // 1. Check if monster exists and is alive first, get its type
-        let (monster_type, monster_position) = {
+        let (monster_type, monster_position, monster_floor_level, monster_level_override) = {
             let monsters = self.monsters.read().await;
             let monster = monsters.get(&monster_id);
             if monster.is_none() || monster.unwrap().state == MonsterState::Dead {
                 return;
             }
             let monster = monster.unwrap();
-            (monster.monster_type.clone(), monster.position)
+            (
+                monster.monster_type.clone(),
+                monster.position,
+                monster.floor_level,
+                monster.level_override,
+            )
         };
 
         let player_snapshot = {
@@ -168,22 +173,32 @@ impl super::GameState {
 
                     if let Some(item_def_id) = dropped_weapon_item_def_id {
                         let instance_id = self.next_instance_id().await;
+                        // Drops inherit the monster's floor: dungeon kills
+                        // stay on their floor, surface kills on floor 0.
+                        // (-1 used to mean "any floor"; that wildcard is
+                        // gone now that negative floors are dungeon depths.)
                         self.spawn_ground_item(
                             GroundItem {
                                 instance_id,
                                 item_def_id,
                                 position: dropped_weapon_position(monster_position),
-                                floor_level: -1,
+                                floor_level: monster_floor_level,
                             },
                             Some(monster_id.clone()),
                         )
                         .await;
                     }
 
-                    // Award XP to the player who killed the monster
+                    // Dungeon monsters: free their spawn slot for respawn.
+                    self.on_dungeon_monster_dead(&monster_id).await;
+
+                    // Award XP to the player who killed the monster.
+                    // Depth-scaled dungeon monsters yield XP for their
+                    // effective level, not the base definition level.
                     let xp_def = self.monster_defs.get(&monster_type);
                     if let Some(def) = xp_def {
-                        let xp_amount = xp::monster_xp(def.level, def.guard);
+                        let effective_level = monster_level_override.unwrap_or(def.level);
+                        let xp_amount = xp::monster_xp(effective_level, def.guard);
                         let player_char = {
                             let map = self.player_characters.read().await;
                             map.get(player_id).cloned()
@@ -349,12 +364,24 @@ impl super::GameState {
                         let weapon_damage_roll = def
                             .and_then(|d| d.weapon.as_deref())
                             .and_then(|weapon| self.item_defs.damage_dice_for_weapon_model(weapon));
+                        // Depth-scaled dungeon monsters attack at their
+                        // effective level (bonus + damage dice).
+                        let (attack_bonus, damage_roll) = match monster.level_override {
+                            Some(level) => (
+                                combat::level_attack_bonus(u32::from(level)),
+                                combat::monster_damage_roll_for_level(level).to_string(),
+                            ),
+                            None => (
+                                def.map(|d| d.attack_bonus())
+                                    .unwrap_or_else(|| combat::level_attack_bonus(1)),
+                                def.map(|d| d.damage_roll())
+                                    .unwrap_or_else(|| "1d6".to_string()),
+                            ),
+                        };
                         monster_data = Some((
                             monster.monster_type.clone(),
-                            def.map(|d| d.attack_bonus())
-                                .unwrap_or_else(|| combat::level_attack_bonus(1)),
-                            def.map(|d| d.damage_roll())
-                                .unwrap_or_else(|| "1d6".to_string()),
+                            attack_bonus,
+                            damage_roll,
                             weapon_damage_roll,
                         ));
                     }

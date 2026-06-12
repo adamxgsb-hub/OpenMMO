@@ -1,6 +1,7 @@
 import type { TerrainHeightManager } from '../../managers/terrainHeightManager'
 import { housingManager } from '../../managers/housingManager'
 import { bridgeManager } from '../../managers/bridgeManager'
+import { dungeonManager } from '../../managers/dungeonManager'
 import {
   isSlopeTooSteepUphill,
   SLOPE_LOOKAHEAD_DISTANCE,
@@ -36,6 +37,10 @@ export interface PlayerPhysics {
 
 export function createPlayerPhysics(deps: PlayerPhysicsDeps): PlayerPhysics {
   function sampleHeight(x: number, z: number): number {
+    // Dungeon floors and stair-shaft ramps replace terrain entirely while
+    // underground (and on the surface entrance ramp).
+    const dungeonY = dungeonManager.sampleHeightAt(x, z)
+    if (dungeonY !== null) return dungeonY
     const deckY = bridgeManager.findDeckYAt(x, z, deps.getCurrentPlayerY())
     if (deckY !== null) return deckY
     return (
