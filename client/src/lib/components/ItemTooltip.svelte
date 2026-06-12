@@ -4,12 +4,24 @@
   interface Props {
     def: ItemDefinition
     side?: 'left' | 'right'
+    anchor: DOMRect
   }
 
-  let { def, side = 'right' }: Props = $props()
+  // Mounted at document.body by the itemTooltip action; positions itself
+  // next to the anchor rect, clamped to the viewport vertically.
+  let { def, side = 'right', anchor }: Props = $props()
+
+  let height = $state(0)
+
+  const top = $derived(Math.max(8, Math.min(anchor.top, window.innerHeight - height - 8)))
+  const horizontal = $derived(
+    side === 'left'
+      ? `right: ${window.innerWidth - anchor.left + 8}px;`
+      : `left: ${anchor.right + 8}px;`,
+  )
 </script>
 
-<div class="tooltip" class:left={side === 'left'}>
+<div class="tooltip" style="top: {top}px; {horizontal}" bind:clientHeight={height}>
   <div class="tooltip-name">{def.name}</div>
   <div class="tooltip-desc">{def.description}</div>
   <div class="tooltip-stats">
@@ -25,21 +37,16 @@
 
 <style>
   .tooltip {
-    position: absolute;
-    left: calc(100% + 8px);
-    top: 0;
+    position: fixed;
     width: 160px;
     padding: 8px;
     background: rgba(6, 10, 14, 0.9);
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 6px;
     pointer-events: none;
-    z-index: 50;
-  }
-
-  .tooltip.left {
-    left: auto;
-    right: calc(100% + 8px);
+    z-index: 100;
+    font-family: 'Courier New', monospace;
+    color: #e6edf3;
   }
 
   .tooltip-name {

@@ -14,6 +14,7 @@
   import { getNpcCapabilities } from '../data/traderDefs'
   import { MAX_TRADE_DISTANCE_METERS } from '../data/tradeConstants'
   import GoldAmount from './GoldAmount.svelte'
+  import { itemTooltip } from '../actions/itemTooltip'
   import { networkManager } from '../network/socket'
 
   const session = $derived($shopSession)
@@ -263,7 +264,11 @@
             {@const def = getItemDef(itemDefId)}
             {#if def}
               {@const pct = dealPct(itemDefId, 'buy')}
-              <button class="item-row" onclick={() => addBuy(itemDefId, def)}>
+              <button
+                class="item-row"
+                onclick={() => addBuy(itemDefId, def)}
+                use:itemTooltip={{ def, side: 'left' }}
+              >
                 <img class="item-icon" src="/items/{def.icon}" alt="" draggable="false" />
                 <span class="item-name">{def.name}</span>
                 {#if pct !== 0}
@@ -281,6 +286,7 @@
                 class="item-row"
                 disabled={reservedBuyQty(entry.itemDefId) >= entry.quantity}
                 onclick={() => addBuy(entry.itemDefId, def)}
+                use:itemTooltip={{ def, side: 'left' }}
               >
                 <img class="item-icon" src="/items/{def.icon}" alt="" draggable="false" />
                 <span class="item-name">
@@ -310,7 +316,11 @@
           {#each cart as entry (entry.kind + ':' + (entry.instanceId ?? entry.itemDefId) + (entry.dealPct ? ':deal' : ''))}
             {@const def = getItemDef(entry.itemDefId)}
             {#if def}
-              <button class="item-row" onclick={() => removeOne(entry)}>
+              <button
+                class="item-row"
+                onclick={() => removeOne(entry)}
+                use:itemTooltip={{ def, side: 'left' }}
+              >
                 <span class="cart-kind {entry.kind}">
                   {entry.kind === 'buy' ? 'B' : 'S'}
                 </span>
@@ -363,6 +373,7 @@
               class="item-row"
               disabled={reserved >= item.quantity}
               onclick={() => addSell(item, def)}
+              use:itemTooltip={{ def, side: 'right' }}
             >
               <img class="item-icon" src="/items/{def.icon}" alt="" draggable="false" />
               <span class="item-name">

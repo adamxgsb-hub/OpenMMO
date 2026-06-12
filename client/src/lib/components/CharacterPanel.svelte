@@ -6,7 +6,7 @@
   import type { CharacterAttributes, CharacterClass, Gender } from '../network/networkTypes'
   import { xp_for_level } from '../wasm/onlinerpg_shared'
   import { dragMeta, startDrag, isSlotCompatible, pointInRect, isOverAnyDialog, FALLBACK_ICON } from '../stores/dragStore'
-  import ItemTooltip from './ItemTooltip.svelte'
+  import { itemTooltip } from '../actions/itemTooltip'
 
   interface Props {
     visible: boolean
@@ -78,7 +78,6 @@
     { slot: 'boots', top: 88, left: 50 },
   ]
 
-  let hoveredSlot = $state<EquipSlot | null>(null)
 
   const levelStartXp = $derived(xp_for_level(level))
   const nextLevelXp = $derived(xp_for_level(level + 1))
@@ -192,16 +191,12 @@
           style="top:{top}%;left:{left}%"
           title={item ? undefined : EQUIP_SLOT_LABELS[slot]}
           data-equip-slot={slot}
-          onmouseenter={() => { if (item) hoveredSlot = slot }}
-          onmouseleave={() => hoveredSlot = null}
+          use:itemTooltip={item && def ? { def, side: left > 50 ? 'left' : 'right' } : null}
           ondblclick={() => { if (item) unequip(slot) }}
           onpointerdown={(e: PointerEvent) => { if (item) onEquipPointerDown(e, slot, item) }}
         >
           {#if def}
             <img class="equip-icon" src="/items/{def.icon}" alt={def.name} draggable="false" />
-          {/if}
-          {#if item && def && hoveredSlot === slot && !$dragMeta}
-            <ItemTooltip {def} side={left > 50 ? 'left' : 'right'} />
           {/if}
         </div>
       {/each}

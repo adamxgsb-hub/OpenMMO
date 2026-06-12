@@ -6,7 +6,7 @@
   import { networkManager } from '../network/socket'
   import type { CharacterAttributes, EquipSlot } from '../network/networkTypes'
   import { dragMeta, startDrag, isSlotCompatible, pointInRect, isOverAnyDialog, FALLBACK_ICON } from '../stores/dragStore'
-  import ItemTooltip from './ItemTooltip.svelte'
+  import { itemTooltip } from '../actions/itemTooltip'
 
   interface Props {
     visible: boolean
@@ -46,7 +46,6 @@
     return result
   })
 
-  let hoveredSlot = $state<number | null>(null)
   let panelEl = $state<HTMLDivElement | null>(null)
 
   function onDblClick(slot: ItemInstance | null) {
@@ -112,8 +111,7 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
           class="grid-cell"
-          onmouseenter={() => { if (slot) hoveredSlot = i }}
-          onmouseleave={() => hoveredSlot = null}
+          use:itemTooltip={def ? { def, side: 'left' } : null}
           ondblclick={() => onDblClick(slot)}
           onpointerdown={(e: PointerEvent) => { if (slot) onPointerDown(e, slot) }}
         >
@@ -122,9 +120,6 @@
           {/if}
           {#if slot && slot.quantity > 1}
             <span class="item-qty">{slot.quantity}</span>
-          {/if}
-          {#if slot && def && hoveredSlot === i && !$dragMeta}
-            <ItemTooltip {def} side="left" />
           {/if}
         </div>
       {/each}

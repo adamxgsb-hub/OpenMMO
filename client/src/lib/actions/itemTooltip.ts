@@ -1,0 +1,70 @@
+import { mount, unmount } from 'svelte'
+import { get } from 'svelte/store'
+import ItemTooltip from '../components/ItemTooltip.svelte'
+import { dragMeta } from '../stores/dragStore'
+import type { ItemDefinition } from '../data/itemDefs'
+
+export interface ItemTooltipParams {
+  def: ItemDefinition
+  side?: 'left' | 'right'
+}
+
+/**
+ * Shows an ItemTooltip next to the element while hovered. Pass `null` to
+ * disable (e.g. an empty inventory slot).
+ *
+ * The tooltip is mounted at document.body so ancestor overflow/transform
+ * containing blocks cannot clip it. The anchor rect is measured once on
+ * mouseenter, so the tooltip hides on any scroll/resize (rect goes stale)
+ * and while an item drag is in progress.
+ */
+export function itemTooltip(
+  node: HTMLElement,
+  params: ItemTooltipParams | null
+) {
+  let instance: object | null = null
+  let unsubDrag: (() => void) | null = null
+
+  function show() {
+    if (!params || instance || get(dragMeta)) return
+    instance = mount(ItemTooltip, {
+      target: document.body,
+      props: {
+        def: params.def,
+        side: params.side,
+        anchor: node.getBoundingClientRect(),
+      },
+    })
+    unsubDrag = dragMeta.subscribe((meta) => {
+      if (meta) hide()
+    })
+    window.addEventListener('scroll', hide, true)
+    window.addEventListener('resize', hide)
+  }
+
+  function hide() {
+    unsubDrag?.()
+    unsubDrag = null
+    window.removeEventListener('scroll', hide, true)
+    window.removeEventListener('resize', hide)
+    if (instance) {
+      unmount(instance)
+      instance = null
+    }
+  }
+
+  node.addEventListener('mouseenter', show)
+  node.addEventListener('mouseleave', hide)
+
+  return {
+    update(next: ItemTooltipParams | null) {
+      params = next
+      if (!next) hide()
+    },
+    destroy() {
+      hide()
+      node.removeEventListener('mouseenter', show)
+      node.removeEventListener('mouseleave', hide)
+    },
+  }
+}
