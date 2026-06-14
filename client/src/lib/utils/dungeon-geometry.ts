@@ -8,8 +8,10 @@
  * Conventions (must mirror shared/src/dungeon):
  * - Group origin sits at (originX, floorY(depth), originZ); all geometry
  *   is local. Local y=0 is this floor's walking surface.
- * - No ceiling: the isometric camera looks down ~35°, any current-floor
- *   ceiling would fully occlude the player. The void reads as cave dark.
+ * - No ceiling on underground floors: the isometric camera looks down ~35°,
+ *   any current-floor ceiling would fully occlude the player. The void reads
+ *   as cave dark. (The surface entrance is the one exception — it carries a
+ *   gravel roof that the layer hides as the player nears, like a house roof.)
  * - Camera-facing walls (south/west boundaries — solid at z+1 / x-1) are
  *   not emitted at all, mirroring housing's hidden "front" group: the
  *   player is always inside a dungeon.
@@ -42,6 +44,10 @@ export const DUNGEON_VOID_TEXTURE_IDX = HOUSING_TEXTURES.findIndex(
 )
 export const DUNGEON_CHEST_TEXTURE_IDX = HOUSING_TEXTURES.findIndex(
   (e) => e.glb === 'housing/dark_wooden_planks_1k'
+)
+/** Grey roof tiles for the surface entrance roof. */
+export const DUNGEON_CEILING_TEXTURE_IDX = HOUSING_TEXTURES.findIndex(
+  (e) => e.glb === 'housing/grey_roof_tiles_02_1k'
 )
 
 const SLAB_THICKNESS = 0.15
@@ -87,6 +93,98 @@ function addBox(
     }
   }
   entries.push({ geo: bakedGeo(geo, cx, cy, cz, 0, 1, 1), textureIndex })
+}
+
+const _roofMat = new THREE.Matrix4()
+
+/**
+ * Gabled (맞배지붕) roof over a rectangular footprint, centered at (cx, cz).
+ * The ridge runs along the run axis (the long, `runLen` direction); the two
+ * slopes face the lateral (`latW`) sides and a triangular gable closes each
+ * run-axis end. Eaves overhang by `oh` on the lateral sides and by `endOh`
+ * past each gable end. Pushes GeoEntry slabs for the caller to merge.
+ */
+function addGableRoof(
+  entries: GeoEntry[],
+  texIdx: number,
+  alongZ: boolean,
+  cx: number,
+  cz: number,
+  runLen: number,
+  latW: number,
+  baseY: number,
+  rise: number,
+  oh: number,
+  endOh: number,
+  thick: number
+) {
+  const halfLat = latW / 2
+  const ridgeLen = runLen + endOh * 2
+  const slopeAngle = Math.atan2(rise, halfLat)
+  const eaveDropY = (oh * rise) / halfLat
+  const slopeLen =
+    ((halfLat + oh) * Math.sqrt(halfLat * halfLat + rise * rise)) / halfLat
+
+  // Two slope slabs. Built ridge-along-X, then rotated to Z for along-Z shafts.
+  // The ridge end is mitered so the two slabs' outer faces meet flush at the
+  // peak instead of leaving a gap (same technique as the house gabled roof).
+  const ridgeExt = (thick * rise) / halfLat
+  const totalSlopeLen = slopeLen + ridgeExt
+  for (const side of [-1, 1] as const) {
+    const geo = new THREE.BoxGeometry(ridgeLen, thick, totalSlopeLen)
+    const uv = geo.getAttribute('uv')
+    for (let i = 0; i < uv.count; i++) {
+      uv.setXY(i, uv.getX(i) * ridgeLen, uv.getY(i) * totalSlopeLen)
+    }
+    // Pull the inner (underside) vertices at the ridge end outward by ridgeExt
+    // so the slab's top edge forms the peak with no overlap or gap.
+    const pos = geo.getAttribute('position')
+    const innerY = -thick / 2
+    const ridgeEndZ = (-side * totalSlopeLen) / 2
+    for (let i = 0; i < pos.count; i++) {
+      if (
+        Math.abs(pos.getY(i) - innerY) < 1e-3 &&
+        Math.abs(pos.getZ(i) - ridgeEndZ) < 1e-3
+      ) {
+        pos.setZ(i, ridgeEndZ + side * ridgeExt)
+      }
+    }
+    geo.translate(0, thick / 2, (-side * ridgeExt) / 2)
+    _roofMat.makeRotationX(side * slopeAngle)
+    geo.applyMatrix4(_roofMat)
+    if (alongZ) {
+      _roofMat.makeRotationY(Math.PI / 2)
+      geo.applyMatrix4(_roofMat)
+    }
+    const perpCenter = (side * (halfLat + oh)) / 2
+    const yCenter = baseY + (rise - eaveDropY) / 2
+    const tx = cx + (alongZ ? perpCenter : 0)
+    const tz = cz + (alongZ ? 0 : perpCenter)
+    _roofMat.makeTranslation(tx, yCenter, tz)
+    geo.applyMatrix4(_roofMat)
+    entries.push({ geo, textureIndex: texIdx })
+  }
+
+  // Triangular gable wall at each run-axis end (base at baseY, apex at ridge).
+  for (const endSign of [-1, 1] as const) {
+    const shape = new THREE.Shape()
+    shape.moveTo(-halfLat, 0)
+    shape.lineTo(halfLat, 0)
+    shape.lineTo(0, rise)
+    shape.closePath()
+    const geo = new THREE.ShapeGeometry(shape) // XY plane, normal +Z
+    if (alongZ) {
+      _roofMat.makeRotationY(endSign === 1 ? 0 : Math.PI)
+    } else {
+      _roofMat.makeRotationY(endSign === 1 ? Math.PI / 2 : -Math.PI / 2)
+    }
+    geo.applyMatrix4(_roofMat)
+    const tx = cx + (alongZ ? 0 : (endSign * runLen) / 2)
+    const tz = cz + (alongZ ? (endSign * runLen) / 2 : 0)
+    _roofMat.makeTranslation(tx, baseY, tz)
+    geo.applyMatrix4(_roofMat)
+    entries.push({ geo, textureIndex: texIdx })
+  }
 }
 
 function shaftRect(shaft: DungeonShaft, ctx: DungeonGeoCtx) {
@@ -330,69 +428,121 @@ export function buildDungeonFloorGroup(
 
 /**
  * Surface entrance structure, rendered at depth 0 so the terrain hole over
- * the shaft reads as a stairwell pit. Renders the descending stairs (so the
- * player visibly walks down the upper half before the floor-1 group takes
- * over at the shaft midpoint) plus stone pit walls on the two run-axis sides
- * and the far (deep) end, spanning from a dark pit floor one floor down
- * (−floorHeight) up to a low parapet lip (+H). The below-ground span is what
- * shows through the terrain hole; the above-ground span is the lip. The entry
- * end stays open. The stairs match the floor-1 up-shaft in world space, so
- * the depth-0↔1 swap at the midpoint is seamless. Caller renders this only at
- * depth 0 (the floor-1 group owns the shaft underground). Local to (originX,
- * entranceY, originZ) like floors.
+ * the shaft reads as a covered stairwell. Renders the descending stairs (so
+ * the player visibly walks down the upper half before the floor-1 group takes
+ * over at the shaft midpoint) plus stone walls on the two run-axis sides and
+ * the far (deep) end, spanning from a dark pit floor one floor down
+ * (−floorHeight) up to a raised parapet (+ABOVE), capped by a gabled gravel
+ * roof — a small roofed shed over the stairs. The entry end stays open as
+ * an ABOVE-tall doorway.
+ *
+ * The footprint covers only the 6-cell tread span: the one landing cell at
+ * each end is left to the terrain (shaftHoleRect insets both ends to match),
+ * trimming the old 8-cell length. The inset is symmetric, so `reversed`
+ * doesn't change the footprint. The stairs still match the floor-1 up-shaft
+ * in world space, so the depth-0↔1 swap at the midpoint is seamless.
+ *
+ * The returned `ceiling` is a sub-group the layer hides as the player nears
+ * (an iso-camera ceiling would otherwise occlude them on the upper stairs —
+ * see GameSceneDungeonLayer); it's already parented to `group`. Caller renders
+ * this only at depth 0. Local to (originX, entranceY, originZ) like floors.
  */
+export interface DungeonEntranceGroup {
+  group: THREE.Group
+  ceiling: THREE.Group
+}
+
 export function buildDungeonEntranceGroup(
   entranceShaft: DungeonShaft,
   ctx: DungeonGeoCtx
-): THREE.Group {
+): DungeonEntranceGroup {
   const entries: GeoEntry[] = []
+  const ceilingEntries: GeoEntry[] = []
   const r = shaftRect(entranceShaft, ctx)
 
-  // How far the pit walls descend — matches the up-shaft drop to floor 1.
+  // Covered footprint: the tread span only, inset by one landing cell at each
+  // end. Symmetric inset → independent of `reversed`.
+  const cr = entranceShaft.alongZ
+    ? { x: r.x, w: r.w, z: r.z + LANDING_CELLS, d: r.d - LANDING_CELLS * 2 }
+    : { x: r.x + LANDING_CELLS, w: r.w - LANDING_CELLS * 2, z: r.z, d: r.d }
+
+  // How far the walls descend — matches the up-shaft drop to floor 1.
   const depth = ctx.floorHeight
+  // Headroom above the entry surface: walls rise this far above ground (a
+  // raised parapet) and the gabled roof sits on top. The deep end clears
+  // depth + ABOVE; the entry end is an ABOVE-tall doorway.
+  const ABOVE = 3.0
+  const T = 0.25 // wall thickness
+  const CT = 0.2 // roof slab thickness
+  const OH = 0.2 // lateral roof eave overhang
+  const END_OH = 0.3 // run-axis (gable end) overhang past the walls
+  const RIDGE_RISE = 1.0 // gable peak height above the walls
 
   // Dark floor at the bottom of the visible shaft (backs the open pit so it
   // doesn't show through to the sky).
   addBox(
     entries,
     DUNGEON_VOID_TEXTURE_IDX,
-    r.w,
+    cr.w,
     0.05,
-    r.d,
-    r.x + r.w / 2,
+    cr.d,
+    cr.x + cr.w / 2,
     -depth + 0.025,
-    r.z + r.d / 2
+    cr.z + cr.d / 2
   )
 
-  // Pit walls: stone walls on the two run-axis sides and the far (deep) end,
-  // spanning [−depth, +H]. The entry end stays open. Slight outset so walking
-  // the shaft never clips them.
-  const H = 1.0
-  const T = 0.25
-  const wallH = depth + H
-  const wallCy = (H - depth) / 2 // center of the [−depth, +H] span
+  // Stone walls on the two run-axis sides and the far (deep) end, spanning
+  // [−depth, +ABOVE]. The entry end stays open. Slight outset so walking the
+  // shaft never clips them.
+  const wallH = depth + ABOVE
+  const wallCy = (ABOVE - depth) / 2 // center of the [−depth, +ABOVE] span
   // Deep/far end is the high-coordinate end unless the shaft runs reversed.
   const farPositive = !entranceShaft.reversed
   if (entranceShaft.alongZ) {
-    addBox(entries, DUNGEON_WALL_TEXTURE_IDX, T, wallH, r.d + T, r.x - T / 2, wallCy, r.z + r.d / 2)
-    addBox(entries, DUNGEON_WALL_TEXTURE_IDX, T, wallH, r.d + T, r.x + r.w + T / 2, wallCy, r.z + r.d / 2)
-    const farZ = farPositive ? r.z + r.d + T / 2 : r.z - T / 2
-    addBox(entries, DUNGEON_WALL_TEXTURE_IDX, r.w + T * 2, wallH, T, r.x + r.w / 2, wallCy, farZ)
+    addBox(entries, DUNGEON_WALL_TEXTURE_IDX, T, wallH, cr.d + T, cr.x - T / 2, wallCy, cr.z + cr.d / 2)
+    addBox(entries, DUNGEON_WALL_TEXTURE_IDX, T, wallH, cr.d + T, cr.x + cr.w + T / 2, wallCy, cr.z + cr.d / 2)
+    const farZ = farPositive ? cr.z + cr.d + T / 2 : cr.z - T / 2
+    addBox(entries, DUNGEON_WALL_TEXTURE_IDX, cr.w + T * 2, wallH, T, cr.x + cr.w / 2, wallCy, farZ)
   } else {
-    addBox(entries, DUNGEON_WALL_TEXTURE_IDX, r.w + T, wallH, T, r.x + r.w / 2, wallCy, r.z - T / 2)
-    addBox(entries, DUNGEON_WALL_TEXTURE_IDX, r.w + T, wallH, T, r.x + r.w / 2, wallCy, r.z + r.d + T / 2)
-    const farX = farPositive ? r.x + r.w + T / 2 : r.x - T / 2
-    addBox(entries, DUNGEON_WALL_TEXTURE_IDX, T, wallH, r.d + T * 2, farX, wallCy, r.z + r.d / 2)
+    addBox(entries, DUNGEON_WALL_TEXTURE_IDX, cr.w + T, wallH, T, cr.x + cr.w / 2, wallCy, cr.z - T / 2)
+    addBox(entries, DUNGEON_WALL_TEXTURE_IDX, cr.w + T, wallH, T, cr.x + cr.w / 2, wallCy, cr.z + cr.d + T / 2)
+    const farX = farPositive ? cr.x + cr.w + T / 2 : cr.x - T / 2
+    addBox(entries, DUNGEON_WALL_TEXTURE_IDX, T, wallH, cr.d + T * 2, farX, wallCy, cr.z + cr.d / 2)
   }
 
-  // Descending stairs (no side wall — the pit walls above supply the sides;
-  // no landings — terrain covers the entry row, the dark pit floor backs the
-  // deep end). Same world-space geometry as the floor-1 up-shaft.
+  // Gabled gravel-stone roof on top, ridge along the run axis. The gable
+  // planes are the doorway edge (entry) and the far wall's *outer* face — so
+  // END_OH overhangs past the actual walls on both ends, not the footprint
+  // (the far wall is outset by T, which would otherwise eat the overhang).
+  const roofShift = farPositive ? T / 2 : -T / 2
+  const alongZ = entranceShaft.alongZ
+  const [runDim, latDim] = alongZ ? [cr.d, cr.w] : [cr.w, cr.d]
+  addGableRoof(
+    ceilingEntries,
+    DUNGEON_CEILING_TEXTURE_IDX,
+    alongZ,
+    cr.x + cr.w / 2 + (alongZ ? 0 : roofShift),
+    cr.z + cr.d / 2 + (alongZ ? roofShift : 0),
+    runDim + T,
+    latDim,
+    ABOVE,
+    RIDGE_RISE,
+    OH,
+    END_OH,
+    CT
+  )
+
+  // Descending stairs (no side wall — the walls above supply the sides; no
+  // landings — terrain covers the entry row, the dark pit floor backs the deep
+  // end). Same world-space geometry as the floor-1 up-shaft.
   collectShaftStairs(entries, entranceShaft, ctx, 0, -depth, false, false, false)
 
   const group = new THREE.Group()
   addMergedMeshes(group, entries)
-  return group
+  const ceiling = new THREE.Group()
+  addMergedMeshes(ceiling, ceilingEntries)
+  group.add(ceiling)
+  return { group, ceiling }
 }
 
 /** Dispose merged geometries (materials are shared — never disposed). */

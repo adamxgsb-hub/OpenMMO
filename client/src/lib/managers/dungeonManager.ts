@@ -107,9 +107,11 @@ export interface DungeonFloorCells {
 }
 
 /**
- * World-space XZ rect of a shaft's surface opening — the footprint minus
- * the one-cell entry landing row at the shallow end (so terrain/grass still
- * meet the lip where the player steps in).
+ * World-space XZ rect of a shaft's surface opening — the footprint minus the
+ * one-cell landing row at *both* ends, leaving just the 6-cell tread span.
+ * This matches the covered entrance structure (buildDungeonEntranceGroup),
+ * so terrain/grass meet the parapet on every side. The symmetric inset makes
+ * it independent of `reversed`.
  */
 function shaftHoleRect(
   shaft: DungeonShaft,
@@ -122,17 +124,13 @@ function shaftHoleRect(
   if (shaft.alongZ) {
     minX = shaft.x
     maxX = shaft.x + shaftW
-    minZ = shaft.z
-    maxZ = shaft.z + shaftLen
-    if (shaft.reversed) maxZ -= LANDING_CELLS
-    else minZ += LANDING_CELLS
+    minZ = shaft.z + LANDING_CELLS
+    maxZ = shaft.z + shaftLen - LANDING_CELLS
   } else {
-    minX = shaft.x
-    maxX = shaft.x + shaftLen
+    minX = shaft.x + LANDING_CELLS
+    maxX = shaft.x + shaftLen - LANDING_CELLS
     minZ = shaft.z
     maxZ = shaft.z + shaftW
-    if (shaft.reversed) maxX -= LANDING_CELLS
-    else minX += LANDING_CELLS
   }
   return {
     minX: originX + minX,

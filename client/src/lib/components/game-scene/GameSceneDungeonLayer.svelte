@@ -14,6 +14,7 @@
     currentDungeonId,
   } from '../../stores/dungeonStore'
   import { dungeonManager } from '../../managers/dungeonManager'
+  import type { DungeonRect } from '../../managers/dungeonManager'
   import { networkManager } from '../../network/socket'
   import {
     buildDungeonEntranceGroup,
@@ -30,6 +31,10 @@
   const root = new THREE.Group()
   let currentGroup: THREE.Group | null = null
   let entranceGroup: THREE.Group | null = null
+  /** Gravel roof sub-group of the entrance; hidden as the player nears. */
+  let entranceCeiling: THREE.Object3D | null = null
+  /** Cached entrance opening rect — stable at depth 0; drives the roof toggle. */
+  let entranceRect: DungeonRect | null = null
   let builtKey = ''
   let entranceKey = ''
 
@@ -46,6 +51,8 @@
       root.remove(entranceGroup)
       disposeDungeonGroup(entranceGroup)
       entranceGroup = null
+      entranceCeiling = null
+      entranceRect = null
     }
   }
 
@@ -118,18 +125,21 @@
         const first = dungeonManager.layoutAt(1)
         if (first) {
           const c = dungeonManager.consts
-          entranceGroup = buildDungeonEntranceGroup(first.upShaft, {
+          const built = buildDungeonEntranceGroup(first.upShaft, {
             grid: c.grid,
             wallHeight: c.wallHeight,
             floorHeight: c.floorHeight,
             shaftW: c.shaftW,
             shaftLen: c.shaftLen,
           })
+          entranceGroup = built.group
+          entranceCeiling = built.ceiling
           entranceGroup.position.set(
             dungeonManager.originX,
             dungeonManager.entrancePos!.y,
             dungeonManager.originZ
           )
+          entranceRect = dungeonManager.entranceHoleRect()
           root.add(entranceGroup)
         }
       }
@@ -174,6 +184,20 @@
   /** Per-frame: stair-shaft floor transitions + chest proximity. */
   export function update(playerX: number, playerZ: number) {
     dungeonManager.updateFromPlayerPosition(playerX, playerZ)
+
+    // Hide the gravel roof as the player nears/descends the entrance so it
+    // doesn't occlude them on the upper stairs (house-roof style). Only at
+    // depth 0 — underground the whole entrance group is already hidden. Uses
+    // the cached rect (stable at depth 0) to avoid per-frame allocation.
+    if (entranceCeiling && entranceRect && entranceGroup?.visible) {
+      const m = 2.5
+      const near =
+        playerX >= entranceRect.minX - m &&
+        playerX <= entranceRect.maxX + m &&
+        playerZ >= entranceRect.minZ - m &&
+        playerZ <= entranceRect.maxZ + m
+      entranceCeiling.visible = !near
+    }
 
     // Final-floor treasure chest: walking up to it requests an open once
     // per approach (the server validates boss state and the cooldown).
