@@ -180,7 +180,15 @@ class MonsterManager {
   ) {
     const existing = this.monsters.get(id)
     if (!existing) {
-      this.spawnWithId(id, type, position, ownerId, health, maxHealth, floorLevel)
+      this.spawnWithId(
+        id,
+        type,
+        position,
+        ownerId,
+        health,
+        maxHealth,
+        floorLevel
+      )
       return
     }
     existing.ownerId = ownerId

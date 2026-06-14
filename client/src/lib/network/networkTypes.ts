@@ -45,6 +45,9 @@ export type ServerMonster = {
   owner_id?: string
   health: number
   max_health: number
+  /** 0 = overworld, 1..3 housing floors, negative = dungeon depth. Always
+   *  sent by the server (shared Monster::floor_level). */
+  floor_level: number
 }
 
 export type AccountCharacter = {
