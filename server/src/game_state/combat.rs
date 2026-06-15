@@ -185,6 +185,17 @@ impl super::GameState {
 
                     if let Some(item_def_id) = dropped_weapon_item_def_id {
                         let instance_id = self.next_instance_id().await;
+                        // Scatter the drop a couple meters off the corpse,
+                        // then clamp it onto walkable floor inside a dungeon
+                        // so it can't land behind a wall (pickup is a pure
+                        // proximity check, so a walled-off item is lost).
+                        let drop_position = self
+                            .loot_drop_position(
+                                monster_position,
+                                monster_floor_level,
+                                dropped_weapon_position(monster_position),
+                            )
+                            .await;
                         // Drops inherit the monster's floor: dungeon kills
                         // stay on their floor, surface kills on floor 0.
                         // (-1 used to mean "any floor"; that wildcard is
@@ -193,7 +204,7 @@ impl super::GameState {
                             GroundItem {
                                 instance_id,
                                 item_def_id,
-                                position: dropped_weapon_position(monster_position),
+                                position: drop_position,
                                 floor_level: monster_floor_level,
                             },
                             Some(monster_id.clone()),

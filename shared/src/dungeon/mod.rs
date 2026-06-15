@@ -72,6 +72,12 @@ pub const BOSS_MONSTER_TYPE: &str = "orc_boss";
 /// path toward the goal.
 pub const DUNGEON_PATH_MAX_NODES: usize = 20000;
 
+/// How far (in cells, Chebyshev distance) to search outward from a kill
+/// for walkable floor when a loot drop would otherwise land in a wall.
+/// Rooms are larger than this, so a carved cell is always found well
+/// before the limit; it's only a guard against pathological geometry.
+const DROP_SEARCH_RING_MAX: i32 = 4;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Room {
     pub x: i32,
@@ -195,6 +201,67 @@ impl FloorLayout {
     pub fn is_carved(&self, x: i32, z: i32) -> bool {
         x >= 0 && x < GRID && z >= 0 && z < GRID && self.carved[(x + z * GRID) as usize]
     }
+
+    /// Pick a walkable world position to drop loot near a monster's death
+    /// spot, so the item never lands inside a wall. Pickup is a pure
+    /// proximity check (no pathfinding), so an item in an uncarved cell can
+    /// be unreachable — a player can never get close enough through the
+    /// wall.
+    ///
+    /// `preferred` is the desired scatter point (the death position plus a
+    /// random offset). If it already sits on carved floor it's kept as-is.
+    /// Otherwise the search widens in Chebyshev rings around the *death*
+    /// cell and snaps to the carved cell whose center is nearest `preferred`,
+    /// finally falling back to the death cell itself — the monster stood
+    /// there, so it is carved.
+    pub fn walkable_drop_position(
+        &self,
+        entrance: &Position,
+        death: &Position,
+        preferred: &Position,
+    ) -> Position {
+        let surface_y = floor_world_y(entrance.y, self.depth);
+
+        // 1. Keep the scattered point when it already lands on floor.
+        let (px, pz) = world_to_cell(entrance, preferred.x, preferred.z);
+        if self.is_carved(px, pz) {
+            return Position {
+                x: preferred.x,
+                y: surface_y,
+                z: preferred.z,
+            };
+        }
+
+        // 2. Widen outward from the death cell; at each ring snap to the
+        //    carved cell whose center is closest to the preferred point so
+        //    the drop still trends in the scatter direction.
+        let (dcx, dcz) = world_to_cell(entrance, death.x, death.z);
+        for ring in 1..=DROP_SEARCH_RING_MAX {
+            let mut best: Option<((i32, i32), f32)> = None;
+            for cz in (dcz - ring)..=(dcz + ring) {
+                for cx in (dcx - ring)..=(dcx + ring) {
+                    // Only the perimeter cells are new at this ring.
+                    if (cx - dcx).abs() != ring && (cz - dcz).abs() != ring {
+                        continue;
+                    }
+                    if !self.is_carved(cx, cz) {
+                        continue;
+                    }
+                    let c = cell_center(entrance, self.depth, (cx, cz));
+                    let d2 = (c.x - preferred.x).powi(2) + (c.z - preferred.z).powi(2);
+                    if best.is_none_or(|(_, b)| d2 < b) {
+                        best = Some(((cx, cz), d2));
+                    }
+                }
+            }
+            if let Some((cell, _)) = best {
+                return cell_center(entrance, self.depth, cell);
+            }
+        }
+
+        // 3. Fallback: the death cell itself (the monster occupied it).
+        cell_center(entrance, self.depth, (dcx, dcz))
+    }
 }
 
 /// FNV-1a 64 over the entrance id. Implemented inline because
@@ -245,6 +312,12 @@ pub fn cell_center(entrance: &Position, depth: u8, cell: (i32, i32)) -> Position
         y: floor_world_y(entrance.y, depth),
         z: oz + cell.1 as f32 + 0.5,
     }
+}
+
+/// Grid cell containing a world-space XZ position (inverse of `cell_center`).
+pub fn world_to_cell(entrance: &Position, x: f32, z: f32) -> (i32, i32) {
+    let (ox, oz) = dungeon_origin(entrance.x, entrance.z);
+    ((x - ox).floor() as i32, (z - oz).floor() as i32)
 }
 
 /// Passability cache key for a dungeon (one entry covers every floor).

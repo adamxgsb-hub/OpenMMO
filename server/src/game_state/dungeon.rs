@@ -473,6 +473,36 @@ impl GameState {
         }
     }
 
+    /// Pick where a slain monster's loot lands. On a dungeon floor the
+    /// random scatter is clamped onto walkable floor so the item never ends
+    /// up inside a wall, where the proximity-only pickup could never reach
+    /// it. On the surface (floor >= 0) the scatter is used unchanged.
+    pub(super) async fn loot_drop_position(
+        &self,
+        monster_position: Position,
+        floor_level: i8,
+        preferred: Position,
+    ) -> Position {
+        if floor_level >= 0 {
+            return preferred;
+        }
+        let Some(entrance) = self
+            .dungeon_defs
+            .entrance_at(monster_position.x, monster_position.z)
+        else {
+            return preferred;
+        };
+        let depth = (-floor_level) as usize;
+        let dungeons = self.dungeons.read().await;
+        let Some(layout) = dungeons
+            .get(&entrance.id)
+            .and_then(|rt| rt.layouts.get(depth - 1))
+        else {
+            return preferred;
+        };
+        layout.walkable_drop_position(&entrance.position(), &monster_position, &preferred)
+    }
+
     /// Mark a dungeon monster's slot for respawn after it dies. Called
     /// from the combat death path; no-op for non-dungeon monsters.
     pub(super) async fn on_dungeon_monster_dead(&self, monster_id: &str) {

@@ -244,6 +244,67 @@ fn monster_level_scaling() {
 }
 
 #[test]
+fn walkable_drop_keeps_a_carved_scatter_point() {
+    // A scatter point that already lands on floor must be returned as-is
+    // (only the Y is normalized to the floor surface).
+    let entrance = test_entrance();
+    let floors = generate_dungeon(dungeon_seed("old_crypt"));
+    let layout = &floors[0];
+    let room = layout.rooms[0];
+    let death = cell_center(&entrance, layout.depth, room.center());
+    let preferred = Position {
+        x: death.x + 0.3,
+        y: death.y,
+        z: death.z - 0.2,
+    };
+    let drop = layout.walkable_drop_position(&entrance, &death, &preferred);
+    assert_eq!(drop.x, preferred.x);
+    assert_eq!(drop.z, preferred.z);
+    assert_eq!(drop.y, floor_world_y(entrance.y, layout.depth));
+}
+
+#[test]
+fn walkable_drop_never_lands_in_a_wall() {
+    // For every carved cell that borders a wall, a drop scattered into that
+    // wall must be relocated back onto carved floor across many seeds.
+    let entrance = test_entrance();
+    let mut checked = 0u32;
+    for seed in 0..30u64 {
+        let floors = generate_dungeon(seed);
+        for layout in &floors {
+            for z in 0..GRID {
+                for x in 0..GRID {
+                    if !layout.is_carved(x, z) {
+                        continue;
+                    }
+                    // Find an uncarved (wall) neighbor to scatter toward.
+                    let wall = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+                        .into_iter()
+                        .map(|(dx, dz)| (x + dx, z + dz))
+                        .find(|&(nx, nz)| !layout.is_carved(nx, nz));
+                    let Some((wx, wz)) = wall else { continue };
+
+                    let death = cell_center(&entrance, layout.depth, (x, z));
+                    // Push the preferred point a full cell into the wall.
+                    let preferred = cell_center(&entrance, layout.depth, (wx, wz));
+                    let drop = layout.walkable_drop_position(&entrance, &death, &preferred);
+
+                    let (dcx, dcz) = world_to_cell(&entrance, drop.x, drop.z);
+                    assert!(
+                        layout.is_carved(dcx, dcz),
+                        "seed {seed} depth {} cell ({x},{z}) -> wall ({wx},{wz}) \
+                         dropped into uncarved cell ({dcx},{dcz})",
+                        layout.depth,
+                    );
+                    checked += 1;
+                }
+            }
+        }
+    }
+    assert!(checked > 0, "test never exercised a wall-bordering cell");
+}
+
+#[test]
 fn seed_is_stable_fnv() {
     // FNV-1a 64 reference values; the seed must never change across
     // refactors (it is baked into every deployed entrance).
