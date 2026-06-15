@@ -16,6 +16,9 @@
   - 던전 디테일: 횃불/소품, 보스 전용 모델, 상자 열림 연출
   - 추가 입구 배치 (현재 old_crypt 1개, data-src/dungeons.csv)
   - 바닥에 물 웅덩이
+  - 지상 경비병이 던전 몬스터를 공격함
+  - 캐릭터의 발이 던전 바닥에 딱 맞지 않음
+
 - [x] map editor를 만든다
   - [x] mark monster spawn area
   - [x] edit waypoints of npcs
@@ -57,6 +60,7 @@
 - healing potion
 - [x] 몬스터가 도망칠 때는 적어도 화면 밖까지
 - 상인에게 판 물건 되사기
+- 그래픽 프리셋에 토치 그림자 맵 크기 넣기
 
 # 폐지
 

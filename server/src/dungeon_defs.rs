@@ -19,7 +19,10 @@ pub struct DungeonEntranceDef {
     pub x: f32,
     pub y: f32,
     pub z: f32,
+    /// Entrance orientation, part of the shared dungeons.json schema. Consumed by
+    /// the client to face the entrance building; the server only needs position.
     #[serde(default)]
+    #[allow(dead_code)]
     pub rotation: f32,
 }
 
