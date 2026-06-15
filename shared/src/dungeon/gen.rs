@@ -404,7 +404,12 @@ fn roll_spawns(rng: &mut ChaCha8Rng, layout: &FloorLayout) -> Vec<SpawnSpec> {
     if total_weight == 0 {
         return spawns;
     }
-    let count = rng.gen_range(5..=9) as usize;
+    // First floor is the entry floor: keep it lighter so newcomers ease in.
+    let count = if layout.depth == 1 {
+        rng.gen_range(3..=5) as usize
+    } else {
+        rng.gen_range(5..=9) as usize
+    };
 
     for _ in 0..count.min(candidates.len()) {
         let idx = rng.gen_range(0..candidates.len());

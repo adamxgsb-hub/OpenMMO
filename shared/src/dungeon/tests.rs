@@ -68,8 +68,9 @@ fn golden_layout_hash() {
 // the spawn table moved from depth-band arrays (dungeon_spawns.json) to the
 // per-monster `dungeon*` columns of monsters.csv: same monster presence per
 // depth, but weighted-selection order now follows csv row order, so the picks
-// (and thus the hash) shift.
-const GOLDEN_OLD_CRYPT_HASH: u64 = 0x7166_7f71_2683_346e;
+// (and thus the hash) shift. Re-blessed again when floor 1 spawn count dropped
+// to 3..=5 (from the uniform 5..=9): the smaller draw shifts depth-1 RNG order.
+const GOLDEN_OLD_CRYPT_HASH: u64 = 0xa091_5202_fbc3_b743;
 
 #[test]
 fn structure_invariants_many_seeds() {
