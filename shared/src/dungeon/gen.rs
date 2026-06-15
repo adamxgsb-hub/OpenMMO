@@ -12,8 +12,8 @@ use super::{
     SHAFT_LEN, SHAFT_W,
 };
 
-const ROOM_MIN: i32 = 5;
-const ROOM_MAX: i32 = 12;
+const ROOM_MIN: i32 = 9;
+const ROOM_MAX: i32 = 17;
 /// Axial size needed by a room that hosts a stair shaft (run + 1 margin each end).
 const SHAFT_ROOM_AXIAL: i32 = SHAFT_LEN + 2;
 const FLOOR_ATTEMPTS: u32 = 30;

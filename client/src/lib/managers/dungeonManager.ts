@@ -610,7 +610,13 @@ class DungeonManager {
    */
   syncFromFloorLevel(floorLevel: number, x: number, z: number) {
     if (floorLevel >= 0) {
-      if (this.active) currentDungeonDepth.set(0)
+      if (this.active) {
+        currentDungeonDepth.set(0)
+        // Surfacing via a server sync (respawn/teleport) shuts the entrance
+        // door, mirroring enter()/exit(). Without this the door keeps its
+        // pre-death open state, desyncing from the collision that re-shuts it.
+        dungeonDoorOpen.set(false)
+      }
       return
     }
     if (!this.active) {

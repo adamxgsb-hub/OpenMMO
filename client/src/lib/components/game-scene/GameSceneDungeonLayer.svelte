@@ -9,6 +9,7 @@
   import { T } from '@threlte/core'
   import * as THREE from 'three'
   import { onDestroy } from 'svelte'
+  import { get } from 'svelte/store'
   import {
     currentDungeonDepth,
     currentDungeonId,
@@ -41,6 +42,9 @@
   /** Eased open fraction (0 shut → 1 fully open), lerped per frame toward the
    *  click-toggled dungeonDoorOpen store. */
   let doorOpenAmount = 0
+  /** Whether the surface entrance is currently shown (depth 0). Tracked so we
+   *  can reconcile the door visual to the store on the hidden→shown edge. */
+  let entranceVisible = false
   let builtKey = ''
   let entranceKey = ''
 
@@ -122,7 +126,17 @@
       entranceGroup = null
       entranceDoors = []
       doorOpenAmount = 0
+      entranceVisible = false
     }
+  }
+
+  /** Write the current eased open fraction (doorOpenAmount) to both entrance
+   *  door leaves' hinge rotation. Shared by the per-frame swing and the
+   *  snap-to-store on (re)appear. */
+  function applyDoorRotation() {
+    for (const leaf of entranceDoors)
+      leaf.pivot.rotation.y =
+        leaf.closedAngle + (leaf.openAngle - leaf.closedAngle) * doorOpenAmount
   }
 
   // ── Passability debug overlay (red wireframe on blocked cell edges) ──
@@ -215,7 +229,20 @@
         }
       }
     }
-    if (entranceGroup) entranceGroup.visible = depth === 0
+    if (entranceGroup) {
+      const showEntrance = depth === 0
+      if (showEntrance && !entranceVisible) {
+        // The surface entrance just (re)appeared — returning to the surface
+        // after a respawn/teleport reuses this group without a rebuild. Snap
+        // the door visual to the live open/shut store so a stale open angle
+        // can't linger while collision (entranceBlocksMovement) treats it as
+        // shut, which would look open but block the player from descending.
+        doorOpenAmount = get(dungeonDoorOpen) ? 1 : 0
+        applyDoorRotation()
+      }
+      entranceVisible = showEntrance
+      entranceGroup.visible = showEntrance
+    }
   })
 
   $effect(() => {
@@ -298,11 +325,7 @@
     if (entranceDoors.length > 0) {
       const target = $dungeonDoorOpen ? 1 : 0
       doorOpenAmount += (target - doorOpenAmount) * 0.12
-      for (const leaf of entranceDoors) {
-        leaf.pivot.rotation.y =
-          leaf.closedAngle +
-          (leaf.openAngle - leaf.closedAngle) * doorOpenAmount
-      }
+      applyDoorRotation()
     }
 
     // Final-floor treasure chest: walking up to it requests an open once

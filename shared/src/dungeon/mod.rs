@@ -37,7 +37,7 @@ use crate::pathfinding::{
 use crate::world::Position;
 
 /// Side length of a dungeon floor in 1m cells.
-pub const GRID: i32 = 56;
+pub const GRID: i32 = 80;
 const HALF_GRID: i32 = GRID / 2;
 
 /// Vertical distance between consecutive dungeon floors.
