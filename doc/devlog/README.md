@@ -6,6 +6,7 @@ Development notes for notable project changes, asset additions, and design decis
 
 | Date | Topics | Notes |
 |------|--------|-------|
+| [2026-06-17](2026-06-17.md) | Stair Passability | Blocked passability flags so current-floor monsters can't enter the high side of the stairs (they were marching up the shaft and clipping through the floor above). The new `wall_shaft` closure seals the far landing's room-facing run-end while leaving the steps open for descending players. The red band in the screenshot is a passability debug overlay, not a gameplay element. |
 | [2026-06-15](2026-06-15.md) | Torch Shadow Artifacts | Fixed dungeon torch-light shadow glitches. Key detail: three.js records the shadow map from the **backface** by default (`FrontSide` materials derive `shadowSide = BackSide`), which self-biases against acne but peter-pans contact shadows — fixed with a 0.02m `SHADOW_CONTACT_LIFT` plus a larger torch shadow map and smaller bias. |
 | [2026-06-14](2026-06-14.md) | Procedural Dungeons | Added seed-deterministic, NetHack-style maze dungeons (fixed per entrance, up to 20 floors). Surface entrances reuse the housing procedural geometry as a stone building, with terrain holed out to expose the stairs. The final floor holds a boss with loot. |
 | [2026-06-11](2026-06-11.md) | Economy Phase 2: LLM Haggling | Rica's LLM can now grant per-player price deals via the new `offer_deal` action; the server clamps offers to a CHA-derived price band, enforces daily budgets and cooldowns, logs every decision, and the trade window shows haggled prices. |
