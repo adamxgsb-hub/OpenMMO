@@ -8,6 +8,8 @@
     text: string
     fontSize?: number
     color?: string
+    outlineColor?: string
+    outlineWidth?: number
     anchorX?: 'left' | 'center' | 'right'
     anchorY?: 'top' | 'middle' | 'bottom'
     fillOpacity?: number
@@ -26,6 +28,8 @@
     text,
     fontSize = 0.3,
     color = '#ffffff',
+    outlineColor,
+    outlineWidth = 0,
     anchorX = 'center',
     anchorY = 'middle',
     fillOpacity = 1.0,
@@ -136,7 +140,8 @@
     }
 
     const totalTextHeight = lines.length * lineHeight
-    const pad = 4
+    const outlinePad = Math.max(0, outlineWidth)
+    const pad = 4 + outlinePad
     const cw = Math.max(1, Math.ceil(maxLineWidth + pad * 2))
     const ch = Math.max(1, Math.ceil(totalTextHeight + pad * 2))
 
@@ -162,7 +167,8 @@
 
     ctx.clearRect(0, 0, cw, ch)
     ctx.font = font
-    ctx.fillStyle = color
+    ctx.lineJoin = 'round'
+    ctx.lineCap = 'round'
     ctx.textBaseline = 'top'
 
     for (let i = 0; i < lines.length; i++) {
@@ -172,6 +178,12 @@
       } else if (anchorX === 'right') {
         x = cw - ctx.measureText(lines[i]).width - pad
       }
+      if (outlineColor && outlineWidth > 0) {
+        ctx.strokeStyle = outlineColor
+        ctx.lineWidth = outlineWidth
+        ctx.strokeText(lines[i], x, pad + i * lineHeight)
+      }
+      ctx.fillStyle = color
       ctx.fillText(lines[i], x, pad + i * lineHeight)
     }
 

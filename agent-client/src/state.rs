@@ -385,6 +385,7 @@ impl SharedState {
 
             // State-only: tracked on SharedState, shown in the world state.
             ServerMessage::GoldUpdate { .. }
+            | ServerMessage::GoldGained { .. }
             | ServerMessage::InventoryState { .. }
             | ServerMessage::InventoryUpdated { .. } => EventUrgency::Noise,
 

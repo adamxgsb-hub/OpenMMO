@@ -465,6 +465,11 @@ pub enum ServerMessage {
     GoldUpdate {
         gold: i64,
     },
+    /// Direct message: the receiving player gained loose currency from a
+    /// pickup. `amount` is in the smallest unit (copper).
+    GoldGained {
+        amount: i64,
+    },
     /// A shop request failed.
     TradeError {
         message: String,

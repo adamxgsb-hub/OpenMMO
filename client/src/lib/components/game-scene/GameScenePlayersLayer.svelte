@@ -246,6 +246,7 @@
     bind:isLoading={isCurrentPlayerLoading}
     lastDamageInfo={currentPlayer.lastDamageInfo}
     lastRegenInfo={currentPlayer.lastRegenInfo}
+    lastGoldInfo={currentPlayer.lastGoldInfo}
     {torchEffectsDisabled}
   />
 {/if}

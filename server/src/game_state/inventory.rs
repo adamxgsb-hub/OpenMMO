@@ -517,6 +517,8 @@ impl super::GameState {
         self.mark_dirty(player_id).await;
         self.send_direct_message(player_id, ServerMessage::GoldUpdate { gold: new_gold })
             .await;
+        self.send_direct_message(player_id, ServerMessage::GoldGained { amount: copper })
+            .await;
         info!(
             "Player {} picked up a coin pile: +{} copper",
             player_id, copper

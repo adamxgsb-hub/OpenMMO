@@ -1,14 +1,21 @@
 <script lang="ts">
   import DamageTextItem from './DamageTextItem.svelte'
   import * as THREE from 'three'
-  import type { PlayerDamageInfo } from '../stores/gameStore'
+  import type { PlayerDamageInfo, PlayerGoldInfo } from '../stores/gameStore'
 
   interface Props {
     lastDamageInfo?: PlayerDamageInfo
     lastRegenInfo?: PlayerDamageInfo
+    lastGoldInfo?: PlayerGoldInfo
+    startYOffset?: number
   }
 
-  let { lastDamageInfo, lastRegenInfo }: Props = $props()
+  let {
+    lastDamageInfo,
+    lastRegenInfo,
+    lastGoldInfo,
+    startYOffset = 1.8,
+  }: Props = $props()
 
   interface FloatingText {
     id: number
@@ -20,6 +27,7 @@
   let nextTextId = 0
   let lastDamageTrigger = $state(0)
   let lastRegenTrigger = $state(0)
+  let lastGoldTrigger = $state(0)
   let itemRefs = $state<
     (ReturnType<typeof DamageTextItem> & {
       update: (
@@ -33,6 +41,22 @@
     })[]
   >([])
 
+  // Spawn a floating text when an info source's trigger advances past the last
+  // one we rendered, and return the new trigger to record. Shared by every
+  // floating-text source (damage, regen, gold) so each is a single call.
+  function emitIfTriggered<T extends { trigger: number }>(
+    info: T | undefined,
+    lastTrigger: number,
+    render: (info: T) => { text: string; color: string }
+  ): number {
+    if (info && info.trigger !== lastTrigger) {
+      const { text, color } = render(info)
+      floatingTexts = [...floatingTexts, { id: nextTextId++, text, color }]
+      return info.trigger
+    }
+    return lastTrigger
+  }
+
   export function update(
     deltaTime: number,
     baseX: number,
@@ -40,27 +64,21 @@
     baseZ: number,
     camera: THREE.Camera
   ) {
-    // 1. Check for new damage
-    if (lastDamageInfo && lastDamageInfo.trigger !== lastDamageTrigger) {
-      lastDamageTrigger = lastDamageInfo.trigger
+    // 1. Spawn a floating text for each source whose trigger advanced.
+    lastDamageTrigger = emitIfTriggered(lastDamageInfo, lastDamageTrigger, (i) => ({
+      text: i.hit ? `${i.damage}` : 'Miss',
+      color: i.hit ? '#ff4d4d' : '#a0aec0',
+    }))
+    lastRegenTrigger = emitIfTriggered(lastRegenInfo, lastRegenTrigger, (i) => ({
+      text: `+${i.damage}`,
+      color: '#48bb78', // Green
+    }))
+    lastGoldTrigger = emitIfTriggered(lastGoldInfo, lastGoldTrigger, (i) => ({
+      text: `+${i.amount} copper`,
+      color: '#f6c453',
+    }))
 
-      const text = lastDamageInfo.hit ? `${lastDamageInfo.damage}` : 'Miss'
-      const color = lastDamageInfo.hit ? '#ff4d4d' : '#a0aec0'
-
-      floatingTexts = [...floatingTexts, { id: nextTextId++, text, color }]
-    }
-
-    // 2. Check for new regen
-    if (lastRegenInfo && lastRegenInfo.trigger !== lastRegenTrigger) {
-      lastRegenTrigger = lastRegenInfo.trigger
-
-      const text = `+${lastRegenInfo.damage}`
-      const color = '#48bb78' // Green
-
-      floatingTexts = [...floatingTexts, { id: nextTextId++, text, color }]
-    }
-
-    // 3. Update existing items
+    // 2. Update existing items
     if (floatingTexts.length > 0) {
       for (const ref of itemRefs) {
         ref?.update(deltaTime, baseX, baseY, baseZ, camera)
@@ -85,5 +103,6 @@
     bind:this={itemRefs[index]}
     text={text.text}
     color={text.color}
+    {startYOffset}
   />
 {/each}

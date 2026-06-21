@@ -243,6 +243,7 @@ pub fn msg_name(msg: &onlinerpg_shared::ServerMessage) -> &'static str {
         ServerMessage::InventoryError { .. } => "InventoryError",
         ServerMessage::ShopState { .. } => "ShopState",
         ServerMessage::GoldUpdate { .. } => "GoldUpdate",
+        ServerMessage::GoldGained { .. } => "GoldGained",
         ServerMessage::TradeError { .. } => "TradeError",
         ServerMessage::DealUpdated { .. } => "DealUpdated",
         ServerMessage::DealResult { .. } => "DealResult",

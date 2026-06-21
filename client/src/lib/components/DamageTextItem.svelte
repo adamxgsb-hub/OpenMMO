@@ -1,17 +1,29 @@
 <script lang="ts">
   import { T } from '@threlte/core'
+  import { untrack } from 'svelte'
   import TextLabel from './TextLabel.svelte'
   import * as THREE from 'three'
 
   interface Props {
     text: string
     color: string
+    outlineColor?: string
+    outlineWidth?: number
+    startYOffset?: number
   }
 
-  let { text, color }: Props = $props()
+  let {
+    text,
+    color,
+    outlineColor = '#000000',
+    outlineWidth = 7,
+    startYOffset = 1.8,
+  }: Props = $props()
   let group = $state<THREE.Group | undefined>(undefined)
 
-  let yOffset = $state(1.8)
+  // Each item captures the spawn height once, then animates upward
+  // independently; untrack keeps this a one-time snapshot, not a reactive bind.
+  let yOffset = $state(untrack(() => startYOffset))
   let life = 1.0
   let opacity = $state(1)
 
@@ -29,7 +41,7 @@
     camera: THREE.Camera
   ) {
     life -= deltaTime
-    yOffset += deltaTime * 1.5
+    yOffset += deltaTime * 0.75
     opacity = Math.max(0, Math.min(1, life * 2))
     _alive = life > 0
 
@@ -49,6 +61,8 @@
     {text}
     fontSize={0.25}
     {color}
+    {outlineColor}
+    {outlineWidth}
     fillOpacity={opacity}
     position.y={yOffset}
     anchorX="center"

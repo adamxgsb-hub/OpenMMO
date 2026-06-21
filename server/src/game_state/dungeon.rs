@@ -13,6 +13,7 @@ use onlinerpg_shared::dungeon::{
 };
 use onlinerpg_shared::inventory::GroundItem;
 use onlinerpg_shared::{Position, ServerMessage};
+use rand::Rng;
 use tracing::{info, warn};
 
 use crate::types::PlayerId;
@@ -35,6 +36,8 @@ const CHEST_ITEM_MIN_PRICE: i64 = 2000;
 /// How close a player must stand to a prop to break (barrel/crate) or open
 /// (chest) it.
 const PROP_INTERACT_RANGE: f32 = 2.5;
+/// Chance that a freshly-broken barrel/crate spills a loose coin pile.
+const BROKEN_PROP_COIN_DROP_CHANCE: f64 = 0.20;
 
 pub(super) struct DungeonRuntime {
     pub layouts: Vec<FloorLayout>,
@@ -72,6 +75,22 @@ pub(super) struct DungeonMonsterRef {
     pub entrance_id: String,
     pub depth: u8,
     pub slot: usize,
+}
+
+fn prop_wall_opposite_dir(layout: &FloorLayout, x: i32, z: i32) -> (i32, i32) {
+    // Pick the adjacent wall the same way the client orients chest props
+    // (N, S, W, E), then step toward the opposite/open side.
+    if !layout.is_carved(x, z - 1) {
+        (0, 1)
+    } else if !layout.is_carved(x, z + 1) {
+        (0, -1)
+    } else if !layout.is_carved(x - 1, z) {
+        (1, 0)
+    } else if !layout.is_carved(x + 1, z) {
+        (-1, 0)
+    } else {
+        (0, 0)
+    }
 }
 
 impl GameState {
@@ -229,7 +248,9 @@ impl GameState {
     /// Break a destructible dungeon prop (barrel/crate): requires standing
     /// next to it on its floor. Records the break for the instance, makes the
     /// cell walkable (client-side, on receipt) and broadcasts it to nearby
-    /// players (the breaker included). No-op if it's already broken.
+    /// players (the breaker included). On a fresh break, has a small chance to
+    /// spill the same loose coin pile that an opened chest prop uses. No-op if
+    /// it's already broken.
     pub async fn break_dungeon_prop(
         &self,
         player_id: &PlayerId,
@@ -237,8 +258,7 @@ impl GameState {
         depth: u8,
         prop_id: u32,
     ) {
-        // Breaking has no loot to place, so the prop position is discarded.
-        let _ = self
+        let broken_at = self
             .interact_with_dungeon_prop(
                 player_id,
                 entrance_id,
@@ -254,6 +274,15 @@ impl GameState {
                 },
             )
             .await;
+
+        if let Some(prop_pos) = broken_at {
+            if rand::thread_rng().gen_bool(BROKEN_PROP_COIN_DROP_CHANCE) {
+                let drop_pos = self
+                    .prop_wall_opposite_drop_position(entrance_id, depth, prop_id, prop_pos)
+                    .await;
+                self.spawn_dungeon_coin_pile(drop_pos, -(depth as i8)).await;
+            }
+        }
     }
 
     /// Open an interactive chest prop: requires standing next to it on its
@@ -288,36 +317,39 @@ impl GameState {
 
         if let Some(chest_pos) = opened_at {
             let drop_pos = self
-                .chest_coin_drop_position(entrance_id, depth, prop_id, chest_pos)
+                .prop_wall_opposite_drop_position(entrance_id, depth, prop_id, chest_pos)
                 .await;
-            let instance_id = self.next_instance_id().await;
-            self.spawn_ground_item(
-                GroundItem {
-                    instance_id,
-                    item_def_id: super::COIN_PILE_ITEM_ID.to_string(),
-                    position: drop_pos,
-                    floor_level: -(depth as i8),
-                },
-                None,
-            )
-            .await;
+            self.spawn_dungeon_coin_pile(drop_pos, -(depth as i8)).await;
         }
     }
 
-    /// Where an opened chest prop drops its coin pile: a short step out from the
-    /// chest cell toward its opening — the carved side opposite its back wall,
-    /// the same facing the client seats the chest and swings its lid — so the
-    /// coins land in front of the chest instead of under it. Falls back to the
-    /// chest cell center when the facing can't be read or the opening cell isn't
-    /// floor.
-    async fn chest_coin_drop_position(
+    async fn spawn_dungeon_coin_pile(&self, position: Position, floor_level: i8) {
+        let instance_id = self.next_instance_id().await;
+        self.spawn_ground_item(
+            GroundItem {
+                instance_id,
+                item_def_id: super::COIN_PILE_ITEM_ID.to_string(),
+                position,
+                floor_level,
+            },
+            None,
+        )
+        .await;
+    }
+
+    /// Where a dungeon prop drops its coin pile: a short step away from the
+    /// prop cell toward the carved side opposite the wall it was placed
+    /// against. This matches the way chests face into the room and keeps coins
+    /// out from under broken debris. Falls back to the prop cell center when
+    /// the facing can't be read or the opening cell isn't floor.
+    async fn prop_wall_opposite_drop_position(
         &self,
         entrance_id: &str,
         depth: u8,
         prop_id: u32,
         cell_center_pos: Position,
     ) -> Position {
-        /// How far out from the chest cell center the coins land.
+        /// How far out from the prop cell center the coins land.
         const DROP_DIST: f32 = 0.85;
 
         let dungeons = self.dungeons.read().await;
@@ -327,20 +359,7 @@ impl GameState {
             .and_then(|layout| {
                 let prop = layout.props.get(prop_id as usize)?;
                 let (x, z) = (prop.x, prop.z);
-                // Pick the back wall the same way the client does (N, S, W, E),
-                // then step toward the opposite (opening) side.
-                let (cdx, cdz) = if !layout.is_carved(x, z - 1) {
-                    (0, 1)
-                } else if !layout.is_carved(x, z + 1) {
-                    (0, -1)
-                } else if !layout.is_carved(x - 1, z) {
-                    (1, 0)
-                } else if !layout.is_carved(x + 1, z) {
-                    (-1, 0)
-                } else {
-                    (0, 0)
-                };
-                // Only step out if the opening cell is actually walkable floor.
+                let (cdx, cdz) = prop_wall_opposite_dir(layout, x, z);
                 if (cdx, cdz) != (0, 0) && layout.is_carved(x + cdx, z + cdz) {
                     Some((cdx as f32, cdz as f32))
                 } else {

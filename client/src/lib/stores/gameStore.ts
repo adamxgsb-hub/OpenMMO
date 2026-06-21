@@ -12,6 +12,11 @@ export interface PlayerDamageInfo {
   currentHealth?: number
 }
 
+export interface PlayerGoldInfo {
+  amount: number
+  trigger: number
+}
+
 interface PlayerBase {
   id: string
   name: string
@@ -24,6 +29,7 @@ interface PlayerBase {
   torchOn?: boolean
   lastDamageInfo?: PlayerDamageInfo
   lastRegenInfo?: PlayerDamageInfo
+  lastGoldInfo?: PlayerGoldInfo
 }
 
 export interface LocalPlayer extends PlayerBase {

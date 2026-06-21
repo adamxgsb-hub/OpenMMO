@@ -796,6 +796,20 @@ export function handleServerMessage(
       playerGold.set(Number(data.gold))
       break
 
+    case 'GoldGained': {
+      const state = get(gameStore)
+      const playerId = state.currentPlayer?.id
+      if (playerId) {
+        updatePlayer(playerId, {
+          lastGoldInfo: {
+            amount: Number(data.amount),
+            trigger: (state.currentPlayer?.lastGoldInfo?.trigger ?? 0) + 1,
+          },
+        })
+      }
+      break
+    }
+
     case 'TradeError':
       addChatMessage({ text: data.message, sender: 'system' })
       break

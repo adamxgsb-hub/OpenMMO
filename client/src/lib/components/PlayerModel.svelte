@@ -53,7 +53,7 @@
   import { TorchFireParticles } from '../effects/torch-fire-particles'
   import ChatBubble from './ChatBubble.svelte'
   import DamageText from './DamageText.svelte'
-  import type { PlayerDamageInfo } from '../stores/gameStore'
+  import type { PlayerDamageInfo, PlayerGoldInfo } from '../stores/gameStore'
 
   interface Props {
     position: Vector3
@@ -79,6 +79,7 @@
     isLoading?: boolean
     lastDamageInfo?: PlayerDamageInfo
     lastRegenInfo?: PlayerDamageInfo
+    lastGoldInfo?: PlayerGoldInfo
     torchOn?: boolean
     torchEffectsDisabled?: boolean
     /** Set for NPC remote players so canvas clicks can resolve this model
@@ -110,6 +111,7 @@
     isLoading = $bindable(false),
     lastDamageInfo,
     lastRegenInfo,
+    lastGoldInfo,
     torchOn = false,
     torchEffectsDisabled = false,
     npcPlayerId,
@@ -868,6 +870,8 @@
     text={name}
     fontSize={0.3}
     color={isCurrentPlayer ? '#4299e1' : '#ffffff'}
+    outlineColor="#000000"
+    outlineWidth={7}
     anchorX="center"
     anchorY="middle"
   />
@@ -915,5 +919,11 @@
 
 <!-- Floating Damage Text -->
 {#if isCurrentPlayer}
-  <DamageText bind:this={damageTextRef} {lastDamageInfo} {lastRegenInfo} />
+  <DamageText
+    bind:this={damageTextRef}
+    {lastDamageInfo}
+    {lastRegenInfo}
+    {lastGoldInfo}
+    startYOffset={nametagHeight + 0.04}
+  />
 {/if}
