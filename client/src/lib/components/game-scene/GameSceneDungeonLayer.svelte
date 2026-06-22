@@ -124,8 +124,9 @@
   const PROP_STACK_NEST = 0.97
   /** Wall torch: base height up the (3m) wall — flame sits ~2.3m. */
   const TORCH_MOUNT_Y = 1.7
-  /** Wall torch: gap from the wall boundary so the mount sits flush, not buried. */
-  const TORCH_WALL_GAP = 0.06
+  /** Wall torch: how far the mount's back face seats *into* the wall from its
+   *  room-facing boundary. 0 = back face flush on the wall surface. */
+  const TORCH_WALL_INSET = 0
   /** A crate is left crooked when its random yaw lands more than this many
    *  degrees off a right angle (≈ a quarter of crates). */
   const CRATE_ASKEW_THRESH = 34
@@ -273,8 +274,9 @@
       let pz = prop.z + 0.5
       // Push the back face onto the mounted wall. The generator only ever emits
       // a north (0°) or east (270°) facing — one per room.
-      if (yawDeg === 0) pz = prop.z + TORCH_WALL_GAP // faces +Z, wall on −Z (N)
-      else if (yawDeg === 270) px = prop.x + 1 - TORCH_WALL_GAP // wall on +X (E)
+      if (yawDeg === 0)
+        pz = prop.z - TORCH_WALL_INSET // faces +Z, wall on −Z (N)
+      else if (yawDeg === 270) px = prop.x + 1 + TORCH_WALL_INSET // wall on +X (E)
       clone.position.set(px, TORCH_MOUNT_Y, pz)
       tagDecorative(clone)
       group.add(clone)
