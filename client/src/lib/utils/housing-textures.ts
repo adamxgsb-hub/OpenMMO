@@ -186,9 +186,20 @@ export const HOUSING_TEXTURES: HousingTextureEntry[] = [
     // Dungeon entrance door — mapped 0→1 across the panel (fitSegment), so the
     // single garage-door image reads as one door rather than tiling.
     label: 'Garage Door',
-    glb: 'wooden_garage_door_1k',
+    glb: 'dungeon/wooden_garage_door_1k',
     fallbackColor: 0x6b4a2e,
     fitSegment: true,
+    internal: true,
+  },
+  {
+    // Rock wall 10 — underground dungeon corridor walls
+    // (DUNGEON_CORRIDOR_WALL_TEXTURE_IDX). Dungeon-only, kept out of the picker.
+    label: 'Rock Wall 10',
+    glb: 'dungeon/rock_wall_10_1k',
+    fallbackColor: 0x7d756a,
+    // <1 enlarges the rock grain (fewer repeats per metre) so the corridor
+    // reads as bigger stones rather than fine gravel.
+    uvScale: 0.8,
     internal: true,
   },
 ]

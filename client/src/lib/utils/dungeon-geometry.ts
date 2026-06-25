@@ -44,6 +44,12 @@ import {
 export const DUNGEON_WALL_TEXTURE_IDX = HOUSING_TEXTURES.findIndex(
   (e) => e.glb === 'housing/medieval_blocks_03_1k'
 )
+/** Rock-wall-10 texture for the *connecting corridors* — distinct from the
+ *  medieval-stone room walls (DUNGEON_WALL_TEXTURE_IDX). A cell gets this
+ *  texture when it is carved floor that lies in no room (and no shaft). */
+export const DUNGEON_CORRIDOR_WALL_TEXTURE_IDX = HOUSING_TEXTURES.findIndex(
+  (e) => e.glb === 'dungeon/rock_wall_10_1k'
+)
 /** Mossy plaster for the *surface* entrance building walls — distinct from the
  *  underground stone walls (DUNGEON_WALL_TEXTURE_IDX). */
 export const DUNGEON_ENTRANCE_WALL_TEXTURE_IDX = HOUSING_TEXTURES.findIndex(
@@ -99,7 +105,7 @@ const DUNGEON_FLOOR_UV_SCALE = 0.5
 
 /** Wooden garage-door texture for the entrance door (mapped 0→1 across it). */
 const DUNGEON_DOOR_TEXTURE_IDX = HOUSING_TEXTURES.findIndex(
-  (e) => e.glb === 'wooden_garage_door_1k'
+  (e) => e.glb === 'dungeon/wooden_garage_door_1k'
 )
 /** Door panel thickness (m). */
 const DOOR_THICKNESS = 0.12
@@ -487,14 +493,23 @@ function shaftRect(shaft: DungeonShaft, ctx: DungeonGeoCtx) {
     : { x: shaft.x, z: shaft.z, w: ctx.shaftLen, d: ctx.shaftW }
 }
 
+/** Half-open cell membership: is cell (x, z) inside rect r ({x, z, w, d})?
+ *  Shared by shaft and room tests; mirrors the Rust convention. */
+function rectContains(
+  r: { x: number; z: number; w: number; d: number },
+  x: number,
+  z: number
+): boolean {
+  return x >= r.x && x < r.x + r.w && z >= r.z && z < r.z + r.d
+}
+
 function shaftContains(
   shaft: DungeonShaft,
   ctx: DungeonGeoCtx,
   x: number,
   z: number
 ): boolean {
-  const r = shaftRect(shaft, ctx)
-  return x >= r.x && x < r.x + r.w && z >= r.z && z < r.z + r.d
+  return rectContains(shaftRect(shaft, ctx), x, z)
 }
 
 /** Cell at run position i (0 = entry/shallow end), lateral offset wOff. */
@@ -887,6 +902,7 @@ export function buildDungeonFloorGroup(
   wallRunGroup.name = WALL_RUN_GROUP_NAME
   const wallRuns: WallRun[] = []
   const addWallRun = (
+    texIdx: number,
     w: number,
     h: number,
     d: number,
@@ -895,33 +911,42 @@ export function buildDungeonFloorGroup(
     cz: number
   ) => {
     const e: GeoEntry[] = []
-    addBox(e, DUNGEON_WALL_TEXTURE_IDX, w, h, d, cx, cy, cz)
+    addBox(e, texIdx, w, h, d, cx, cy, cz)
     const geo = e[0].geo
-    const mesh = new THREE.Mesh(
-      geo,
-      getHousingMaterial(DUNGEON_WALL_TEXTURE_IDX)
-    )
+    const mesh = new THREE.Mesh(geo, getHousingMaterial(texIdx))
     mesh.castShadow = false
     mesh.receiveShadow = true
     mesh.raycast = () => {}
-    mesh.userData.textureIndex = DUNGEON_WALL_TEXTURE_IDX
+    mesh.userData.textureIndex = texIdx
     geo.computeBoundingBox()
     wallRunGroup.add(mesh)
     wallRuns.push({ mesh, localAABB: geo.boundingBox!.clone() })
   }
+  // Room cells keep the medieval-stone wall; carved cells in no room are
+  // corridors and get the rock-wall corridor texture. Matches the Rust
+  // `cell_in_any_room` convention (half-open rectangles). Shaft cells emit no
+  // wall (filtered by `inAnyShaft`), so they need no classification here.
+  const roomAt = (x: number, z: number) =>
+    layout.rooms.some((r) => rectContains(r, x, z))
+  const wallTexAt = (x: number, z: number) =>
+    roomAt(x, z) ? DUNGEON_WALL_TEXTURE_IDX : DUNGEON_CORRIDOR_WALL_TEXTURE_IDX
   // North/south edges merge into x-runs (one wall per row); the wall sits just
   // past the carved cell's north (z − 0.05) or south (z + 1 + 0.05) face.
   for (let z = 0; z < grid; z++) {
     let northStart = -1
+    let northTex = -1
     let southStart = -1
+    let southTex = -1
     for (let x = 0; x <= grid; x++) {
       const carved = x < grid && carvedAt(x, z) && !inAnyShaft(x, z)
       const north = carved && !carvedAt(x, z - 1)
       const south = carved && !carvedAt(x, z + 1)
-      if (north && northStart < 0) northStart = x
-      if (!north && northStart >= 0) {
+      const tex = carved ? wallTexAt(x, z) : -1
+      // Close a run at a gap, corner, or where room↔corridor texture flips.
+      if (northStart >= 0 && (!north || tex !== northTex)) {
         const len = x - northStart
         addWallRun(
+          northTex,
           len,
           ctx.wallHeight,
           0.1,
@@ -931,10 +956,14 @@ export function buildDungeonFloorGroup(
         )
         northStart = -1
       }
-      if (south && southStart < 0) southStart = x
-      if (!south && southStart >= 0) {
+      if (north && northStart < 0) {
+        northStart = x
+        northTex = tex
+      }
+      if (southStart >= 0 && (!south || tex !== southTex)) {
         const len = x - southStart
         addWallRun(
+          southTex,
           len,
           ctx.wallHeight,
           0.1,
@@ -944,21 +973,28 @@ export function buildDungeonFloorGroup(
         )
         southStart = -1
       }
+      if (south && southStart < 0) {
+        southStart = x
+        southTex = tex
+      }
     }
   }
   // East/west edges merge into z-runs; the wall sits just past the carved cell's
   // east (x + 1 + 0.05) or west (x − 0.05) face.
   for (let x = 0; x < grid; x++) {
     let eastStart = -1
+    let eastTex = -1
     let westStart = -1
+    let westTex = -1
     for (let z = 0; z <= grid; z++) {
       const carved = z < grid && carvedAt(x, z) && !inAnyShaft(x, z)
       const east = carved && !carvedAt(x + 1, z)
       const west = carved && !carvedAt(x - 1, z)
-      if (east && eastStart < 0) eastStart = z
-      if (!east && eastStart >= 0) {
+      const tex = carved ? wallTexAt(x, z) : -1
+      if (eastStart >= 0 && (!east || tex !== eastTex)) {
         const len = z - eastStart
         addWallRun(
+          eastTex,
           0.1,
           ctx.wallHeight,
           len,
@@ -968,10 +1004,14 @@ export function buildDungeonFloorGroup(
         )
         eastStart = -1
       }
-      if (west && westStart < 0) westStart = z
-      if (!west && westStart >= 0) {
+      if (east && eastStart < 0) {
+        eastStart = z
+        eastTex = tex
+      }
+      if (westStart >= 0 && (!west || tex !== westTex)) {
         const len = z - westStart
         addWallRun(
+          westTex,
           0.1,
           ctx.wallHeight,
           len,
@@ -980,6 +1020,10 @@ export function buildDungeonFloorGroup(
           westStart + len / 2
         )
         westStart = -1
+      }
+      if (west && westStart < 0) {
+        westStart = z
+        westTex = tex
       }
     }
   }
