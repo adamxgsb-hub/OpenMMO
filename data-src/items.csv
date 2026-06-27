@@ -17,3 +17,4 @@ chain_mail,Chain Mail,Interlocking metal rings forming armor.,55,chest,false,swo
 torch,Torch,A flickering wooden torch.,1,off_hand,false,torch.png,torch.glb,1d4,wood,50
 spear,Spear,A long wooden-shafted spear tipped with iron.,4,main_hand,false,spear_icon.png,spear.glb,1d6,metal,3500
 coin_pile,Coin Pile,A small heap of loose copper coins.,0,,false,sword.png,objects/coin_pile_spill.glb,,,
+healing_potion,Healing Potion,A crimson brew that knits wounds and restores vitality.,0.5,,true,healing_potion.png,objects/health_potion.glb,,,500

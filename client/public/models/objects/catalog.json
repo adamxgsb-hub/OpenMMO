@@ -176,5 +176,10 @@
     "id": "torch_wall",
     "name": "Wall Torch",
     "model": "torch_wall.glb"
+  },
+  {
+    "id": "health_potion",
+    "name": "Health Potion",
+    "model": "health_potion.glb"
   }
 ]
