@@ -46,17 +46,24 @@
     $dragMeta?.source.type === 'bag' ? quickslotAt($dragPos.x, $dragPos.y) : -1
   )
 
-  /** Use the item bound to a quickslot: equip if equippable, else consume. */
+  /**
+   * Use the item bound to a quickslot: for equippables, toggle equip/unequip
+   * (pressing again unequips the same item — e.g. a torch turns its light off);
+   * for consumables, use one from the bag.
+   */
   function useSlot(index: number) {
     const entry = slots[index]
     if (!entry) return
+    const slot = entry.def.equipSlot
+    // Already wearing this exact item in its slot → unequip (toggle off).
+    if (slot && $inventoryStore.equipped[slot]?.item_def_id === entry.defId) {
+      networkManager.sendUnequipItem(slot)
+      return
+    }
     const inst = $inventoryStore.bag.find((b) => b.item_def_id === entry.defId)
     if (!inst) return // none left in bag
-    if (entry.def.equipSlot) {
-      networkManager.sendEquipItem(inst.instance_id)
-    } else if (isConsumable(entry.def)) {
-      networkManager.sendUseItem(inst.instance_id)
-    }
+    if (slot) networkManager.sendEquipItem(inst.instance_id)
+    else if (isConsumable(entry.def)) networkManager.sendUseItem(inst.instance_id)
   }
 
   // Digit1..Digit9 → slots 0..8, Digit0 → slot 9.
@@ -84,13 +91,14 @@
 <div class="quickslot-bar" role="toolbar" aria-label="Quickslots">
   {#each slots as entry, i (i)}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
       class="quickslot"
       class:empty={!entry}
       class:drop-target={i === dropIndex}
       data-quickslot={i}
       use:itemTooltip={entry ? { def: entry.def, side: 'right' } : null}
-      ondblclick={() => useSlot(i)}
+      onclick={() => useSlot(i)}
       oncontextmenu={(e) => {
         e.preventDefault()
         clearQuickslot(i)
