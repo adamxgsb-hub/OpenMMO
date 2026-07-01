@@ -13,7 +13,7 @@ fn dropped_weapon_position(monster_position: Position) -> Position {
     offset_position_at_angle(monster_position, angle, WEAPON_DROP_OFFSET_METERS)
 }
 
-fn offset_position_at_angle(origin: Position, angle: f32, distance: f32) -> Position {
+pub(super) fn offset_position_at_angle(origin: Position, angle: f32, distance: f32) -> Position {
     Position {
         x: origin.x + angle.cos() * distance,
         y: origin.y,
@@ -211,6 +211,10 @@ impl super::GameState {
                         )
                         .await;
                     }
+
+                    // Rare bonus world drops, independent of the weapon roll.
+                    self.spawn_world_drops(monster_position, monster_floor_level)
+                        .await;
 
                     // Dungeon monsters: free their spawn slot for respawn.
                     self.on_dungeon_monster_dead(&monster_id).await;

@@ -102,6 +102,8 @@ pub struct GameState {
     game_clock: Arc<std::sync::RwLock<GameClock>>,
     monster_defs: MonsterDefs,
     item_defs: ItemDefs,
+    /// Global rare bonus-drop table shared by every loot source.
+    world_drop_defs: crate::world_drop_defs::WorldDropDefs,
     id_state: Arc<RwLock<IdState>>,
     direct_channels: Arc<RwLock<HashMap<PlayerId, mpsc::UnboundedSender<ServerMessage>>>>,
     // player_id → (character_id, current_xp, attributes)
@@ -149,6 +151,7 @@ impl GameState {
     pub fn new(
         monster_defs: MonsterDefs,
         item_defs: ItemDefs,
+        world_drop_defs: crate::world_drop_defs::WorldDropDefs,
         initial_datetime: crate::types::GameDateTime,
         housing_io: Arc<HousingIO>,
         no_spawn_zones: Vec<NoSpawnZone>,
@@ -167,6 +170,7 @@ impl GameState {
             })),
             monster_defs,
             item_defs,
+            world_drop_defs,
             id_state: Arc::new(RwLock::new(IdState::default())),
             direct_channels: Arc::new(RwLock::new(HashMap::new())),
             player_characters: Arc::new(RwLock::new(HashMap::new())),

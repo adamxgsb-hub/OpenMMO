@@ -289,6 +289,10 @@ impl GameState {
             None,
         )
         .await;
+
+        // Rare bonus world drops land as ground items next to the opener,
+        // on top of the equipment/gold that goes straight to their bags.
+        self.spawn_world_drops(player_pos, player_floor).await;
     }
 
     /// Break a destructible dungeon prop (barrel/crate): requires standing
@@ -328,6 +332,8 @@ impl GameState {
                     .await;
                 self.spawn_dungeon_coin_pile(drop_pos, -(depth as i8)).await;
             }
+            // Rare bonus world drops, independent of the coin roll.
+            self.spawn_world_drops(prop_pos, -(depth as i8)).await;
         }
     }
 
@@ -366,6 +372,8 @@ impl GameState {
                 .prop_wall_opposite_drop_position(entrance_id, depth, prop_id, chest_pos)
                 .await;
             self.spawn_dungeon_coin_pile(drop_pos, -(depth as i8)).await;
+            // Rare bonus world drops, in addition to the coin pile.
+            self.spawn_world_drops(chest_pos, -(depth as i8)).await;
         }
     }
 

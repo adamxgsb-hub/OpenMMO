@@ -52,9 +52,12 @@ fn make_test_game_state(test_name: &str) -> GameState {
         uuid::Uuid::new_v4()
     ));
     let housing_io = Arc::new(HousingIO::new(housing_dir));
+    let item_defs = ItemDefs::load();
+    let world_drop_defs = crate::world_drop_defs::WorldDropDefs::load(&item_defs);
     GameState::new(
         MonsterDefs::load(),
-        ItemDefs::load(),
+        item_defs,
+        world_drop_defs,
         GameState::default_start_datetime(),
         housing_io,
         vec![],

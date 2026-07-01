@@ -13,6 +13,7 @@ mod npc_schedule;
 mod terrain;
 mod types;
 mod world_config;
+mod world_drop_defs;
 
 use auth::AuthService;
 use clap::Parser;
@@ -57,6 +58,7 @@ async fn main() {
     world_config::log_world_config();
     let monster_defs = monster_defs::MonsterDefs::load();
     let item_defs = item_defs::ItemDefs::load();
+    let world_drop_defs = world_drop_defs::WorldDropDefs::load(&item_defs);
     let auth_service = match AuthService::new(AuthService::default_db_path()) {
         Ok(service) => Arc::new(service),
         Err(e) => {
@@ -102,6 +104,7 @@ async fn main() {
     let game_state = Arc::new(GameState::new(
         monster_defs,
         item_defs,
+        world_drop_defs,
         initial_game_time,
         Arc::clone(&housing_io),
         no_spawn_zones,

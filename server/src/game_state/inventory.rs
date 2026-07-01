@@ -399,6 +399,46 @@ impl super::GameState {
         .await;
     }
 
+    /// Roll the global world-drop table for a loot event at `origin` and spawn
+    /// any rare bonus items that hit as ground items scattered nearby. Shared
+    /// by every loot source (monster kills, dungeon chests, broken props) so a
+    /// rare drop can spill from anything that yields loot. Each drop is
+    /// clamped onto walkable floor inside dungeons so it never lands in a wall.
+    /// Table entries are validated against `ItemDefs` at load time, so every
+    /// rolled id is guaranteed to have a definition here.
+    pub(super) async fn spawn_world_drops(&self, origin: crate::types::Position, floor_level: i8) {
+        use std::f32::consts::TAU;
+
+        /// How far from the loot origin a world drop scatters.
+        const WORLD_DROP_OFFSET_METERS: f32 = 1.5;
+
+        let item_def_ids = {
+            let mut rng = rand::thread_rng();
+            self.world_drop_defs.roll(&mut rng)
+        };
+
+        for item_def_id in item_def_ids {
+            let angle = rand::thread_rng().gen_range(0.0..TAU);
+            let preferred =
+                super::combat::offset_position_at_angle(origin, angle, WORLD_DROP_OFFSET_METERS);
+            let position = self
+                .loot_drop_position(origin, floor_level, preferred)
+                .await;
+
+            let instance_id = self.next_instance_id().await;
+            self.spawn_ground_item(
+                GroundItem {
+                    instance_id,
+                    item_def_id,
+                    position,
+                    floor_level,
+                },
+                None,
+            )
+            .await;
+        }
+    }
+
     pub async fn drop_item(&self, player_id: &PlayerId, instance_id: u64) {
         let (position, floor_level) = {
             let players = self.players.read().await;
