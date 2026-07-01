@@ -41,6 +41,39 @@ interface MovementSubstrateInput {
   sendPlayerMove: (position: Position, rotation: number) => void
 }
 
+/**
+ * When a diagonal step is blocked (typically grazing a convex wall corner the
+ * 0.3m body radius can't clear), try to keep moving along whichever single axis
+ * is still clear. This lets the player slide around corners instead of getting
+ * permanently stuck — the pathfinder smooths paths using cell-edge walls only
+ * (no radius buffer), so smoothed diagonals can clip corners that continuous
+ * collision refuses to cross. Returns the slid position, or null if both axes
+ * are blocked (a genuine dead-end).
+ */
+function resolveWallSlide(
+  from: Position,
+  to: Position,
+  isMovementBlocked: MovementSubstrateInput['isMovementBlocked']
+): Position | null {
+  const dx = to.x - from.x
+  const dz = to.z - from.z
+  const EPS = 1e-6
+
+  const xOnlyOk =
+    Math.abs(dx) > EPS &&
+    !isMovementBlocked(from.x, from.z, from.x + dx, from.z, from.y)
+  const zOnlyOk =
+    Math.abs(dz) > EPS &&
+    !isMovementBlocked(from.x, from.z, from.x, from.z + dz, from.y)
+
+  // When both axes are individually clear (a corner tip blocks only the exact
+  // diagonal), keep the axis with the greater progress toward the target.
+  const preferX = xOnlyOk && (!zOnlyOk || Math.abs(dx) >= Math.abs(dz))
+  if (preferX) return { x: from.x + dx, y: from.y, z: from.z }
+  if (zOnlyOk) return { x: from.x, y: from.y, z: from.z + dz }
+  return null
+}
+
 export type MovementSubstrateOutcome =
   | { kind: 'blocked' }
   | { kind: 'slope_blocked' }
@@ -157,16 +190,21 @@ export function stepMovementSubstrate({
     return { kind: 'arrived', currentSpeed, playerRotation }
   }
 
+  let stepPos = result.newPos
   if (
     isMovementBlocked(
       currentPos.x,
       currentPos.z,
-      result.newPos.x,
-      result.newPos.z,
+      stepPos.x,
+      stepPos.z,
       currentPos.y
     )
   ) {
-    return { kind: 'blocked' }
+    const slid = resolveWallSlide(currentPos, stepPos, isMovementBlocked)
+    if (!slid) {
+      return { kind: 'blocked' }
+    }
+    stepPos = slid
   }
 
   const dirX = Math.sin(result.rotation)
@@ -177,9 +215,9 @@ export function stepMovementSubstrate({
 
   writePlayerPosition(
     {
-      x: result.newPos.x,
-      y: sampleHeight(result.newPos.x, result.newPos.z),
-      z: result.newPos.z,
+      x: stepPos.x,
+      y: sampleHeight(stepPos.x, stepPos.z),
+      z: stepPos.z,
     },
     playerRotation
   )

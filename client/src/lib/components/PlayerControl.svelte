@@ -756,18 +756,13 @@
     const ent = dungeonManager.entrancePos
     if (!ent) return depth < 1 ? 0 : floor
     // Target the floor that is currently SHOWN to the player, independent of
-    // logical depth: when underground (depth ≥ 1) or anywhere on the entrance
-    // shaft (where the floor-1 room is already rendered), a click targets that
-    // dungeon floor rather than being re-classified as a surface click and
-    // routed back out the entrance. Only off the shaft on the open surface do we
-    // fall through to the surface-vs-floor Y heuristic below.
-    const inDungeonView =
-      depth >= 1 ||
-      (currentPlayer != null &&
-        dungeonManager.isOnEntranceShaft(
-          currentPlayer.position.x,
-          currentPlayer.position.z
-        ))
+    // logical depth: when underground (depth ≥ 1) the dungeon floor is what's
+    // rendered, so a click targets it. Otherwise, classify by the CLICK target,
+    // not the player: a click on the entrance shaft is a descent, but a click on
+    // the open surface — even while standing on the top landing, which still
+    // counts as "on the shaft" — must fall through to the surface-vs-floor Y
+    // heuristic so the player isn't routed back down into the dungeon.
+    const inDungeonView = depth >= 1 || dungeonManager.isOnEntranceShaft(x, z)
     if (inDungeonView) return floor
     const depthOfFloor = floor - fib + 1
     const surfaceDist = Math.abs(y - ent.y)
