@@ -197,6 +197,19 @@ export function applyInitialAntialias(): boolean {
   return aa
 }
 
+/** Antialias flag the renderer was actually created with this session.
+ *  Falls back to the current preset when the applied record is missing
+ *  (first launch — `applyInitialAntialias` hasn't stored it yet). */
+export function getAppliedAntialias(): boolean {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY_APPLIED_AA)
+    if (stored !== null) return stored === 'true'
+  } catch {
+    // localStorage unavailable
+  }
+  return getEffectivePreset(loadQuality()).antialias
+}
+
 export const graphicsQuality = writable<QualityLevel>(loadQuality())
 
 // Device budget and base presets are constant for the session, so the effective

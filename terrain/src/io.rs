@@ -207,6 +207,20 @@ impl TerrainIO {
         }
     }
 
+    /// Read per-tile unified water-field data (surfaceY + flow +
+    /// riverness, format `WFD1` — see
+    /// `shared/src/worldgen/tile_bake/water_field.rs`). Returns None when
+    /// the offline baker did not produce a file for this tile (no nearby
+    /// river segments — the client synthesizes a flat sea field).
+    pub async fn read_water_field(&self, tx: i32, tz: i32) -> std::io::Result<Option<Vec<u8>>> {
+        let path = coords::water_field_path(&self.base_dir, tx, tz);
+        match fs::read(&path).await {
+            Ok(data) => Ok(Some(data)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
     /// Read original (pre-housing) grass placement data. Returns None if not found.
     pub async fn read_original_grass(&self, tx: i32, tz: i32) -> std::io::Result<Option<Vec<u8>>> {
         let path = coords::original_grass_path(&self.base_dir, tx, tz);

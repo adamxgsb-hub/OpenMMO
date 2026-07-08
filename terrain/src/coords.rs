@@ -113,3 +113,17 @@ pub fn river_field_path(base: &Path, tx: i32, tz: i32) -> PathBuf {
 pub fn river_field_region_dir(base: &Path, rx: i32, rz: i32) -> PathBuf {
     base.join("river-field").join(region_dir_name(rx, rz))
 }
+
+/// Build filesystem path for the per-tile unified water-field binary
+/// (WFD1) — surfaceY + flow + riverness lookup table consumed by the
+/// runtime's single water mesh per tile. See
+/// `shared/src/worldgen/tile_bake/water_field.rs`.
+pub fn water_field_path(base: &Path, tx: i32, tz: i32) -> PathBuf {
+    let (rx, rz) = (tile_to_region(tx), tile_to_region(tz));
+    water_field_region_dir(base, rx, rz).join(format!("wf_{:+05}_{:+05}.bin", tx, tz))
+}
+
+/// Build filesystem path for a region's water-field tile directory.
+pub fn water_field_region_dir(base: &Path, rx: i32, rz: i32) -> PathBuf {
+    base.join("water-field").join(region_dir_name(rx, rz))
+}

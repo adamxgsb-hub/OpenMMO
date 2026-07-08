@@ -52,6 +52,7 @@ pub fn terrain_router(terrain_io: Arc<TerrainIO>) -> Router {
         .route("/api/terrain/zones/{rx}/{rz}", get(get_zone).put(put_zone))
         .route("/api/terrain/trees/{x}/{z}", get(get_trees))
         .route("/api/terrain/river-field/{x}/{z}", get(get_river_field))
+        .route("/api/terrain/water-field/{x}/{z}", get(get_water_field))
         .route(
             "/api/terrain/objects/{rx}/{rz}",
             get(get_object).put(put_object),
@@ -359,6 +360,22 @@ async fn get_river_field(
 ) -> Result<Response, StatusCode> {
     let data = terrain.read_river_field(x, z).await.map_err(|e| {
         error!("Failed to read river field ({}, {}): {}", x, z, e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    match data {
+        Some(bytes) => {
+            Ok(([(header::CONTENT_TYPE, "application/octet-stream")], bytes).into_response())
+        }
+        None => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+async fn get_water_field(
+    Path((x, z)): Path<(i32, i32)>,
+    State(terrain): State<Arc<TerrainIO>>,
+) -> Result<Response, StatusCode> {
+    let data = terrain.read_water_field(x, z).await.map_err(|e| {
+        error!("Failed to read water field ({}, {}): {}", x, z, e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
     match data {

@@ -28,6 +28,7 @@ mod river_field;
 pub mod river_geom;
 pub mod settlement_flatten;
 mod splatmap;
+mod water_field;
 
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +41,7 @@ pub use constants::{
 };
 pub use context::BakeContext;
 pub use river_field::bake_river_field;
+pub use water_field::bake_water_field;
 
 /// Decomposed height-sample result for one world point. Each field is one
 /// step of `sample_elevation_m` / `carve_at_point`, surfaced so the
@@ -111,7 +113,12 @@ pub struct BakedTile {
     /// Per-tile RFD1 river field (surfaceY + flowDir, 65×65). `None`
     /// when the tile sees no river segment within the bake margin —
     /// runtime treats missing as "no river quad in this tile".
+    /// Legacy — kept during the WFD1 rollout for old clients.
     pub river_field: Option<Vec<u8>>,
+    /// Per-tile WFD1 unified water field (surfaceY + flow + riverness,
+    /// 65×65). `None` when the tile sees no river segment — runtime
+    /// synthesizes a flat sea field for sea-only tiles.
+    pub water_field: Option<Vec<u8>>,
 }
 
 /// Bake one tile at signed tile coordinate (tx, tz).
@@ -193,6 +200,7 @@ pub fn bake_tile_with_bridges(
         bridges::apply_bridge_flatten(&mut heights, tile_min_x, tile_min_z, bridge_flattens);
     }
     let river_field = bake_river_field(map, ctx, &heights, tile_min_x, tile_min_z, &river_segs);
+    let water_field = bake_water_field(map, ctx, &heights, tile_min_x, tile_min_z, &river_segs);
     let heightmap = encode_heightmap(&heights);
     let splatmap = bake_splatmap(
         map,
@@ -208,6 +216,7 @@ pub fn bake_tile_with_bridges(
         heightmap,
         splatmap,
         river_field,
+        water_field,
     }
 }
 

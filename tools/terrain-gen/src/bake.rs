@@ -53,6 +53,7 @@ pub fn run(
     out: &Path,
     region_min: (i32, i32),
     region_max: (i32, i32),
+    water_field_only: bool,
 ) -> Result<()> {
     let overall = Instant::now();
 
@@ -238,28 +239,35 @@ pub fn run(
     let region_zs: Vec<i32> = (region_min.1..=region_max.1).collect();
     let region_count = region_xs.len() * region_zs.len();
 
-    std::fs::create_dir_all(out.join("height"))
-        .with_context(|| format!("create {}/height", out.display()))?;
-    std::fs::create_dir_all(out.join("splat"))
-        .with_context(|| format!("create {}/splat", out.display()))?;
-    std::fs::create_dir_all(out.join("trees"))
-        .with_context(|| format!("create {}/trees", out.display()))?;
-    std::fs::create_dir_all(out.join("grass"))
-        .with_context(|| format!("create {}/grass", out.display()))?;
-    std::fs::create_dir_all(out.join("river-field"))
-        .with_context(|| format!("create {}/river-field", out.display()))?;
-    std::fs::create_dir_all(out.join("minimap"))
-        .with_context(|| format!("create {}/minimap", out.display()))?;
-    std::fs::create_dir_all(out.join("objects"))
-        .with_context(|| format!("create {}/objects", out.display()))?;
+    if !water_field_only {
+        std::fs::create_dir_all(out.join("height"))
+            .with_context(|| format!("create {}/height", out.display()))?;
+        std::fs::create_dir_all(out.join("splat"))
+            .with_context(|| format!("create {}/splat", out.display()))?;
+        std::fs::create_dir_all(out.join("trees"))
+            .with_context(|| format!("create {}/trees", out.display()))?;
+        std::fs::create_dir_all(out.join("grass"))
+            .with_context(|| format!("create {}/grass", out.display()))?;
+        std::fs::create_dir_all(out.join("river-field"))
+            .with_context(|| format!("create {}/river-field", out.display()))?;
+        std::fs::create_dir_all(out.join("minimap"))
+            .with_context(|| format!("create {}/minimap", out.display()))?;
+        std::fs::create_dir_all(out.join("objects"))
+            .with_context(|| format!("create {}/objects", out.display()))?;
+    }
+    std::fs::create_dir_all(out.join("water-field"))
+        .with_context(|| format!("create {}/water-field", out.display()))?;
 
     for &rx in &region_xs {
         for &rz in &region_zs {
-            std::fs::create_dir_all(coords::height_region_dir(out, rx, rz))?;
-            std::fs::create_dir_all(coords::splat_region_dir(out, rx, rz))?;
-            std::fs::create_dir_all(coords::tree_region_dir(out, rx, rz))?;
-            std::fs::create_dir_all(coords::grass_region_dir(out, rx, rz))?;
-            std::fs::create_dir_all(coords::river_field_region_dir(out, rx, rz))?;
+            if !water_field_only {
+                std::fs::create_dir_all(coords::height_region_dir(out, rx, rz))?;
+                std::fs::create_dir_all(coords::splat_region_dir(out, rx, rz))?;
+                std::fs::create_dir_all(coords::tree_region_dir(out, rx, rz))?;
+                std::fs::create_dir_all(coords::grass_region_dir(out, rx, rz))?;
+                std::fs::create_dir_all(coords::river_field_region_dir(out, rx, rz))?;
+            }
+            std::fs::create_dir_all(coords::water_field_region_dir(out, rx, rz))?;
         }
     }
 
@@ -309,60 +317,75 @@ pub fn run(
                 .map(Vec::as_slice)
                 .unwrap_or(&[]);
             let baked = tile_bake::bake_tile_with_bridges(&map, &ctx, tx, tz, flattens, pads);
-            let hpath = coords::heightmap_path(out, tx, tz);
-            let spath = coords::splatmap_path(out, tx, tz);
-            std::fs::write(&hpath, &baked.heightmap)
-                .with_context(|| format!("write {}", hpath.display()))?;
-            std::fs::write(&spath, &baked.splatmap)
-                .with_context(|| format!("write {}", spath.display()))?;
 
-            // Drop stale pre-edit snapshots from the previous bake;
-            // `ensureOriginalHeightmap` will re-snapshot the fresh terrain
-            // on first edit. Without this, restoring after a house delete
-            // would write the old bake's shape back into the tile.
-            remove_if_exists(&coords::original_heightmap_path(out, tx, tz))?;
-            remove_if_exists(&coords::original_grass_path(out, tx, tz))?;
+            if !water_field_only {
+                let hpath = coords::heightmap_path(out, tx, tz);
+                let spath = coords::splatmap_path(out, tx, tz);
+                std::fs::write(&hpath, &baked.heightmap)
+                    .with_context(|| format!("write {}", hpath.display()))?;
+                std::fs::write(&spath, &baked.splatmap)
+                    .with_context(|| format!("write {}", spath.display()))?;
 
-            // Phase 8: tree + grass placement files. The worldgen pipeline
-            // doesn't lay houses, so no exclusion rects — empty slice keeps
-            // the call compatible with a future replat that does.
-            let tree_bin = vegetation::bake_trees(tx, tz, &baked.splatmap, &baked.heightmap, &[]);
-            let grass_bin = vegetation::bake_grass(tx, tz, &baked.splatmap, &baked.heightmap);
-            let tpath = coords::tree_path(out, tx, tz);
-            let gpath = coords::grass_path(out, tx, tz);
-            std::fs::write(&tpath, &tree_bin)
-                .with_context(|| format!("write {}", tpath.display()))?;
-            std::fs::write(&gpath, &grass_bin)
-                .with_context(|| format!("write {}", gpath.display()))?;
+                // Drop stale pre-edit snapshots from the previous bake;
+                // `ensureOriginalHeightmap` will re-snapshot the fresh terrain
+                // on first edit. Without this, restoring after a house delete
+                // would write the old bake's shape back into the tile.
+                remove_if_exists(&coords::original_heightmap_path(out, tx, tz))?;
+                remove_if_exists(&coords::original_grass_path(out, tx, tz))?;
 
-            // RFD1 river-field. Stale file is removed when this tile has
-            // no segments so a previous-world bin doesn't outlive its bake.
-            let rfpath = coords::river_field_path(out, tx, tz);
-            if let Some(field_bin) = baked.river_field.as_ref() {
-                std::fs::write(&rfpath, field_bin)
-                    .with_context(|| format!("write {}", rfpath.display()))?;
-            } else {
-                remove_if_exists(&rfpath)?;
+                // Phase 8: tree + grass placement files. The worldgen pipeline
+                // doesn't lay houses, so no exclusion rects — empty slice keeps
+                // the call compatible with a future replat that does.
+                let tree_bin =
+                    vegetation::bake_trees(tx, tz, &baked.splatmap, &baked.heightmap, &[]);
+                let grass_bin = vegetation::bake_grass(tx, tz, &baked.splatmap, &baked.heightmap);
+                let tpath = coords::tree_path(out, tx, tz);
+                let gpath = coords::grass_path(out, tx, tz);
+                std::fs::write(&tpath, &tree_bin)
+                    .with_context(|| format!("write {}", tpath.display()))?;
+                std::fs::write(&gpath, &grass_bin)
+                    .with_context(|| format!("write {}", gpath.display()))?;
+
+                // RFD1 river-field. Stale file is removed when this tile has
+                // no segments so a previous-world bin doesn't outlive its bake.
+                let rfpath = coords::river_field_path(out, tx, tz);
+                if let Some(field_bin) = baked.river_field.as_ref() {
+                    std::fs::write(&rfpath, field_bin)
+                        .with_context(|| format!("write {}", rfpath.display()))?;
+                } else {
+                    remove_if_exists(&rfpath)?;
+                }
             }
 
-            // Stamp this tile's 64×64 patch into its region minimap. Locking
-            // is per-region — within-region contention is bounded by rayon's
-            // worker count, so the wait is negligible against bake cost.
-            let rx = tx.div_euclid(TILES_PER_REGION);
-            let rz = tz.div_euclid(TILES_PER_REGION);
-            let lx = tx.rem_euclid(TILES_PER_REGION) as u32;
-            let lz = tz.rem_euclid(TILES_PER_REGION) as u32;
-            let mut img = minimaps[&(rx, rz)]
-                .lock()
-                .expect("region minimap mutex poisoned");
-            stamp_tile_minimap(
-                &mut img,
-                lx,
-                lz,
-                &baked.heightmap,
-                &baked.splatmap,
-                &palette,
-            );
+            // WFD1 unified water-field, same stale-removal discipline.
+            let wfpath = coords::water_field_path(out, tx, tz);
+            if let Some(field_bin) = baked.water_field.as_ref() {
+                std::fs::write(&wfpath, field_bin)
+                    .with_context(|| format!("write {}", wfpath.display()))?;
+            } else {
+                remove_if_exists(&wfpath)?;
+            }
+
+            if !water_field_only {
+                // Stamp this tile's 64×64 patch into its region minimap. Locking
+                // is per-region — within-region contention is bounded by rayon's
+                // worker count, so the wait is negligible against bake cost.
+                let rx = tx.div_euclid(TILES_PER_REGION);
+                let rz = tz.div_euclid(TILES_PER_REGION);
+                let lx = tx.rem_euclid(TILES_PER_REGION) as u32;
+                let lz = tz.rem_euclid(TILES_PER_REGION) as u32;
+                let mut img = minimaps[&(rx, rz)]
+                    .lock()
+                    .expect("region minimap mutex poisoned");
+                stamp_tile_minimap(
+                    &mut img,
+                    lx,
+                    lz,
+                    &baked.heightmap,
+                    &baked.splatmap,
+                    &palette,
+                );
+            }
 
             let n = done.fetch_add(1, Ordering::Relaxed) + 1;
             let report_at = next_report.load(Ordering::Relaxed);
@@ -393,6 +416,18 @@ pub fn run(
         total_tiles,
         t_bake.elapsed().as_secs_f32()
     );
+
+    // Water-field-only mode ends here: everything below (minimaps, object
+    // JSONs, worldgen.json, preview PNGs) would clobber live-world state
+    // that the full bake owns — most critically the pre-edit heightmap
+    // snapshots removed in the per-tile loop above.
+    if water_field_only {
+        eprintln!(
+            "Water-field-only bake complete ({:.2}s total)",
+            overall.elapsed().as_secs_f32()
+        );
+        return Ok(());
+    }
 
     // --- Region minimap PNGs. --------------------------------------------
     let t_mini = Instant::now();

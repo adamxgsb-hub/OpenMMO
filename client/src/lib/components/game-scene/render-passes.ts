@@ -2,8 +2,7 @@ import type * as THREE from 'three'
 import type { WebGPURenderer } from 'three/webgpu'
 import type Monster from '../Monster.svelte'
 import type PlayerModel from '../PlayerModel.svelte'
-import type GameSceneWaterLayer from './GameSceneWaterLayer.svelte'
-import type GameSceneRiverLayer from './GameSceneRiverLayer.svelte'
+import type GameSceneWaterFieldLayer from './GameSceneWaterFieldLayer.svelte'
 import type GameSceneGrassLayer from './GameSceneGrassLayer.svelte'
 import type GameSceneTreeLayer from './GameSceneTreeLayer.svelte'
 import type GameSceneWindParticles from './GameSceneWindParticles.svelte'
@@ -27,8 +26,7 @@ export interface RenderPassesContext {
   terrainGroup: THREE.Group | undefined
   terrainMeshes: (THREE.Mesh | undefined)[]
   entityClipGroup: THREE.Group | undefined
-  waterLayerRef: GameSceneWaterLayer | undefined
-  riverLayerRef: GameSceneRiverLayer | undefined
+  waterLayerRef: GameSceneWaterFieldLayer | undefined
   grassLayerRef: GameSceneGrassLayer | undefined
   treeLayerRef: GameSceneTreeLayer | undefined
   windParticlesRef: GameSceneWindParticles | undefined
@@ -48,7 +46,6 @@ export function runRenderPasses(ctx: RenderPassesContext): void {
   const wetnessStart = performance.now()
   ctx.renderProfiler.withTag('wetness', () => {
     ctx.waterLayerRef?.renderWetness(ctx.renderer)
-    ctx.riverLayerRef?.updateUniforms()
   })
   ctx.loopProfiler.record('wetnessPass', performance.now() - wetnessStart)
 
@@ -67,7 +64,6 @@ export function runRenderPasses(ctx: RenderPassesContext): void {
           ctx.grassLayerRef?.getGroup(),
           ctx.treeLayerRef?.getGroup(),
           ctx.windParticlesRef?.getGroup(),
-          ctx.riverLayerRef?.getGroup(),
         ],
       },
       ctx.loopProfiler
@@ -89,7 +85,6 @@ export function runRenderPasses(ctx: RenderPassesContext): void {
           ctx.windParticlesRef?.getGroup(),
           ctx.objectOverlayRef?.getGroup(),
           ctx.entityClipGroup,
-          ctx.riverLayerRef?.getGroup(),
         ],
         getNametagGroups: () => collectNametagGroups(ctx),
       },

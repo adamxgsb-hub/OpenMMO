@@ -25,10 +25,9 @@
   import type { PlayerControlEvent } from './player-control/events'
   import type Monster from './Monster.svelte'
   import GameSceneTerrainLayer from './game-scene/GameSceneTerrainLayer.svelte'
-  import GameSceneWaterLayer from './game-scene/GameSceneWaterLayer.svelte'
+  import GameSceneWaterFieldLayer from './game-scene/GameSceneWaterFieldLayer.svelte'
   import GameSceneGrassLayer from './game-scene/GameSceneGrassLayer.svelte'
   import GameSceneTreeLayer from './game-scene/GameSceneTreeLayer.svelte'
-  import GameSceneRiverLayer from './game-scene/GameSceneRiverLayer.svelte'
   import GameSceneWindParticles from './game-scene/GameSceneWindParticles.svelte'
   import GameSceneHousingLayer from './game-scene/GameSceneHousingLayer.svelte'
   import GameSceneDungeonLayer from './game-scene/GameSceneDungeonLayer.svelte'
@@ -99,7 +98,7 @@
   import { TerrainSplatManager } from '../managers/terrainSplatManager'
   import { TerrainGrassDataManager } from '../managers/terrainGrassDataManager'
   import { TerrainTreeDataManager } from '../managers/terrainTreeDataManager'
-  import { RiverFieldManager } from '../managers/riverFieldManager'
+  import { WaterFieldManager } from '../managers/waterFieldManager'
   import { createCalendarSystem } from './game-scene/calendar-system'
   import { createTerrainTileManager } from './game-scene/terrain-tile-manager'
   import { registerDebugConsole } from './game-scene/debug-console'
@@ -134,7 +133,7 @@
   const terrainSplatManager = new TerrainSplatManager()
   const terrainGrassDataManager = new TerrainGrassDataManager(terrainHeightManager)
   const terrainTreeDataManager = new TerrainTreeDataManager(terrainHeightManager)
-  const riverFieldManager = new RiverFieldManager()
+  const waterFieldManager = new WaterFieldManager()
   monsterManager.heightManager = terrainHeightManager
   monsterManager.splatManager = terrainSplatManager
   editorHeightManager.set(terrainHeightManager)
@@ -152,10 +151,9 @@
   let waterMoonBrightness = $state(0)
   let waterTorchLight = $state<THREE.PointLight | null>(null)
   let waterGroup = $state<THREE.Group | undefined>(undefined)
-  let waterLayerRef = $state<GameSceneWaterLayer | undefined>(undefined)
+  let waterLayerRef = $state<GameSceneWaterFieldLayer | undefined>(undefined)
   let grassLayerRef = $state<GameSceneGrassLayer | undefined>(undefined)
   let treeLayerRef = $state<GameSceneTreeLayer | undefined>(undefined)
-  let riverLayerRef = $state<GameSceneRiverLayer | undefined>(undefined)
   let windParticlesRef = $state<GameSceneWindParticles | undefined>(undefined)
   let housingLayerRef = $state<GameSceneHousingLayer | undefined>(undefined)
   let dungeonLayerRef = $state<GameSceneDungeonLayer | undefined>(undefined)
@@ -287,8 +285,6 @@
     if (treeGroup) treeGroup.visible = !underground
     const housingGroup = housingLayerRef?.getGroup()
     if (housingGroup) housingGroup.visible = !underground
-    const riverGroup = riverLayerRef?.getGroup?.()
-    if (riverGroup) riverGroup.visible = !underground
     const windGroup = windParticlesRef?.getGroup?.()
     if (windGroup) windGroup.visible = !underground
     if (underground) {
@@ -599,7 +595,6 @@
         terrainMeshes,
         entityClipGroup,
         waterLayerRef,
-        riverLayerRef,
         grassLayerRef,
         treeLayerRef,
         windParticlesRef,
@@ -980,12 +975,11 @@
 {/if}
 
 {#if graphicsPreset.enableWaterLayer}
-  <GameSceneWaterLayer
+  <GameSceneWaterFieldLayer
     bind:this={waterLayerRef}
-    {terrainGeometry}
     {terrainTiles}
     heightManager={terrainHeightManager}
-    splatManager={terrainSplatManager}
+    {waterFieldManager}
     normalMap={waterNormalMap}
     foamMap={waterFoamMap}
     causticsMap={waterCausticsMap}
@@ -996,23 +990,8 @@
     moonBrightness={waterMoonBrightness}
     refractionMap={refractionTexture}
     reflectionMap={reflectionTexture}
-    bind:waterGroup={waterGroup}
-  />
-
-  <GameSceneRiverLayer
-    bind:this={riverLayerRef}
-    {terrainTiles}
-    heightManager={terrainHeightManager}
-    {riverFieldManager}
-    normalMap={waterNormalMap}
-    reflectionMap={reflectionTexture}
-    refractionMap={refractionTexture}
-    time={waterTime}
-    sunDirection={waterSunDir}
-    sunColor={waterSunColor}
-    cameraDirection={waterCamDir}
-    moonBrightness={waterMoonBrightness}
     torchLight={waterTorchLight}
+    bind:waterGroup={waterGroup}
   />
 {/if}
 

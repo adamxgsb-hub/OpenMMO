@@ -91,8 +91,14 @@ export interface WetnessResult {
   ) => void
   /** Current wetness texture for fragment shader sampling */
   readonly readTexture: THREE.Texture
-  /** Reposition this wetness system to a new tile */
-  reposition: (tileX: number, tileZ: number) => void
+  /** Reposition this wetness system to a new tile. `geometry` swaps the
+   *  capture mesh's per-tile water geometry (vertex Y carries the baked
+   *  water surface, so a pooled system must not keep the old tile's). */
+  reposition: (
+    tileX: number,
+    tileZ: number,
+    geometry?: THREE.BufferGeometry
+  ) => void
 }
 
 /**
@@ -128,7 +134,8 @@ export function createWetnessSystem(
   })
   const captureScene = new THREE.Scene()
   const captureMesh = new THREE.Mesh(geometry)
-  captureMesh.position.set(px, 0.01, pz)
+  // Y stays 0: the water geometry's vertex Y already carries the surface.
+  captureMesh.position.set(px, 0, pz)
   captureMesh.receiveShadow = false
   captureMesh.castShadow = false
   captureScene.add(captureMesh)
@@ -161,10 +168,15 @@ export function createWetnessSystem(
   let prevTime = -1
 
   return {
-    reposition(newTileX: number, newTileZ: number) {
+    reposition(
+      newTileX: number,
+      newTileZ: number,
+      newGeometry?: THREE.BufferGeometry
+    ) {
       const newPx = newTileX * tileSize
       const newPz = newTileZ * tileSize
-      captureMesh.position.set(newPx, 0.01, newPz)
+      if (newGeometry) captureMesh.geometry = newGeometry
+      captureMesh.position.set(newPx, 0, newPz)
       captureCamera.position.set(newPx, 10, newPz)
       captureCamera.lookAt(newPx, 0, newPz)
       // Reset decay state so old wetness doesn't bleed into new position

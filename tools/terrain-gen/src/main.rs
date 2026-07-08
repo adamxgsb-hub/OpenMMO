@@ -231,6 +231,14 @@ enum Cmd {
         /// Maximum region Z (inclusive).
         #[arg(long, default_value_t = 15, allow_hyphen_values = true)]
         region_z_max: i32,
+
+        /// Only (re)write `water-field/` WFD1 files; leave every other
+        /// artifact untouched. Safe against a live world: a full bake
+        /// deletes pre-edit heightmap snapshots and rewrites player-edited
+        /// tiles, this mode does not. The pipeline is seed-deterministic,
+        /// so the water field matches the original bake's terrain.
+        #[arg(long)]
+        water_field_only: bool,
     },
 
     /// Dump river segment data influencing a single tile.
@@ -298,6 +306,7 @@ fn main() -> Result<()> {
             region_x_max,
             region_z_min,
             region_z_max,
+            water_field_only,
         } => {
             if region_x_max < region_x_min || region_z_max < region_z_min {
                 anyhow::bail!(
@@ -314,6 +323,7 @@ fn main() -> Result<()> {
                 &out,
                 (region_x_min, region_z_min),
                 (region_x_max, region_z_max),
+                water_field_only,
             )
         }
         Cmd::InspectTile {
