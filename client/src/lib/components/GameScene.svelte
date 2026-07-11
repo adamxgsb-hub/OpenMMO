@@ -76,6 +76,7 @@
   import { editorPanOffset, editorHeightManager, editorSplatManager, editorGrassDataManager, editorTreeDataManager, editorZoneManager, terrainForceRebuild } from '../stores/editorStore'
   import { ZoneManager } from '../managers/zoneManager'
   import { initFpsCounting, tickFps } from './FPSCounter.svelte'
+  import { tickWavePhase } from './WavePhaseDebug.svelte'
   import { eclipseState, setGameDate, setGameHour } from './GameTimeWidget.svelte'
   import {
     DEFAULT_CAMERA_OFFSET,
@@ -570,6 +571,7 @@
 
       // Update water uniforms — always use real sun direction (not moon)
       waterTime += realDeltaSeconds
+      tickWavePhase(waterTime)
       waterSunDirTmp.set(sunSnapshot.direction.x, sunSnapshot.direction.y, sunSnapshot.direction.z)
       waterSunDir = waterSunDirTmp.clone()
       if (directionalLight) {

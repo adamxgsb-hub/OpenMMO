@@ -8,7 +8,10 @@ import {
   editorSplatManager,
   editorGrassDataManager,
 } from './stores/editorStore'
-import { riverWireframeVisible } from './stores/debugStore'
+import {
+  riverWireframeVisible,
+  shoreWaveDebugVisible,
+} from './stores/debugStore'
 import { computeGrassPlacement, regenerateVegMeta } from './utils/grass-data'
 import { dungeonManager } from './managers/dungeonManager'
 
@@ -135,6 +138,15 @@ const commands: Record<string, CommandHandler> = {
     riverWireframeVisible.set(next)
     addChatMessage({
       text: `River wireframe: ${next ? 'on' : 'off'}`,
+      sender: 'system',
+    })
+  },
+
+  '/shore_wave': () => {
+    const next = !get(shoreWaveDebugVisible)
+    shoreWaveDebugVisible.set(next)
+    addChatMessage({
+      text: `Shore wave debug: ${next ? 'on' : 'off'}`,
       sender: 'system',
     })
   },

@@ -1,6 +1,7 @@
 <script lang="ts">
   import ChatPanel from './ChatPanel.svelte'
   import FPSCounter from './FPSCounter.svelte'
+  import WavePhaseDebug from './WavePhaseDebug.svelte'
   import GameTimeWidget from './GameTimeWidget.svelte'
   import CelestialDebugDialog from './CelestialDebugDialog.svelte'
   import MapEditorPanel from './map-editor/MapEditorPanel.svelte'
@@ -55,6 +56,7 @@
 
 <div class="game-hud">
   <FPSCounter />
+  <WavePhaseDebug />
   <GameTimeWidget />
   <DragGhost />
   <CelestialDebugDialog />

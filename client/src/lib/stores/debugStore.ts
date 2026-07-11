@@ -18,6 +18,7 @@ export const windDebugVisible = writable(false)
 export const housingEditorMode = writable(false)
 export const passabilityDebugVisible = writable(false)
 export const riverWireframeVisible = writable(false)
+export const shoreWaveDebugVisible = writable(false)
 
 export interface PlayerDebugInfo {
   position: { x: number; y: number; z: number }
