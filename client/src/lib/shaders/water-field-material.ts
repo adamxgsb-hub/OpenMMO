@@ -473,15 +473,14 @@ export function createWaterFieldMaterial(
     const riverness = field.a.toVar()
     const seaness = float(1).sub(riverness).toVar()
     const flow = field.gb.toVar() // magnitude = baked estuary-decayed speed
-    // Geographic river-influence gate (successor of the old splatmap-G
-    // byte). Baked flow magnitude is ≥ 0.3 × radial-envelope inside the
-    // channel and exactly 0 outside, so it marks "near a river" even at
-    // the mouth where the estuary gate has already zeroed riverness —
-    // without it, sea foam bands / cloud highlights / shore wash would
-    // paint right across the estuary ribbon.
-    const riverProxGate = float(1)
-      .sub(smoothstep(float(0.02), float(0.2), length(flow)))
-      .toVar()
+    // Geographic river influence (successor of the old splatmap-G byte).
+    // Baked flow magnitude is ≥ 0.3 × radial-envelope inside the channel
+    // and exactly 0 outside, so it marks "near a river" even at the mouth
+    // where the estuary gate has already zeroed riverness — without it,
+    // sea foam bands / cloud highlights / shore wash would paint right
+    // across the estuary ribbon.
+    const flowProx = smoothstep(float(0.02), float(0.2), length(flow)).toVar()
+    const riverProxGate = float(1).sub(flowProx).toVar()
     // Sea surface-effect gate: off inside inland channels (riverness) AND
     // near mouths (flow proximity).
     const seaFxGate = seaness.mul(seaness).mul(riverProxGate).toVar()
@@ -489,7 +488,7 @@ export function createWaterFieldMaterial(
     // at the mouth (estuary gate) while the water there is still visually
     // the river — flow proximity keeps the river palette and bank alpha
     // ramp all the way to the sea. Zero in open water (flow = 0).
-    const riverStyleW = max(riverness, float(1).sub(riverProxGate)).toVar()
+    const riverStyleW = max(riverness, flowProx).toVar()
     const bedHeight = heightmapTex.sample(sampleUV).r
     const depth = max(float(0), vOrigWorldPos.y.sub(bedHeight)).toVar()
     const depthFactorSea = clamp(depth.div(uMaxDepth), 0.0, 1.0)

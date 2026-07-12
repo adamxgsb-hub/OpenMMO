@@ -326,16 +326,28 @@ fn compute_pixel(
     };
     let surface_y = smoothmax(profile, SEA_LEVEL_M, SURFACE_SMOOTHMAX_K_M);
 
+    // Radial envelope: 1 across the visible channel, fading to 0 at the
+    // outer safety edge. Slightly wider than the visible bank fade so
+    // wave damping ramps in before the bank alpha edge, not on it.
+    let radial = 1.0 - smoothstep(half_width, safety_end, dist);
+    if radial <= 0.0 {
+        // Off-envelope the radial factor zeroes riverness and flow no
+        // matter what the gate says — skip the coast-distance scan, which
+        // would otherwise run for every off-channel pixel in the tile.
+        return WaterPixel {
+            surface_y,
+            flow_x: 0.0,
+            flow_z: 0.0,
+            riverness: 0.0,
+        };
+    }
+
     // Longitudinal handoff to the sea, keyed on the centerline's distance
     // to the coastline: full sea within NEAR of the coast, full river
     // beyond FAR. Evaluated at the projection (not the pixel) so a whole
     // channel cross-section shares one gate value.
     let coast_dist = min_distance_to_segments(proj_x, proj_z, coast_segs);
     let estuary_gate = smoothstep(ESTUARY_COAST_NEAR_M, ESTUARY_COAST_FAR_M, coast_dist);
-    // Radial envelope: 1 across the visible channel, fading to 0 at the
-    // outer safety edge. Slightly wider than the visible bank fade so
-    // wave damping ramps in before the bank alpha edge, not on it.
-    let radial = 1.0 - smoothstep(half_width, safety_end, dist);
     let riverness = radial * estuary_gate;
     let flow_speed = radial * (ESTUARY_MIN_FLOW + (1.0 - ESTUARY_MIN_FLOW) * estuary_gate);
 
