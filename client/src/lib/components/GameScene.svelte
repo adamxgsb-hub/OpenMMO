@@ -26,6 +26,7 @@
   import type Monster from './Monster.svelte'
   import GameSceneTerrainLayer from './game-scene/GameSceneTerrainLayer.svelte'
   import GameSceneWaterFieldLayer from './game-scene/GameSceneWaterFieldLayer.svelte'
+  import GameSceneRiverRocksLayer from './game-scene/GameSceneRiverRocksLayer.svelte'
   import GameSceneGrassLayer from './game-scene/GameSceneGrassLayer.svelte'
   import GameSceneTreeLayer from './game-scene/GameSceneTreeLayer.svelte'
   import GameSceneWindParticles from './game-scene/GameSceneWindParticles.svelte'
@@ -153,6 +154,7 @@
   let waterTorchLight = $state<THREE.PointLight | null>(null)
   let waterGroup = $state<THREE.Group | undefined>(undefined)
   let waterLayerRef = $state<GameSceneWaterFieldLayer | undefined>(undefined)
+  let riverRocksRef = $state<GameSceneRiverRocksLayer | undefined>(undefined)
   let grassLayerRef = $state<GameSceneGrassLayer | undefined>(undefined)
   let treeLayerRef = $state<GameSceneTreeLayer | undefined>(undefined)
   let windParticlesRef = $state<GameSceneWindParticles | undefined>(undefined)
@@ -288,6 +290,8 @@
     if (housingGroup) housingGroup.visible = !underground
     const windGroup = windParticlesRef?.getGroup?.()
     if (windGroup) windGroup.visible = !underground
+    const riverRocksGroup = riverRocksRef?.getGroup?.()
+    if (riverRocksGroup) riverRocksGroup.visible = !underground
     if (underground) {
       // The housing layer's per-frame detection is skipped underground;
       // clear its state so stale floor offsets can't leak into physics.
@@ -555,6 +559,9 @@
         loopProfiler.record('windParticles', performance.now() - windStart)
       }
 
+      // Update river-rock spray particles + wake scroll
+      riverRocksRef?.update(deltaTime, camera)
+
       // Update camera with preserved offset
       const cameraUpdateStart = performance.now()
       updateCameraWithOffset(cameraOffset)
@@ -597,6 +604,7 @@
         terrainMeshes,
         entityClipGroup,
         waterLayerRef,
+        riverRocksRef,
         grassLayerRef,
         treeLayerRef,
         windParticlesRef,
@@ -994,6 +1002,15 @@
     reflectionMap={reflectionTexture}
     torchLight={waterTorchLight}
     bind:waterGroup={waterGroup}
+  />
+  <GameSceneRiverRocksLayer
+    bind:this={riverRocksRef}
+    {terrainTiles}
+    {waterFieldManager}
+    heightManager={terrainHeightManager}
+    foamMap={waterFoamMap}
+    sunDirection={waterSunDir}
+    playerPosition={currentPlayer?.position ?? null}
   />
 {/if}
 

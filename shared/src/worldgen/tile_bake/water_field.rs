@@ -39,7 +39,15 @@
 //!   byte   2      i8       flowX — downstream flow × 127, estuary-scaled
 //!   byte   3      i8       flowZ — downstream flow × 127, estuary-scaled
 //!   byte   4      u8       riverness × 255
-//!   byte   5      u8       reserved (zero)
+//!   byte   5      u8       turbulence × 255 — whitewater intensity. Baked
+//!                          from three world-space churn sources: slope
+//!                          breaks along the flow (the foaming toe where a
+//!                          steep reach flattens out), sharp bends (piling
+//!                          into the outer bank), and sparse bank-bump
+//!                          noise pockets. Zero off-channel and through
+//!                          the estuary. Was reserved-zero before
+//!                          2026-07-12; old files simply render no river
+//!                          foam.
 //! ```
 //!
 //! Cross-tile consistency: same contract as RFD1 — both tiles touching a
@@ -51,7 +59,7 @@
 //! exactly what this bake would emit there.
 
 use super::super::global_map::GlobalMap;
-use super::super::noise::smoothstep;
+use super::super::noise::{fbm2, smoothstep, PerlinNoise};
 use super::super::vector_features::{
     min_distance_to_segments, project_point_to_segment, segments_near_tile, RiverSegment, Segment,
 };
@@ -91,6 +99,53 @@ const SURFACE_SMOOTHMAX_K_M: f32 = 0.3;
 /// the estuary still drifts seaward instead of freezing. Matches the old
 /// runtime `flowSpeed = mix(0.3, 1.0, …)` ramp.
 const ESTUARY_MIN_FLOW: f32 = 0.3;
+
+/// Whitewater: distance (m) of the carved-bed probes up/downstream of the
+/// centerline projection. Sets the length scale a "slope break" is judged
+/// over — a rapid shorter than this reads as one steep step. Probes are
+/// re-projected onto the channel centerline before sampling: on a meander
+/// the straight-line probe cuts the corner into the bank, and the bank's
+/// rise read as a fake steep grade that painted every lowland bend white.
+const TURB_PROBE_M: f32 = 6.0;
+/// Slope-break window on `slope_up − slope_down` (m/m). A reach dropping
+/// ≥ TURB_JUMP_HI more per meter upstream than downstream churns the toe
+/// fully white (hydraulic jump); below TURB_JUMP_LO it stays glassy.
+const TURB_JUMP_LO: f32 = 0.035;
+const TURB_JUMP_HI: f32 = 0.13;
+/// Steep-run churn window (m/m) on the steeper of the two probe slopes —
+/// the rapid itself carries some white even before it flattens out.
+const TURB_RAPID_LO: f32 = 0.06;
+const TURB_RAPID_HI: f32 = 0.18;
+const TURB_RAPID_GAIN: f32 = 0.45;
+/// Bend churn: flow direction is re-sampled this far downstream and the
+/// turn's |sin| windowed. Lowland meanders rotate the weighted flow a
+/// little everywhere — the onset must sit above that background drift or
+/// every snaking reach paints white; only genuinely tight corners pass.
+const TURB_BEND_PROBE_M: f32 = 7.0;
+const TURB_BEND_LO: f32 = 0.30;
+const TURB_BEND_HI: f32 = 0.70;
+/// Bank-bump pockets: world-space fBm gated to a near-bank band. The
+/// frequency puts pockets ~10 m apart so most of a smooth bank stays
+/// clean.
+const TURB_BANK_NOISE_FREQ: f32 = 0.09;
+const TURB_BANK_GAIN: f32 = 0.7;
+/// Seed salt for the bank-bump noise ("WATB") — decorrelates it from
+/// every other worldgen noise derived from the same world seed.
+const TURB_NOISE_SALT: u64 = 0x5741_5442;
+
+/// Slope-break (hydraulic-jump) churn: full white when a steep upstream
+/// grade flattens out by ≥ TURB_JUMP_HI m/m over the probe distance.
+#[inline]
+fn slope_break_term(slope_up: f32, slope_down: f32) -> f32 {
+    smoothstep(TURB_JUMP_LO, TURB_JUMP_HI, slope_up - slope_down)
+}
+
+/// Bend churn from the |sin| of the flow-direction turn across the
+/// downstream probe.
+#[inline]
+fn bend_term(turn_sin: f32) -> f32 {
+    smoothstep(TURB_BEND_LO, TURB_BEND_HI, turn_sin)
+}
 
 /// Polynomial smooth maximum: exact `max(a, b)` beyond ±k of the
 /// crossover, C1-continuous blend (bulging up to k/4 above both inputs)
@@ -152,6 +207,10 @@ pub fn bake_water_field(
         ESTUARY_COAST_FAR_M + super::river_margin_m(),
     );
 
+    // Bank-bump noise is seeded from the world seed alone (world-space
+    // coordinates, no tile inputs), so seam tiles sample identical values.
+    let turb_noise = PerlinNoise::new(map.config.seed ^ TURB_NOISE_SALT);
+
     let mut out = Vec::with_capacity(WATER_FIELD_TOTAL_SIZE);
     out.extend_from_slice(WATER_FIELD_BIN_MAGIC);
     out.extend_from_slice(&WATER_FIELD_BIN_VERSION.to_le_bytes());
@@ -173,6 +232,7 @@ pub fn bake_water_field(
                 river_segs,
                 &seg_tangents,
                 &coast_segs,
+                &turb_noise,
             );
             let v = ((px.surface_y + HEIGHT_BIAS) / HEIGHT_STEP)
                 .round()
@@ -181,7 +241,7 @@ pub fn bake_water_field(
             out.push(encode_unit(px.flow_x) as u8);
             out.push(encode_unit(px.flow_z) as u8);
             out.push((px.riverness.clamp(0.0, 1.0) * 255.0).round() as u8);
-            out.push(0);
+            out.push((px.turbulence.clamp(0.0, 1.0) * 255.0).round() as u8);
         }
     }
     Some(out)
@@ -197,6 +257,7 @@ struct WaterPixel {
     flow_x: f32,
     flow_z: f32,
     riverness: f32,
+    turbulence: f32,
 }
 
 /// Single-pass query that returns both the inverse-distance-weighted flow
@@ -286,6 +347,7 @@ fn compute_pixel(
     river_segs: &[RiverSegment],
     seg_tangents: &[(f32, f32)],
     coast_segs: &[Segment],
+    turb_noise: &PerlinNoise,
 ) -> WaterPixel {
     let Some((flow_x, flow_z, idx, t, dist)) =
         weighted_flow_and_nearest(wx, wz, river_segs, seg_tangents)
@@ -299,6 +361,7 @@ fn compute_pixel(
             flow_x: 0.0,
             flow_z: 0.0,
             riverness: 0.0,
+            turbulence: 0.0,
         };
     };
     let seg = &river_segs[idx];
@@ -339,6 +402,7 @@ fn compute_pixel(
             flow_x: 0.0,
             flow_z: 0.0,
             riverness: 0.0,
+            turbulence: 0.0,
         };
     }
 
@@ -351,11 +415,86 @@ fn compute_pixel(
     let riverness = radial * estuary_gate;
     let flow_speed = radial * (ESTUARY_MIN_FLOW + (1.0 - ESTUARY_MIN_FLOW) * estuary_gate);
 
+    // ── Whitewater turbulence ──
+    // All three churn sources are pure world-space queries (global bed,
+    // segment list, world-seeded noise), so seam tiles bake identical
+    // bytes. Skipped where nothing could show: past the bank fade
+    // (`dist ≥ bank_end`) and through the estuary (calm drift) — the
+    // skip also saves the two extra carved-bed probes per pixel.
+    let turbulence = if estuary_gate > 0.0 && dist < bank_end {
+        // 1. Slope break along the flow: step up/downstream from the
+        //    projection, re-project onto the centerline, and read the
+        //    carved bed THERE — the true channel gradient. A steep
+        //    upstream grade meeting a gentle downstream one is the
+        //    foaming toe of a rapid; the steep run itself carries a
+        //    weaker churn. (Sampling at the raw stepped point instead
+        //    reads the bank on every meander — see TURB_PROBE_M.)
+        let bed_along =
+            |dx: f32, dz: f32| -> f32 {
+                weighted_flow_and_nearest(proj_x + dx, proj_z + dz, river_segs, seg_tangents)
+                    .map_or(bed_at_proj, |(_, _, i2, t2, _)| {
+                        let s2 = &river_segs[i2];
+                        sample_carved_bed(
+                            map,
+                            ctx,
+                            lerp(s2.ax, s2.bx, t2),
+                            lerp(s2.az, s2.bz, t2),
+                            river_segs,
+                        )
+                    })
+            };
+        let up_bed = bed_along(-flow_x * TURB_PROBE_M, -flow_z * TURB_PROBE_M);
+        let down_bed = bed_along(flow_x * TURB_PROBE_M, flow_z * TURB_PROBE_M);
+        let slope_up = (up_bed - bed_at_proj) / TURB_PROBE_M;
+        let slope_down = (bed_at_proj - down_bed) / TURB_PROBE_M;
+        let jump = slope_break_term(slope_up, slope_down);
+        let rapid =
+            smoothstep(TURB_RAPID_LO, TURB_RAPID_HI, slope_up.max(slope_down)) * TURB_RAPID_GAIN;
+
+        // 2. Sharp bend: how far the weighted flow direction rotates over
+        //    the downstream probe, thrown mostly at the outer bank (the
+        //    side the current piles into).
+        let bend = weighted_flow_and_nearest(
+            proj_x + flow_x * TURB_BEND_PROBE_M,
+            proj_z + flow_z * TURB_BEND_PROBE_M,
+            river_segs,
+            seg_tangents,
+        )
+        .map_or(0.0, |(fx2, fz2, ..)| {
+            let turn = flow_x * fz2 - flow_z * fx2;
+            let side = flow_x * (wz - proj_z) - flow_z * (wx - proj_x);
+            let outer = 0.5 - 0.5 * (side / half_width.max(1e-3)).clamp(-1.0, 1.0) * turn.signum();
+            bend_term(turn.abs()) * (0.45 + 0.55 * outer)
+        });
+
+        // 3. Bank bumps: sparse noise pockets in a near-bank band where an
+        //    uneven bank chops the passing current.
+        let bank_band = smoothstep(0.55 * half_width, 0.9 * half_width, dist)
+            * (1.0 - smoothstep(0.95 * half_width, bank_end, dist));
+        let bumps = fbm2(
+            turb_noise,
+            wx * TURB_BANK_NOISE_FREQ,
+            wz * TURB_BANK_NOISE_FREQ,
+            2,
+            2.0,
+            0.5,
+        );
+        let bank = bank_band * smoothstep(0.30, 0.55, bumps) * TURB_BANK_GAIN;
+
+        // Core churn fades over the bank ramp like the visible water does;
+        // the estuary gate calms the whole mouth reach.
+        let core_env = 1.0 - smoothstep(half_width, bank_end, dist);
+        (((jump + rapid + bend).min(1.0) * core_env + bank).min(1.0)) * estuary_gate
+    } else {
+        0.0
+    };
+
     WaterPixel {
         surface_y,
         flow_x: flow_x * flow_speed,
         flow_z: flow_z * flow_speed,
         riverness,
+        turbulence,
     }
 }
 
@@ -385,7 +524,7 @@ mod tests {
         (map, ctx)
     }
 
-    fn pixel(bin: &[u8], i: usize, j: usize) -> (f32, i8, i8, f32) {
+    fn pixel(bin: &[u8], i: usize, j: usize) -> (f32, i8, i8, f32, f32) {
         let off = WATER_FIELD_HEADER_SIZE + (j * VERTS_PER_SIDE + i) * WATER_FIELD_PIXEL_SIZE;
         let s = u16::from_le_bytes([bin[off], bin[off + 1]]);
         (
@@ -393,7 +532,22 @@ mod tests {
             bin[off + 2] as i8,
             bin[off + 3] as i8,
             bin[off + 4] as f32 / 255.0,
+            bin[off + 5] as f32 / 255.0,
         )
+    }
+
+    #[test]
+    fn turbulence_terms_respond_to_slope_break_and_bend() {
+        // Uniform grade — the water keeps its speed, no churn.
+        assert_eq!(slope_break_term(0.2, 0.2), 0.0);
+        // Steep upstream flattening out — the foaming toe of a rapid.
+        assert_eq!(slope_break_term(0.2, 0.0), 1.0);
+        // Gentle-to-steep (the lip of a drop) must NOT foam — whitewater
+        // belongs at the bottom of the descent, not its start.
+        assert_eq!(slope_break_term(0.0, 0.2), 0.0);
+        // Straight flow — no bend churn; a hard turn — full churn.
+        assert_eq!(bend_term(0.0), 0.0);
+        assert_eq!(bend_term(0.9), 1.0);
     }
 
     #[test]
@@ -469,10 +623,10 @@ mod tests {
 
         // half_width = 2.0, taper = 3.0 + 7.0*0.5 = 6.5.
         // bank_end = 8.5, safety_end = 15.
-        let (on_axis, _, _, r_axis) = pixel(&bin, 32, 32);
+        let (on_axis, _, _, r_axis, _) = pixel(&bin, 32, 32);
         let (inside_half_width, ..) = pixel(&bin, 32, 33);
         let (safety_ramp, ..) = pixel(&bin, 32, 43); // dist = 11
-        let (far, fx_far, fz_far, r_far) = pixel(&bin, 32, 60); // dist = 28
+        let (far, fx_far, fz_far, r_far, t_far) = pixel(&bin, 32, 60); // dist = 28
 
         assert!(
             (on_axis - inside_half_width).abs() < 0.01,
@@ -497,6 +651,7 @@ mod tests {
         // riverness scalar with it.
         assert_eq!((fx_far, fz_far), (0, 0), "flow decays to zero off-channel");
         assert!(r_far < 0.01, "riverness is zero off-channel, got {r_far}");
+        assert!(t_far < 0.01, "turbulence is zero off-channel, got {t_far}");
 
         // On-axis riverness/flow depend on the estuary gate, which reads
         // the coastline distance at the centerline projection — a
@@ -516,7 +671,7 @@ mod tests {
             (r_axis - gate).abs() < 0.01,
             "on-axis riverness equals the estuary gate ({gate}), got {r_axis}"
         );
-        let (_, fx_axis, _, _) = pixel(&bin, 32, 32);
+        let (_, fx_axis, _, _, _) = pixel(&bin, 32, 32);
         let flow_expected = (127.0 * (ESTUARY_MIN_FLOW + (1.0 - ESTUARY_MIN_FLOW) * gate)).round();
         assert!(
             (fx_axis as f32 - flow_expected).abs() <= 2.0,

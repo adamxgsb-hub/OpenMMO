@@ -17,6 +17,10 @@ const HEIGHT_STEP_M = 0.05
 /** Vertex-grid side length of one tile (matches heightmap resolution). */
 export const WATER_FIELD_GRID = 65
 
+/** Baked turbulence that marks the start of a whitewater feature. River
+ *  rocks use it to seed wakes at the feature's upstream edge. */
+export const RIVER_WHITEWATER_ONSET = 0.18
+
 export interface WaterFieldTileData {
   /** Row-major 65×65 water surface elevation in meters: river surface in
    *  channels, sea level in open sea, smoothmax blend at estuaries. On
@@ -31,6 +35,11 @@ export interface WaterFieldTileData {
   /** Row-major 65×65 river↔sea blend: 1 in an inland channel, 0 in open
    *  sea and past the channel envelope. */
   riverness: Float32Array
+  /** Row-major 65×65 whitewater intensity: churn at slope breaks
+   *  (rapid toes), sharp bends, and bumpy bank pockets. 0 off-channel,
+   *  through the estuary, and in every pre-2026-07 bake (the byte was
+   *  reserved-zero). */
+  turbulence: Float32Array
 }
 
 /** Decode a `WFD1` per-tile file. Throws on corrupt data so the caller
@@ -71,6 +80,7 @@ export function decodeWaterFieldData(buffer: ArrayBuffer): WaterFieldTileData {
   const flowX = new Float32Array(count)
   const flowZ = new Float32Array(count)
   const riverness = new Float32Array(count)
+  const turbulence = new Float32Array(count)
   let off = HEADER_BYTES
   for (let i = 0; i < count; i++) {
     const enc = view.getUint16(off, true)
@@ -78,7 +88,8 @@ export function decodeWaterFieldData(buffer: ArrayBuffer): WaterFieldTileData {
     flowX[i] = view.getInt8(off + 2) / 127
     flowZ[i] = view.getInt8(off + 3) / 127
     riverness[i] = view.getUint8(off + 4) / 255
+    turbulence[i] = view.getUint8(off + 5) / 255
     off += BYTES_PER_PIXEL
   }
-  return { surfaceY, flowX, flowZ, riverness }
+  return { surfaceY, flowX, flowZ, riverness, turbulence }
 }

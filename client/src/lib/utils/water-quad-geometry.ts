@@ -35,8 +35,11 @@ export function applyWaterFieldToGeometry(
 }
 
 /** Build a 65×65 RGBA32F DataTexture from a decoded water field. R =
- *  surfaceY (m), GB = downstream flow vector (magnitude = baked speed),
- *  A = riverness. flipY matches the heightmap so `toHeightmapUV(uv())`
+ *  turbulence (whitewater), GB = downstream flow vector (magnitude =
+ *  baked speed), A = riverness. `surfaceY` rides the mesh vertex Y (see
+ *  {@link applyWaterFieldToGeometry}), not the texture — R held it
+ *  before the turbulence channel took the slot, and no shader ever
+ *  sampled it. flipY matches the heightmap so `toHeightmapUV(uv())`
  *  works for both. */
 export function buildWaterFieldTexture(
   data: WaterFieldTileData
@@ -44,7 +47,7 @@ export function buildWaterFieldTexture(
   const W = WATER_FIELD_GRID
   const buf = new Float32Array(W * W * 4)
   for (let i = 0; i < W * W; i++) {
-    buf[i * 4 + 0] = data.surfaceY[i]
+    buf[i * 4 + 0] = data.turbulence[i]
     buf[i * 4 + 1] = data.flowX[i]
     buf[i * 4 + 2] = data.flowZ[i]
     buf[i * 4 + 3] = data.riverness[i]
@@ -63,14 +66,14 @@ export function buildWaterFieldTexture(
   return tex
 }
 
-/** Water-field fallback texture (RGBA32F): flat sea at `SEA_LEVEL`, no
- *  flow, riverness 0. Doubles as (a) the field for sea-only tiles that
- *  have no baked WFD file, and (b) the pooled-material reset value —
+/** Water-field fallback texture (RGBA32F): no turbulence, no flow,
+ *  riverness 0 — open sea. Doubles as (a) the field for sea-only tiles
+ *  that have no baked WFD file, and (b) the pooled-material reset value —
  *  format must match what the field TextureNode was compiled with, or
  *  WebGPU bind groups fail (same constraint as `waterHeightFallbackTex`).
  *  Constant-valued, so bilinear filtering across the 1×1 texel is safe. */
 export const waterFieldFallbackTex = new THREE.DataTexture(
-  new Float32Array([SEA_LEVEL, 0, 0, 0]),
+  new Float32Array([0, 0, 0, 0]),
   1,
   1,
   THREE.RGBAFormat,

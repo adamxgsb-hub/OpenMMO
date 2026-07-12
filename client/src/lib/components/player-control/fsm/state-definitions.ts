@@ -235,7 +235,8 @@ export function createTimerCleanupStateOverrides({
 // ───────────────────────────────────────────────────────────────────────────
 
 export interface LocalPlayerControlStateActions
-  extends AnimationEventStateActions,
+  extends
+    AnimationEventStateActions,
     TimerCleanupStateActions,
     NetworkEventStateActions,
     FramePhaseStateActions {}

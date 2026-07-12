@@ -473,6 +473,9 @@ export function createWaterFieldMaterial(
     const riverness = field.a.toVar()
     const seaness = float(1).sub(riverness).toVar()
     const flow = field.gb.toVar() // magnitude = baked estuary-decayed speed
+    // (field.r carries the baked turbulence — consumed CPU-side by
+    // river-rock placement and its drifting wake-foam particles, not
+    // sampled here.)
     // Geographic river influence (successor of the old splatmap-G byte).
     // Baked flow magnitude is ≥ 0.3 × radial-envelope inside the channel
     // and exactly 0 outside, so it marks "near a river" even at the mouth
@@ -674,6 +677,7 @@ export function createWaterFieldMaterial(
       float(0.7),
       rippleMix
     )
+
     // Flow remains valid through the estuary even after `riverness` reaches
     // zero, so use the same styling weight that drives its colour/alpha.
     const surfaceNormal = normalize(mix(seaN, riverN, riverStyleW))
