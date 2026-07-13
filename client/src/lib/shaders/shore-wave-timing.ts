@@ -11,12 +11,12 @@
  *  desyncs from the visible wave. */
 export const SHORE_WAVE_SPEED = 0.012
 
-/** Whitewash timing: the bore (broken foam front riding the crest)
- *  carries the wash to the waterline on its own; the short run-up
- *  window only handles the final overshoot past the waterline and the
- *  strip flood. The backwash flushes it back out — a fast fade while
- *  the sheet slides seaward — over [FLUSH_START, FLUSH_END]. */
-export const WASH_RUNUP_START = 0.58
+/** Whitewash timing: the shortened bore carries the wash into the shallows,
+ *  then a long run-up keeps it moving through the final approach/overshoot.
+ *  The near-zero peak avoids a stationary foam sheet before the backwash
+ *  flushes it seaward over [FLUSH_START, FLUSH_END]. */
+export const WASH_RUNUP_START = 0.4
+export const BORE_FADE_END = 0.44
 export const WASH_RUNUP_END = 0.62
 export const WASH_FLUSH_START = 0.63
 export const WASH_FLUSH_END = 0.72
