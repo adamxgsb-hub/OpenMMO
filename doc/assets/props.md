@@ -43,9 +43,23 @@ Poly Haven에서 받은 .gltf를 Blender에서 .glb로 다시 export
 - wooden_garage_door_1k.glb -> https://polyhaven.com/a/wooden_garage_door (던전 입구 문)
 - grey_stone_path_1k.glb -> https://polyhaven.com/a/grey_stone_path (던전 바닥/계단)
 
+## Dungeon Textures
+
+Poly Haven 벽 텍스처. `rock_wall_10`만 배선됨 (`housing-textures.ts`).
+
+- rock_wall_10 https://polyhaven.com/a/rock_wall_10 — 던전 복도 벽 (사용 중, CC0)
+- damaged_plaster — **[미사용]**
+- old_stone_wall — **[미사용]**
+- plaster_stone_wall_02 — **[미사용]**
+- rabdentse_ruins_wall — **[미사용]**
+- rock_wall_05 — **[미사용]**
+- rock_wall_08 — **[미사용]**
+- rock_wall_13 — **[미사용]**
+- rustic_stone_wall — **[미사용]**
+
 ## Research
 
 Not used right now, but for future reference.
 
-- Procedural Northern European French Town in Geometry nodes Blender 5.0
+- Procedural Northern European French Town in Geometry nodes Blender 5.0 — **[미사용]** 참고용, 아직 미도입
   https://github.com/IRCSS/Blender-Geometry-Node-French-Houses

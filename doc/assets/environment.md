@@ -2,7 +2,7 @@
 
 ## Grass
 
-- grass: https://github.com/thebenezer/FluffyGrass
+- grass: https://github.com/thebenezer/FluffyGrass — **[미사용]** 자체 grass 시스템(`grass-material.ts` 등)으로 대체됨
 
 ## Tree
 
@@ -11,19 +11,25 @@
 
 ## Terrain Textures
 
-- 자갈: https://polyhaven.com/a/gravel_floor
+- 자갈: https://polyhaven.com/a/gravel_floor — **[미사용]** 도로는 gravel_road 사용 (palette.json), 참조 없음
 - 잔디: https://polyhaven.com/a/rocky_terrain_02
 - 눈: https://polyhaven.com/a/snow_02
 - 흙: https://polyhaven.com/a/red_laterite_soil_stones
 - 모래: https://polyhaven.com/a/sandy_gravel_02
-- 해안 모래: https://sketchfab.com/3d-models/fine-sand-material-6e54464d405a4c1e8bdb0f81e8d74db2
-- https://polyhaven.com/a/cobblestone_color
+- 도로: https://polyhaven.com/a/gravel_road
+- 절벽: https://polyhaven.com/a/rocky_trail
+- 강바닥: https://polyhaven.com/a/ganges_river_pebbles
+- 해안 모래: https://sketchfab.com/3d-models/fine-sand-material-6e54464d405a4c1e8bdb0f81e8d74db2 — **[미사용]** 참조 없음
+- https://polyhaven.com/a/cobblestone_color — **[미사용]** 참조 없음
 - https://polyhaven.com/a/grey_stone_path
 - https://polyhaven.com/a/stone_pathway
-- https://polyhaven.com/a/pavement_02
+- https://polyhaven.com/a/pavement_02 — **[미사용]** 참조 없음 (patterned_paving_02 사용)
 - https://polyhaven.com/a/patterned_paving_02
-- https://polyhaven.com/a/japanese_stone_wall
-- https://polyhaven.com/a/rock_embedded_concrete
+- https://polyhaven.com/a/japanese_stone_wall — **[미사용]** 참조 없음
+- https://polyhaven.com/a/rock_embedded_concrete — **[미사용]** 참조 없음
+- marble_cliff_01 (Poly Haven) — **[미사용]** 초기 절벽 텍스처, rocky_trail로 교체됨
+- cliff_side (Poly Haven) — **[미사용]** 참조 없음
+- gray_rocks (Poly Haven) — **[미사용]** 참조 없음
 
 ## Cloud
 
@@ -31,10 +37,11 @@
 
 ## Sea
 
-- sea https://www.filterforge.com/filters/4141.html
-- sea foam https://www.filterforge.com/filters/13843.html
+- sea https://www.filterforge.com/filters/4141.html — **[미사용]** 물 표면은 절차적 렌더 + waternormals(three.js examples); 4141 사용 흔적 없음
+- sea foam https://www.filterforge.com/filters/13843.html — 폼 텍스처로 사용 중 (`textures/13843.png`, water-foam-gen.ts)
+- waternormals (Three.js examples) https://github.com/mrdoob/three.js/tree/dev/examples/textures — 물 표면 노멀맵으로 사용 중 (`textures/waternormals.jpg`, scene-init.ts)
 
 ## References
 
-- https://github.com/tigerabrodi/webgpu-vfx for reference
-- https://freestylized.com/material/moss_ground_01/
+- https://github.com/tigerabrodi/webgpu-vfx for reference — **[미사용]** 기법 참고용
+- https://freestylized.com/material/moss_ground_01/ — **[미사용]** 참고용, 팔레트에 없음
