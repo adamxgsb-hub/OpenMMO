@@ -1,7 +1,7 @@
 {
-  "name": "BotdleField",
-  "short_name": "BotdleField",
-  "description": "BotdleField online RPG",
+  "name": "OpenMMO",
+  "short_name": "OpenMMO",
+  "description": "OpenMMO online RPG",
   "start_url": "/",
   "scope": "/",
   "display": "fullscreen",

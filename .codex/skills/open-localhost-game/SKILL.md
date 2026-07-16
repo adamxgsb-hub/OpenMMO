@@ -1,13 +1,13 @@
 ---
 name: open-localhost-game
-description: Open the local BotdleField development game in the Codex in-app browser, log in with credentials from the local ignored .env.local file or user-provided credentials, select the default character, and press Start to enter the game. Use when the user asks Codex to connect to localhost:10004, log into BotdleField, choose the default character, start the game, or restore the browser to the in-game state.
+description: Open the local OpenMMO development game in the Codex in-app browser, log in with credentials from the local ignored .env.local file or user-provided credentials, select the default character, and press Start to enter the game. Use when the user asks Codex to connect to localhost:10004, log into OpenMMO, choose the default character, start the game, or restore the browser to the in-game state.
 ---
 
 # Open Localhost Game
 
 ## Overview
 
-Use this skill to drive the Codex in-app browser through the local BotdleField entry flow. The expected path is: open `http://localhost:10004/`, log in with credentials from the repository-root `.env.local`, keep the default selected character unless the user requests another one, and press `Start`.
+Use this skill to drive the Codex in-app browser through the local OpenMMO entry flow. The expected path is: open `http://localhost:10004/`, log in with credentials from the repository-root `.env.local`, keep the default selected character unless the user requests another one, and press `Start`.
 
 ## Workflow
 
@@ -43,7 +43,7 @@ const env = Object.fromEntries(
 );
 const accountName = env.BOTDLE_ACCOUNT_NAME;
 const password = env.BOTDLE_PASSWORD;
-if (!accountName || !password) throw new Error("Missing BotdleField credentials in .env.local");
+if (!accountName || !password) throw new Error("Missing OpenMMO credentials in .env.local");
 
 await tab.goto("http://localhost:10004/");
 await tab.playwright.getByPlaceholder("Enter your account", { exact: true }).fill(accountName, { timeoutMs: 5000 });
