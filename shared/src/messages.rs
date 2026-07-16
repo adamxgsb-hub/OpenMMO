@@ -47,12 +47,16 @@ pub struct StockEntry {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ClientMessage {
+    /// Browser login: a Google ID token, verified server-side. The account is
+    /// looked up (or created) by the token's `sub` claim.
     Authenticate {
+        google_id_token: String,
+    },
+    /// Headless bot login, gated by the server's shared NPC token. The
+    /// account is auto-created on first use.
+    AuthenticateNpc {
         account_name: String,
-        password_hash: String,
-        create_account: bool,
-        #[serde(default)]
-        is_npc: bool,
+        npc_token: String,
     },
     CreateCharacter {
         character_name: String,

@@ -22,7 +22,7 @@ use crate::llm_scheduler::LlmScheduler;
 use crate::openrouter::{self, OpenRouterConfig};
 use crate::state::{SharedState, WorldCache};
 use crate::ws;
-use crate::{fnv1a_hash, LlmType};
+use crate::LlmType;
 
 const RECONNECT_DELAY: Duration = Duration::from_secs(5);
 
@@ -124,9 +124,6 @@ pub struct NpcConfig {
     /// fields below act as overrides.
     pub id: Option<String>,
     pub account: String,
-    pub password: String,
-    #[serde(default)]
-    pub create_account: bool,
     #[serde(default)]
     pub llm: LlmType,
     #[serde(default = "super::default_min_interval_secs")]
@@ -170,6 +167,7 @@ pub struct SharedResources {
     pub type_mapping: Arc<HashMap<String, String>>,
     pub movement_speeds: Arc<HashMap<String, crate::monster_ai::MonsterMovement>>,
     pub scheduler: LlmScheduler,
+    pub npc_token: String,
 }
 
 /// Run the orchestrator: spawn all NPC sessions in parallel.
@@ -230,52 +228,20 @@ async fn run_npc_session(
     npc: &NpcConfig,
     shared: &SharedResources,
 ) -> anyhow::Result<()> {
-    let password_hash = fnv1a_hash(&npc.password);
-
     let ws_stream = ws::connect_ws(server_url, &npc.account).await;
     let (mut ws_tx, mut ws_rx) = ws_stream.split();
 
-    // --- Authentication (auto-create account if needed) ---
+    // --- Authentication (server auto-creates the account on first use) ---
     ws::send(
         &mut ws_tx,
-        &ClientMessage::Authenticate {
+        &ClientMessage::AuthenticateNpc {
             account_name: npc.account.clone(),
-            password_hash: password_hash.clone(),
-            create_account: npc.create_account,
-            is_npc: true,
+            npc_token: shared.npc_token.clone(),
         },
     )
     .await?;
 
-    let auth_result = ws::wait_for_auth(&mut ws_rx, &npc.account).await;
-    let mut characters = match auth_result {
-        Ok(chars) => chars,
-        Err(e) => {
-            let err_msg = e.to_string();
-            if !npc.create_account && err_msg.contains("Account not found") {
-                info!("[{}] Account not found, creating account...", npc.account);
-                // Reconnect since the server may have closed the connection
-                drop(ws_rx);
-                let ws_stream = ws::connect_ws(server_url, &npc.account).await;
-                let (new_tx, new_rx) = ws_stream.split();
-                ws_tx = new_tx;
-                ws_rx = new_rx;
-                ws::send(
-                    &mut ws_tx,
-                    &ClientMessage::Authenticate {
-                        account_name: npc.account.clone(),
-                        password_hash: password_hash.clone(),
-                        create_account: true,
-                        is_npc: true,
-                    },
-                )
-                .await?;
-                ws::wait_for_auth(&mut ws_rx, &npc.account).await?
-            } else {
-                return Err(e);
-            }
-        }
-    };
+    let mut characters = ws::wait_for_auth(&mut ws_rx, &npc.account).await?;
 
     // --- Delete characters whose class or name doesn't match config ---
     let desired_class = npc

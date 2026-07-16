@@ -79,7 +79,6 @@ server = "ws://localhost:10006"
 
 [[npcs]]
 account = "npc_guard"
-password = "..."
 character_name = "경비병 카렌"
 template_prompt = "data/prompts/templates/guard.txt"
 instance_prompt = "data/prompts/instances/karl.txt"
@@ -88,7 +87,6 @@ llm = "openrouter"
 
 [[npcs]]
 account = "npc_merchant"
-password = "..."
 character_name = "상인 리카"
 template_prompt = "data/prompts/templates/merchant.txt"
 instance_prompt = "data/prompts/instances/rica.txt"

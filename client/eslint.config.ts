@@ -35,5 +35,10 @@ export default [
         parser: tseslint.parser,
       },
     },
+    rules: {
+      // TS type-checking (npm run check) already covers this; no-undef
+      // misfires on ambient global types like GoogleCredentialResponse.
+      'no-undef': 'off',
+    },
   },
 ]

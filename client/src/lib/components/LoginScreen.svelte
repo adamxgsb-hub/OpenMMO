@@ -2,76 +2,92 @@
   import { onMount } from 'svelte'
   import { getDefaultServerUrl } from '../utils/networkUtils'
 
-  const STORAGE_KEY_PLAYER = 'onlinerpg_lastPlayerName'
+  const GSI_SRC = 'https://accounts.google.com/gsi/client'
 
   interface Props {
     onLogin: (
       serverUrl: string,
-      accountName: string,
-      password: string,
-      createAccount: boolean
+      googleIdToken: string
     ) => Promise<{ ok: boolean; message?: string }>
     kickedMessage?: string
   }
 
   let { onLogin, kickedMessage }: Props = $props()
 
-  let accountName = $state('')
-  let password = $state('')
   let isConnecting = $state(false)
-  let pendingAction = $state<'login' | 'create'>('login')
   let errorMessage = $state('')
+  let buttonContainer = $state<HTMLDivElement | null>(null)
 
-  onMount(() => {
-    const savedPlayerName = localStorage.getItem(STORAGE_KEY_PLAYER)
-    if (savedPlayerName) {
-      accountName = savedPlayerName
-    }
-  })
-
-  function validateForm(): string | null {
-    if (!accountName.trim()) {
-      return 'Please enter account name'
-    }
-
-    if (!password.trim()) {
-      return 'Please enter password'
-    }
-
-    return null
+  function loadGsiScript(): Promise<void> {
+    if (window.google?.accounts?.id) return Promise.resolve()
+    return new Promise((resolve, reject) => {
+      const existing = document.querySelector(`script[src="${GSI_SRC}"]`)
+      if (existing) {
+        existing.addEventListener('load', () => resolve())
+        existing.addEventListener('error', () =>
+          reject(new Error('Failed to load Google Sign-In'))
+        )
+        return
+      }
+      const script = document.createElement('script')
+      script.src = GSI_SRC
+      script.async = true
+      script.onload = () => resolve()
+      script.onerror = () => reject(new Error('Failed to load Google Sign-In'))
+      document.head.appendChild(script)
+    })
   }
 
-  async function submit(createAccount: boolean) {
-    const validationError = validateForm()
-    if (validationError) {
-      errorMessage = validationError
-      return
-    }
-
+  async function handleCredential(response: GoogleCredentialResponse) {
     errorMessage = ''
     isConnecting = true
-    pendingAction = createAccount ? 'create' : 'login'
 
-    const result = await onLogin(
-      getDefaultServerUrl(),
-      accountName.trim(),
-      password.trim(),
-      createAccount
-    )
-
-    if (!result.ok) {
-      errorMessage = result.message ?? 'Authentication failed'
+    try {
+      const result = await onLogin(getDefaultServerUrl(), response.credential)
+      if (!result.ok) {
+        errorMessage = result.message ?? 'Authentication failed'
+      }
+    } catch (e) {
+      // onLogin can reject (e.g. WASM init failure) — without this the button
+      // stays disabled with no message.
+      errorMessage = e instanceof Error ? e.message : 'Authentication failed'
+    } finally {
       isConnecting = false
+    }
+  }
+
+  onMount(async () => {
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined
+    if (!clientId) {
+      errorMessage = 'VITE_GOOGLE_CLIENT_ID is not configured'
       return
     }
 
-    localStorage.setItem(STORAGE_KEY_PLAYER, accountName.trim())
-  }
+    try {
+      await loadGsiScript()
+    } catch (e) {
+      errorMessage = e instanceof Error ? e.message : String(e)
+      return
+    }
 
-  function handleSubmit(event: Event) {
-    event.preventDefault()
-    void submit(false)
-  }
+    const googleId = window.google?.accounts?.id
+    if (!googleId || !buttonContainer) {
+      errorMessage = 'Google Sign-In failed to initialize'
+      return
+    }
+
+    googleId.initialize({
+      client_id: clientId,
+      callback: (response) => void handleCredential(response),
+    })
+    googleId.renderButton(buttonContainer, {
+      theme: 'filled_blue',
+      size: 'large',
+      text: 'signin_with',
+      shape: 'pill',
+      width: 280,
+    })
+  })
 </script>
 
 <div class="login-container">
@@ -111,51 +127,16 @@
         <div class="kicked-message">{kickedMessage}</div>
       {/if}
 
-      <form onsubmit={handleSubmit}>
-        <div class="form-group">
-          <label for="playerName">Account Name</label>
-          <input
-            type="text"
-            id="playerName"
-            bind:value={accountName}
-            placeholder="Enter your account"
-            disabled={isConnecting}
-          />
-        </div>
+      {#if errorMessage}
+        <div class="error-message">{errorMessage}</div>
+      {/if}
 
-        <div class="form-group">
-          <label for="password">Password</label>
-          <input
-            type="password"
-            id="password"
-            bind:value={password}
-            placeholder="Enter password"
-            disabled={isConnecting}
-          />
-        </div>
-
-        {#if errorMessage}
-          <div class="error-message">{errorMessage}</div>
+      <div class="google-signin" class:connecting={isConnecting}>
+        <div bind:this={buttonContainer}></div>
+        {#if isConnecting}
+          <div class="connecting-label">Connecting...</div>
         {/if}
-
-        <div class="button-row">
-          <button type="submit" class="login-button" disabled={isConnecting}>
-            {isConnecting && pendingAction === 'login'
-              ? 'Connecting...'
-              : 'Login'}
-          </button>
-          <button
-            type="button"
-            class="create-button"
-            disabled={isConnecting}
-            onclick={() => void submit(true)}
-          >
-            {isConnecting && pendingAction === 'create'
-              ? 'Creating...'
-              : 'Create Account'}
-          </button>
-        </div>
-      </form>
+      </div>
     </div>
   </div>
 </div>
@@ -223,58 +204,24 @@
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   }
 
-  form {
-    width: 100%;
-    min-width: 0;
+  .google-signin {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    align-items: center;
+    gap: 12px;
+    min-height: 44px;
   }
 
-  .form-group {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+  .google-signin.connecting {
+    pointer-events: none;
+    opacity: 0.6;
   }
 
-  .form-group label {
+  .connecting-label {
     color: #a0aec0;
-    font-size: 14px;
-    font-weight: 500;
+    font-size: 13px;
     font-family:
       -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  }
-
-  .form-group input {
-    box-sizing: border-box;
-    width: 100%;
-    min-width: 0;
-    padding: 12px 14px;
-    border: 1px solid #4a5568;
-    border-radius: 6px;
-    background: #1a202c;
-    color: #ffffff;
-    font-size: 14px;
-    font-family:
-      -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    transition:
-      border-color 0.2s,
-      box-shadow 0.2s;
-  }
-
-  .form-group input:focus {
-    outline: none;
-    border-color: #4299e1;
-    box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.2);
-  }
-
-  .form-group input:disabled {
-    opacity: 0.5;
-  }
-
-  .form-group input::placeholder {
-    color: #718096;
   }
 
   .kicked-message {
@@ -291,6 +238,7 @@
   }
 
   .error-message {
+    margin-bottom: 16px;
     padding: 10px 14px;
     background: rgba(245, 101, 101, 0.2);
     border: 1px solid #fc8181;
@@ -299,78 +247,6 @@
     font-size: 13px;
     font-family:
       -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  }
-
-  .login-button {
-    box-sizing: border-box;
-    min-width: 0;
-    padding: 14px 20px;
-    border: none;
-    border-radius: 6px;
-    background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%);
-    color: #ffffff;
-    font-size: 16px;
-    font-weight: 600;
-    cursor: pointer;
-    transition:
-      transform 0.2s,
-      box-shadow 0.2s;
-    font-family:
-      -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  }
-
-  .login-button:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(66, 153, 225, 0.4);
-  }
-
-  .login-button:active:not(:disabled) {
-    transform: translateY(0);
-  }
-
-  .login-button:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .button-row {
-    width: 100%;
-    min-width: 0;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-  }
-
-  .create-button {
-    box-sizing: border-box;
-    min-width: 0;
-    padding: 14px 20px;
-    border: 1px solid #4a5568;
-    border-radius: 6px;
-    background: #2d3748;
-    color: #ffffff;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition:
-      transform 0.2s,
-      box-shadow 0.2s;
-    font-family:
-      -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  }
-
-  .create-button:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(255, 255, 255, 0.15);
-  }
-
-  .create-button:active:not(:disabled) {
-    transform: translateY(0);
-  }
-
-  .create-button:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
   }
 
   @media (max-width: 600px), (max-height: 700px) {
@@ -398,30 +274,9 @@
       border-radius: 8px;
     }
 
-    form {
-      gap: 14px;
-    }
-
-    .form-group {
-      gap: 6px;
-    }
-
-    .form-group input {
-      padding: 10px 12px;
-      font-size: 16px;
-    }
-
     .kicked-message {
       margin-bottom: 14px;
       padding: 10px 12px;
-    }
-
-    .login-button,
-    .create-button {
-      min-width: 0;
-      padding: 12px 8px;
-      font-size: 13px;
-      white-space: nowrap;
     }
   }
 

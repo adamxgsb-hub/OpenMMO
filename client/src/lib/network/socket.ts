@@ -6,7 +6,6 @@ import { gameStore, resetGameStore } from '../stores/gameStore'
 import { remotePlayerManager } from '../managers/remotePlayerManager'
 import { monsterManager } from '../managers/monsterManager'
 import { getDefaultServerUrl } from '../utils/networkUtils'
-import { simplePasswordHash } from '../utils/authUtils'
 import { clearServerGameTime } from '../stores/timeStore'
 import { markShopRequested, shopSession } from '../stores/tradeStore'
 import initWasm, {
@@ -48,9 +47,7 @@ class NetworkManager {
   private maxReconnectAttempts = 5
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private lastServerUrl: string = ''
-  private lastAccountName: string = ''
-  private lastPasswordHash: string = ''
-  private lastCreateAccount = false
+  private lastGoogleIdToken: string = ''
   private lastCharacterId: number | null = null
   private wasmReady = false
 
@@ -71,12 +68,6 @@ class NetworkManager {
   readonly characterError = createEvent<(message: string) => void>()
   readonly kicked = createEvent<(reason: string) => void>()
   readonly interactionRejected = createEvent<(reason: string) => void>()
-
-  constructor() {
-    this.joinSuccess.on(() => {
-      this.lastCreateAccount = false
-    })
-  }
 
   private get messageEvents() {
     return {
@@ -183,25 +174,32 @@ class NetworkManager {
         monsterManager.reset()
         remotePlayerManager.reset()
         this.connect()
-        if (
-          this.lastAccountName &&
-          this.lastPasswordHash &&
-          this.lastCharacterId
-        ) {
+        if (this.lastGoogleIdToken && this.lastCharacterId) {
           const opened = await this.waitForSocketOpen(5000)
           if (opened) {
-            this.authenticateWithHash(
-              this.lastAccountName,
-              this.lastPasswordHash,
-              this.lastCreateAccount
-            )
-            const unsub = this.authSuccess.on(() => {
-              unsub()
+            this.authenticateWithGoogle(this.lastGoogleIdToken)
+            let unsubSuccess = () => {}
+            let unsubError = () => {}
+            const cleanup = () => {
+              unsubSuccess()
+              unsubError()
+            }
+            unsubSuccess = this.authSuccess.on(() => {
+              cleanup()
               if (this.lastCharacterId) {
                 this.sendAndSerialize({
                   EnterGame: { character_id: this.lastCharacterId },
                 })
               }
+            })
+            // A cached Google ID token expires ~1h after login, so a reconnect
+            // past that point fails re-auth. Surface it instead of leaving the
+            // player silently stuck on an authenticated-but-empty socket.
+            unsubError = this.authError.on((message) => {
+              cleanup()
+              console.warn('Reconnect auth failed:', message)
+              this.disconnect()
+              this.kicked.emit('Your session expired. Please sign in again.')
             })
           }
         }
@@ -518,34 +516,24 @@ class NetworkManager {
 
   // --- Auth & character request methods ---
 
-  authenticate(accountName: string, password: string, createAccount: boolean) {
-    const passwordHash = simplePasswordHash(password)
-    return this.authenticateWithHash(accountName, passwordHash, createAccount)
-  }
-
-  private authenticateWithHash(
-    accountName: string,
-    passwordHash: string,
-    createAccount: boolean
-  ): boolean {
-    this.lastAccountName = accountName
-    this.lastPasswordHash = passwordHash
-    this.lastCreateAccount = createAccount
+  private authenticateWithGoogle(googleIdToken: string): boolean {
+    this.lastGoogleIdToken = googleIdToken
 
     return this.sendAndSerialize({
-      Authenticate: {
-        account_name: accountName,
-        password_hash: passwordHash,
-        create_account: createAccount,
-      },
+      Authenticate: { google_id_token: googleIdToken },
     })
+  }
+
+  /// Drop cached credentials so a later reconnect can't re-auth as this user.
+  /// Call on logout/kick, not on transient disconnects (which must reconnect).
+  clearSession() {
+    this.lastGoogleIdToken = ''
+    this.lastCharacterId = null
   }
 
   async requestAuthentication(
     serverUrl: string,
-    accountName: string,
-    password: string,
-    createAccount: boolean
+    googleIdToken: string
   ): Promise<{
     ok: boolean
     message?: string
@@ -578,7 +566,7 @@ class NetworkManager {
           })
         )
         return {
-          send: () => this.authenticate(accountName, password, createAccount),
+          send: () => this.authenticateWithGoogle(googleIdToken),
           notSentResult: { ok: false, message: 'Socket is not connected' },
         }
       }
@@ -779,11 +767,9 @@ class NetworkManager {
     this.resetAllState()
 
     const serverUrl = this.lastServerUrl
-    const accountName = this.lastAccountName
-    const passwordHash = this.lastPasswordHash
-    const createAccount = this.lastCreateAccount
+    const googleIdToken = this.lastGoogleIdToken
     const characterId = this.lastCharacterId
-    if (!serverUrl || !accountName || !passwordHash || !characterId) {
+    if (!serverUrl || !googleIdToken || !characterId) {
       console.warn('Reconnect skipped: missing account or character context')
       return
     }
@@ -815,8 +801,7 @@ class NetworkManager {
           })
         )
         return {
-          send: () =>
-            this.authenticateWithHash(accountName, passwordHash, createAccount),
+          send: () => this.authenticateWithGoogle(googleIdToken),
           notSentResult: { ok: false, message: 'Socket is not connected' },
         }
       }
@@ -832,10 +817,8 @@ class NetworkManager {
     this.resetAllState()
 
     const serverUrl = this.lastServerUrl
-    const accountName = this.lastAccountName
-    const passwordHash = this.lastPasswordHash
-    const createAccount = this.lastCreateAccount
-    if (!serverUrl || !accountName || !passwordHash) {
+    const googleIdToken = this.lastGoogleIdToken
+    if (!serverUrl || !googleIdToken) {
       return { ok: false, message: 'Missing account context' }
     }
 
@@ -865,8 +848,7 @@ class NetworkManager {
           })
         )
         return {
-          send: () =>
-            this.authenticateWithHash(accountName, passwordHash, createAccount),
+          send: () => this.authenticateWithGoogle(googleIdToken),
           notSentResult: { ok: false, message: 'Socket is not connected' },
         }
       }

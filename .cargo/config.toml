@@ -1,0 +1,4 @@
+[env]
+# Public OAuth client id (also shipped to browsers via VITE_GOOGLE_CLIENT_ID).
+# A var already exported in the shell takes precedence over this.
+GOOGLE_CLIENT_ID = "73507098079-arddepo6a7grt8rsmovcemaboinhi4mi.apps.googleusercontent.com"

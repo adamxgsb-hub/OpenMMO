@@ -156,11 +156,18 @@ The server listens on port 10006 by default. The terrain/housing/NPCs REST API s
 
 WebSocket and terrain API proxying is handled by Vite's dev server proxy (see `client/vite.config.ts`), so no separate socat or SSL proxy is needed.
 
+**Google sign-in**: browser login uses Google OAuth. Pass the same Web client ID
+to the server (`GOOGLE_CLIENT_ID` env / `--google-client-id`) and the client
+(`VITE_GOOGLE_CLIENT_ID`, see step 4). Without it the server runs but rejects
+browser logins. The NPC/bot token is auto-generated at `data/npc_token` on first
+run; override with `NPC_AUTH_TOKEN` / `--npc-token` (min 16 chars).
+
 
 ### 4. Running the Client
 
 ```bash
 cd client
+cp .env.example .env.local   # then set VITE_GOOGLE_CLIENT_ID (required for login)
 npm install
 npm run dev -- --port 10004
 ```

@@ -4,6 +4,7 @@ mod connection;
 mod dungeon_defs;
 mod game;
 mod game_state;
+mod google_auth;
 mod housing;
 mod item_defs;
 mod merchant_defs;
@@ -17,8 +18,9 @@ mod world_drop_defs;
 
 use auth::AuthService;
 use clap::Parser;
-use connection::handle_connection;
+use connection::{handle_connection, AuthContext};
 use game_state::GameState;
+use google_auth::GoogleAuthVerifier;
 use housing::routes::housing_router;
 use housing::HousingIO;
 use npc_schedule::routes::npc_router;
@@ -48,7 +50,46 @@ struct Args {
     /// Directory for terrain data files
     #[arg(long, default_value = "./data/terrain")]
     terrain_dir: String,
+
+    /// Google OAuth client ID used to verify browser sign-in tokens
+    #[arg(long, env = "GOOGLE_CLIENT_ID")]
+    google_client_id: Option<String>,
+
+    /// Shared secret for headless NPC clients (default: data/npc_token,
+    /// generated on first run)
+    #[arg(long, env = "NPC_AUTH_TOKEN")]
+    npc_token: Option<String>,
 }
+
+/// Read the NPC token file, generating a random one on first run so local
+/// bots work with zero config (they read the same file).
+fn load_or_create_npc_token() -> std::io::Result<String> {
+    let path = std::path::Path::new(onlinerpg_shared::NPC_TOKEN_PATH_FROM_ROOT);
+    if let Ok(existing) = std::fs::read_to_string(path) {
+        let existing = existing.trim().to_string();
+        if !existing.is_empty() {
+            return Ok(existing);
+        }
+    }
+
+    let token = uuid::Uuid::new_v4().simple().to_string();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, &token)?;
+    // Shared secret: keep it owner-only so other local users can't read it.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    info!("Generated NPC auth token at {}", path.display());
+    Ok(token)
+}
+
+/// Minimum length for an operator-supplied NPC token; the auto-generated one
+/// is 32 hex chars.
+const MIN_NPC_TOKEN_LEN: usize = 16;
 
 #[tokio::main]
 async fn main() {
@@ -66,6 +107,32 @@ async fn main() {
             return;
         }
     };
+
+    let google = match &args.google_client_id {
+        Some(client_id) => Some(GoogleAuthVerifier::new(client_id.clone())),
+        None => {
+            warn!("No --google-client-id / GOOGLE_CLIENT_ID set: browser sign-in disabled");
+            None
+        }
+    };
+    let npc_token = match args.npc_token.clone() {
+        Some(token) => token,
+        None => match load_or_create_npc_token() {
+            Ok(token) => token,
+            Err(e) => {
+                error!("failed to load/create NPC token: {e}");
+                return;
+            }
+        },
+    };
+    if npc_token.trim().len() < MIN_NPC_TOKEN_LEN {
+        error!(
+            "NPC token is shorter than {MIN_NPC_TOKEN_LEN} chars; refusing to start. \
+             Unset --npc-token / NPC_AUTH_TOKEN to auto-generate a secure one."
+        );
+        return;
+    }
+    let auth_ctx = Arc::new(AuthContext { google, npc_token });
     let initial_game_time = match auth_service.load_world_time() {
         Ok(Some(saved)) => {
             info!(
@@ -267,9 +334,11 @@ async fn main() {
                 info!("New connection from: {}", addr);
                 let game_state_clone = Arc::clone(&game_state);
                 let auth_service_clone = Arc::clone(&auth_service);
+                let auth_ctx_clone = Arc::clone(&auth_ctx);
 
                 tokio::spawn(async move {
-                    handle_connection(stream, game_state_clone, auth_service_clone).await;
+                    handle_connection(stream, game_state_clone, auth_service_clone, auth_ctx_clone)
+                        .await;
                 });
             }
             Err(e) => {

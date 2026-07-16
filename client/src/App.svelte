@@ -81,22 +81,18 @@
 
   async function handleLogin(
     url: string,
-    account: string,
-    pass: string,
-    createAccount: boolean
+    googleIdToken: string
   ): Promise<{ ok: boolean; message?: string }> {
     kickedMessage = ''
     const result = await networkManager.requestAuthentication(
       url,
-      account,
-      pass,
-      createAccount
+      googleIdToken
     )
 
     if (result.ok) {
       const characters = result.characters ?? []
       serverUrl = url
-      accountName = result.accountName ?? account
+      accountName = result.accountName ?? ''
       accountCharacters = characters
       selectedCharacterId = characters.length > 0 ? characters[0].id : null
       screen = 'character-select'
@@ -192,6 +188,7 @@
 
   function handleLogoutToLogin() {
     networkManager.disconnect()
+    networkManager.clearSession()
     accountName = ''
     accountCharacters = []
     selectedCharacterId = null
@@ -219,6 +216,7 @@
   }
 
   networkManager.kicked.on((reason) => {
+    networkManager.clearSession()
     kickedMessage = reason
     accountName = ''
     accountCharacters = []

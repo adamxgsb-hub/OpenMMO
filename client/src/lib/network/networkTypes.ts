@@ -95,9 +95,7 @@ export type RollCharacterStatsResult =
 export type ClientMessage =
   | {
       Authenticate: {
-        account_name: string
-        password_hash: string
-        create_account: boolean
+        google_id_token: string
       }
     }
   | {

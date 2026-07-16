@@ -1,59 +1,55 @@
 ---
 name: open-localhost-game
-description: Open the local OpenMMO development game in the Codex in-app browser, log in with credentials from the local ignored .env.local file or user-provided credentials, select the default character, and press Start to enter the game. Use when the user asks Codex to connect to localhost:10004, log into OpenMMO, choose the default character, start the game, or restore the browser to the in-game state.
+description: Open the local OpenMMO development game in the Codex in-app browser, sign in with Google, select the default character, and press Start to enter the game. Use when the user asks Codex to connect to localhost:10004, log into OpenMMO, choose the default character, start the game, or restore the browser to the in-game state.
 ---
 
 # Open Localhost Game
 
 ## Overview
 
-Use this skill to drive the Codex in-app browser through the local OpenMMO entry flow. The expected path is: open `http://localhost:10004/`, log in with credentials from the repository-root `.env.local`, keep the default selected character unless the user requests another one, and press `Start`.
+Drive the Codex in-app browser through the local OpenMMO entry flow. Login is
+Google OAuth only (password login was removed). The expected path is: open
+`http://localhost:10004/`, click **Sign in with Google**, complete Google's
+account chooser, keep the default selected character, and press `Start`.
 
 ## Workflow
 
 1. Use the `browser-use:browser` skill and the in-app browser runtime.
-2. Navigate to `http://localhost:10004/` unless the current tab is already there and the user has in-progress state worth preserving.
-3. Read credentials from repository-root `.env.local`:
-   - `BOTDLE_ACCOUNT_NAME`
-   - `BOTDLE_PASSWORD`
-4. If `.env.local` or either value is missing, ask the user for credentials instead of guessing.
-5. On the login screen, fill the account name and password from those values.
-6. Click `Login`.
-7. Confirm the character select screen appears. A successful login shows `Character Select` and the logged-in account label.
-8. Do not change the character when the user wants the default character; it is already selected.
-9. Click `Start`.
-10. Confirm the game UI appears. Expected signals include `Chat`, `Combat`, `Inventory (I)`, `World Map (M)`, and sometimes a `Preparing world...` dialog.
+2. Navigate to `http://localhost:10004/` unless the current tab is already there
+   and the user has in-progress state worth preserving.
+3. If the login screen shows an error instead of the button (e.g.
+   `VITE_GOOGLE_CLIENT_ID is not configured`, `Google sign-in is not configured
+   on this server`), report it and stop — it is a config/deploy problem.
+4. Click the **Sign in with Google** button.
+5. In Google's popup/account chooser: if an account is already signed in, select
+   it. If Google asks for an email, password, or 2FA, hand off to the user and
+   wait — never enter Google credentials yourself, even if provided in chat.
+6. Confirm the character-select screen appears (`Character Select` + the account
+   label). First login with a fresh Google account auto-creates an empty
+   account (random `player_...` name) — if the character list is empty, tell the
+   user rather than creating characters.
+7. Keep the default selected character unless the user requests another.
+8. Click `Start`.
+9. Confirm the game UI appears. Expected signals include `Chat`, `Inventory (I)`,
+   `World Map (M)`, and sometimes a `Preparing world...` dialog.
 
 ## Browser Notes
 
-Prefer stable Playwright locators based on the visible form:
+Prefer stable Playwright locators based on the visible screen:
 
 ```js
-const fs = await import("node:fs/promises");
-const envText = await fs.readFile(`${nodeRepl.cwd}/.env.local`, "utf-8");
-const env = Object.fromEntries(
-  envText
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith("#"))
-    .map((line) => {
-      const index = line.indexOf("=");
-      return [line.slice(0, index), line.slice(index + 1)];
-    })
-);
-const accountName = env.BOTDLE_ACCOUNT_NAME;
-const password = env.BOTDLE_PASSWORD;
-if (!accountName || !password) throw new Error("Missing OpenMMO credentials in .env.local");
-
 await tab.goto("http://localhost:10004/");
-await tab.playwright.getByPlaceholder("Enter your account", { exact: true }).fill(accountName, { timeoutMs: 5000 });
-await tab.playwright.getByPlaceholder("Enter password", { exact: true }).fill(password, { timeoutMs: 5000 });
-await tab.playwright.getByRole("button", { name: "Login", exact: true }).click({ timeoutMs: 5000 });
-await tab.playwright.getByRole("button", { name: "Start", exact: true }).click({ timeoutMs: 5000 });
+// The GIS button renders inside an iframe; match by its accessible name.
+await tab.playwright.getByRole("button", { name: /sign in with google/i }).click({ timeoutMs: 8000 });
+// ...user completes Google auth; wait for character select...
+await tab.playwright.getByRole("button", { name: "Start", exact: true }).click({ timeoutMs: 8000 });
 ```
 
-After each click, take a fresh DOM snapshot when reporting success or deciding the next action. If the login form is not visible, inspect the current screen first: the browser may already be logged in, on character select, or inside the game.
+If the login button is not visible, inspect the current screen first: the
+browser may already be signed in, on character select, or inside the game.
 
 ## Reporting
 
-Keep the response concise. Report the final screen and any visible confirmation such as `Character Select`, the account label without repeating passwords, or the in-game controls.
+Keep the response concise. Report the final screen and any visible confirmation
+such as `Character Select`, the account label, or the in-game controls. Never
+echo Google credentials.

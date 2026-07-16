@@ -18,6 +18,10 @@ pub mod world;
 pub mod worldgen;
 pub mod xp;
 
+/// Repo-root-relative path of the NPC auth token file: written by the server
+/// on first run, read by agent-client (whose cwd is one level down).
+pub const NPC_TOKEN_PATH_FROM_ROOT: &str = "data/npc_token";
+
 #[cfg(target_arch = "wasm32")]
 mod wasm_api;
 

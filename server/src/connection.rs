@@ -2,6 +2,7 @@ use crate::auth::AuthService;
 use crate::game::character_attributes::roll_character_attributes;
 use crate::game::character_hp::{level_one_max_hp, DEFAULT_CHARACTER_RACE};
 use crate::game_state::GameState;
+use crate::google_auth::GoogleAuthVerifier;
 use crate::types::{
     new_player, Character, CharacterAttributes, CharacterClass, ClientMessage, PlayerId, Position,
     ServerMessage,
@@ -16,6 +17,24 @@ use tokio_tungstenite::{accept_async, tungstenite::Message};
 use tracing::{error, info, warn};
 
 const FALLBACK_DEFAULT_MAX_HP: u32 = 13;
+
+/// Credential checkers shared by every connection.
+pub struct AuthContext {
+    /// None when the server was started without a Google client id; browser
+    /// logins are rejected until it is configured.
+    pub google: Option<GoogleAuthVerifier>,
+    pub npc_token: String,
+}
+
+/// Constant-time equality so the NPC token can't be probed byte by byte.
+fn token_matches(provided: &str, expected: &str) -> bool {
+    provided.len() == expected.len()
+        && provided
+            .bytes()
+            .zip(expected.bytes())
+            .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+            == 0
+}
 
 /// How many seconds without a heartbeat before we consider the client dead.
 const HEARTBEAT_TIMEOUT_SECS: u64 = 30;
@@ -69,6 +88,7 @@ pub async fn handle_connection(
     stream: TcpStream,
     game_state: Arc<GameState>,
     auth_service: Arc<AuthService>,
+    auth_ctx: Arc<AuthContext>,
 ) {
     let ws_stream = match accept_async(stream).await {
         Ok(ws) => ws,
@@ -107,6 +127,7 @@ pub async fn handle_connection(
                             &bytes,
                             &game_state,
                             &auth_service,
+                            &auth_ctx,
                             &mut state,
                         )
                         .await
@@ -232,71 +253,122 @@ pub async fn handle_connection(
     info!("Connection handler finished");
 }
 
+/// Shared tail of both auth paths: load characters, mark the connection
+/// authenticated, and build the AuthSuccess reply.
+fn finish_auth(
+    auth_service: &AuthService,
+    state: &mut ConnectionState,
+    account_name: String,
+    is_npc: bool,
+) -> Vec<ServerMessage> {
+    let character_records = match auth_service.list_characters(&account_name) {
+        Ok(characters) => characters,
+        Err(err) => {
+            warn!(
+                "Failed to load character list for account '{}': {}",
+                account_name, err
+            );
+            return vec![ServerMessage::AuthError {
+                message: err.client_message().to_string(),
+            }];
+        }
+    };
+
+    let characters = character_records
+        .into_iter()
+        .map(character_record_to_shared)
+        .collect::<Vec<Character>>();
+
+    state.account_name = Some(account_name.clone());
+    state.is_npc = is_npc;
+    state.pending_character_attributes = None;
+
+    info!(
+        "Account '{}' authenticated successfully with {} character(s)",
+        account_name,
+        characters.len()
+    );
+    vec![ServerMessage::AuthSuccess {
+        account_name,
+        characters,
+    }]
+}
+
 async fn handle_client_message(
     message: &[u8],
     game_state: &Arc<GameState>,
     auth_service: &Arc<AuthService>,
+    auth_ctx: &Arc<AuthContext>,
     state: &mut ConnectionState,
 ) -> Result<Vec<ServerMessage>, Box<dyn std::error::Error + Send + Sync>> {
     let client_msg: ClientMessage = deserialize_client_msg(message)?;
 
+    if matches!(
+        client_msg,
+        ClientMessage::Authenticate { .. } | ClientMessage::AuthenticateNpc { .. }
+    ) && state.account_name.is_some()
+    {
+        warn!("Client is already authenticated");
+        return Ok(vec![ServerMessage::AuthError {
+            message: "Already authenticated".to_string(),
+        }]);
+    }
+
     match client_msg {
-        ClientMessage::Authenticate {
-            account_name: requested_account_name,
-            password_hash,
-            create_account,
-            is_npc,
-        } => {
-            if state.account_name.is_some() {
-                warn!("Client is already authenticated");
+        ClientMessage::Authenticate { google_id_token } => {
+            let Some(verifier) = &auth_ctx.google else {
+                warn!("Google login attempted but no --google-client-id is configured");
                 return Ok(vec![ServerMessage::AuthError {
-                    message: "Already authenticated".to_string(),
+                    message: "Google sign-in is not configured on this server".to_string(),
                 }]);
-            }
+            };
 
-            if let Err(auth_err) =
-                auth_service.authenticate(&requested_account_name, &password_hash, create_account)
-            {
-                warn!(
-                    "Auth failed for account '{}', create_account={}: {}",
-                    requested_account_name, create_account, auth_err
-                );
-                return Ok(vec![ServerMessage::AuthError {
-                    message: auth_err.client_message().to_string(),
-                }]);
-            }
-
-            let character_records = match auth_service.list_characters(&requested_account_name) {
-                Ok(characters) => characters,
+            let claims = match verifier.verify(&google_id_token).await {
+                Ok(claims) => claims,
                 Err(err) => {
-                    warn!(
-                        "Failed to load character list for account '{}': {}",
-                        requested_account_name, err
-                    );
+                    warn!("Google token verification failed: {}", err);
+                    return Ok(vec![ServerMessage::AuthError {
+                        message: "Google sign-in verification failed".to_string(),
+                    }]);
+                }
+            };
+
+            let account_name = match auth_service.login_google(&claims.sub) {
+                Ok(name) => name,
+                Err(err) => {
+                    warn!("Google login failed for sub '{}': {}", claims.sub, err);
+                    return Ok(vec![ServerMessage::AuthError {
+                        message: err.client_message().to_string(),
+                    }]);
+                }
+            };
+            info!("Google sub '{}' -> account '{}'", claims.sub, account_name);
+
+            return Ok(finish_auth(auth_service, state, account_name, false));
+        }
+
+        ClientMessage::AuthenticateNpc {
+            account_name,
+            npc_token,
+        } => {
+            if !token_matches(&npc_token, &auth_ctx.npc_token) {
+                warn!("NPC auth rejected for '{}': bad token", account_name);
+                return Ok(vec![ServerMessage::AuthError {
+                    message: "Invalid NPC token".to_string(),
+                }]);
+            }
+
+            let account_name = match auth_service.login_npc(&account_name) {
+                Ok(name) => name,
+                Err(err) => {
+                    warn!("NPC login failed for '{}': {}", account_name, err);
                     return Ok(vec![ServerMessage::AuthError {
                         message: err.client_message().to_string(),
                     }]);
                 }
             };
 
-            let characters = character_records
-                .into_iter()
-                .map(character_record_to_shared)
-                .collect::<Vec<Character>>();
-
-            state.account_name = Some(requested_account_name.clone());
-            state.is_npc = is_npc;
-            state.pending_character_attributes = None;
-
-            info!(
-                "Account '{}' authenticated successfully with {} character(s)",
-                requested_account_name,
-                characters.len()
-            );
-            return Ok(vec![ServerMessage::AuthSuccess {
-                account_name: requested_account_name,
-                characters,
-            }]);
+            return Ok(finish_auth(auth_service, state, account_name, true));
         }
 
         ClientMessage::CreateCharacter {

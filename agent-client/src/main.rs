@@ -37,6 +37,9 @@ pub enum LlmType {
 struct Config {
     /// Server WebSocket URL
     server: String,
+    /// NPC auth token; defaults to reading the server-generated
+    /// ../data/npc_token file (same machine).
+    npc_token: Option<String>,
     /// Path to terrain data directory (for heightmap sampling)
     #[serde(default = "default_terrain_dir")]
     terrain_dir: String,
@@ -86,14 +89,25 @@ fn default_max_concurrent() -> usize {
 
 const CONFIG_PATH: &str = "data/config.toml";
 
-/// FNV-1a 32-bit hash (matches the JS client implementation)
-pub fn fnv1a_hash(input: &str) -> String {
-    let mut hash: u32 = 2_166_136_261;
-    for byte in input.bytes() {
-        hash ^= byte as u32;
-        hash = hash.wrapping_mul(16_777_619);
+fn resolve_npc_token(config_value: Option<String>) -> anyhow::Result<String> {
+    if let Some(token) = config_value {
+        return Ok(token);
     }
-    format!("{hash:08x}")
+    // Server writes the token at the repo root; our cwd is one level down.
+    let path = format!("../{}", onlinerpg_shared::NPC_TOKEN_PATH_FROM_ROOT);
+    let token = std::fs::read_to_string(&path)
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "no npc_token in {CONFIG_PATH} and failed to read {path} \
+                 (start the game server once to generate it): {e}"
+            )
+        })?
+        .trim()
+        .to_string();
+    if token.is_empty() {
+        anyhow::bail!("{path} is empty");
+    }
+    Ok(token)
 }
 
 #[tokio::main]
@@ -137,6 +151,7 @@ async fn main() -> anyhow::Result<()> {
         type_mapping: Arc::new(type_mapping),
         movement_speeds: Arc::new(movement_speeds),
         scheduler: llm_scheduler::LlmScheduler::new(config.max_concurrent),
+        npc_token: resolve_npc_token(config.npc_token)?,
     });
 
     orchestrator::run_orchestrator(config.server, npcs, shared).await

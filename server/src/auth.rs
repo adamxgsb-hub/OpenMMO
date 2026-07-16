@@ -13,6 +13,9 @@ use std::path::PathBuf;
 /// refuse to buy. (item_def_id, quantity, equip_slot)
 const STARTER_ITEMS: &[(&str, u32, Option<&str>)] = &[("worn_iron_sword", 1, Some("main_hand"))];
 
+/// Reserved account-name prefix for headless NPC/bot accounts.
+pub const NPC_ACCOUNT_PREFIX: &str = "npc_";
+
 /// One persisted inventory row: a bag stack (`equip_slot: None`) or an
 /// equipped item.
 #[derive(Debug, Clone)]
@@ -117,9 +120,7 @@ fn character_record_from_row(row: &rusqlite::Row) -> rusqlite::Result<CharacterR
 #[derive(Debug)]
 pub enum AuthError {
     InvalidInput(&'static str),
-    AccountAlreadyExists,
     AccountNotFound,
-    InvalidPassword,
     InvalidCharacterName,
     CharacterLimitReached,
     CharacterNameAlreadyExists,
@@ -130,10 +131,8 @@ pub enum AuthError {
 impl AuthError {
     pub fn client_message(&self) -> &'static str {
         match self {
-            AuthError::InvalidInput(_) => "Account name and password are required",
-            AuthError::AccountAlreadyExists => "Account already exists",
+            AuthError::InvalidInput(message) => message,
             AuthError::AccountNotFound => "Account not found",
-            AuthError::InvalidPassword => "Invalid password",
             AuthError::InvalidCharacterName => "Character name is required",
             AuthError::CharacterLimitReached => {
                 "A maximum of 3 characters can be created per account"
@@ -149,9 +148,7 @@ impl Display for AuthError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             AuthError::InvalidInput(message) => write!(f, "{message}"),
-            AuthError::AccountAlreadyExists => write!(f, "Account already exists"),
             AuthError::AccountNotFound => write!(f, "Account not found"),
-            AuthError::InvalidPassword => write!(f, "Invalid password"),
             AuthError::InvalidCharacterName => write!(f, "Character name is required"),
             AuthError::CharacterLimitReached => {
                 write!(f, "A maximum of 3 characters can be created per account")
@@ -190,15 +187,35 @@ impl AuthService {
         conn.execute(
             "CREATE TABLE IF NOT EXISTS accounts (
                 player_name TEXT PRIMARY KEY,
-                password_hash TEXT NOT NULL,
+                google_sub TEXT,
                 created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
             )",
             [],
         )?;
+        Self::ensure_accounts_columns(&conn)?;
         Self::ensure_characters_schema(&conn)?;
         Self::ensure_world_time_schema(&conn)?;
 
         Ok(Self { pool })
+    }
+
+    /// Migrate pre-Google-auth databases: the FNV password hashes are dropped
+    /// (worthless as credentials) and accounts become reachable only via
+    /// `google_sub` (browser) or the NPC token path.
+    fn ensure_accounts_columns(conn: &Connection) -> Result<(), rusqlite::Error> {
+        let columns = Self::table_columns(conn, "accounts")?;
+        if columns.contains("password_hash") {
+            conn.execute("ALTER TABLE accounts DROP COLUMN password_hash", [])?;
+        }
+        if !columns.contains("google_sub") {
+            conn.execute("ALTER TABLE accounts ADD COLUMN google_sub TEXT", [])?;
+        }
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_google_sub
+             ON accounts(google_sub) WHERE google_sub IS NOT NULL",
+            [],
+        )?;
+        Ok(())
     }
 
     fn ensure_characters_schema(conn: &Connection) -> Result<(), rusqlite::Error> {
@@ -332,74 +349,90 @@ impl AuthService {
             .map_err(|e| AuthError::Database(e.to_string()))
     }
 
-    pub fn authenticate(
-        &self,
-        player_name: &str,
-        password_hash: &str,
-        create_account: bool,
-    ) -> Result<(), AuthError> {
-        let player_name = player_name.trim();
-        let password_hash = password_hash.trim();
-
-        if player_name.is_empty() || password_hash.is_empty() {
-            return Err(AuthError::InvalidInput(
-                "Player name and password hash are required",
-            ));
+    /// Log in with a verified Google subject id, creating the account on
+    /// first login. Returns the account's player_name. Account names are
+    /// random on purpose — deriving them from token claims (email/name)
+    /// would persist personal data.
+    pub fn login_google(&self, google_sub: &str) -> Result<String, AuthError> {
+        let google_sub = google_sub.trim();
+        if google_sub.is_empty() {
+            return Err(AuthError::InvalidInput("Google subject id is required"));
         }
 
         let conn = self.open_connection()?;
 
-        if create_account {
-            self.create_account(&conn, player_name, password_hash)
-        } else {
-            self.verify_login(&conn, player_name, password_hash)
+        for _ in 0..100 {
+            let existing: Option<String> = conn
+                .query_row(
+                    "SELECT player_name FROM accounts WHERE google_sub = ?1",
+                    params![google_sub],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(name) = existing {
+                return Ok(name);
+            }
+
+            let candidate = format!("player_{}", &uuid::Uuid::new_v4().simple().to_string()[..6]);
+            match conn.execute(
+                "INSERT INTO accounts (player_name, google_sub) VALUES (?1, ?2)",
+                params![candidate, google_sub],
+            ) {
+                Ok(_) => return Ok(candidate),
+                // Name taken (or lost a same-sub race): retry with a fresh name.
+                Err(rusqlite::Error::SqliteFailure(e, _))
+                    if e.code == rusqlite::ErrorCode::ConstraintViolation =>
+                {
+                    continue
+                }
+                Err(e) => return Err(e.into()),
+            }
         }
+
+        Err(AuthError::Database(
+            "could not allocate a unique account name".to_string(),
+        ))
     }
 
-    fn create_account(
-        &self,
-        conn: &Connection,
-        player_name: &str,
-        password_hash: &str,
-    ) -> Result<(), AuthError> {
-        let existing: Option<String> = conn
+    /// Log in a headless NPC account (token already checked by the caller),
+    /// creating it on first use. Returns the canonical (trimmed) name.
+    ///
+    /// NPC accounts live in a reserved `npc_` namespace: player accounts are
+    /// named `player_*` (Google) or predate this scheme (legacy), so requiring
+    /// the prefix stops the shared NPC token from ever binding to a human's
+    /// account, even on a config typo.
+    pub fn login_npc(&self, account_name: &str) -> Result<String, AuthError> {
+        let account_name = account_name.trim();
+        if account_name.is_empty() {
+            return Err(AuthError::InvalidInput("Account name is required"));
+        }
+        if !account_name.starts_with(NPC_ACCOUNT_PREFIX) {
+            return Err(AuthError::InvalidInput(
+                "NPC account names must start with 'npc_'",
+            ));
+        }
+
+        let conn = self.open_connection()?;
+        let existing_sub: Option<Option<String>> = conn
             .query_row(
-                "SELECT player_name FROM accounts WHERE player_name = ?1",
-                params![player_name],
+                "SELECT google_sub FROM accounts WHERE player_name = ?1",
+                params![account_name],
                 |row| row.get(0),
             )
             .optional()?;
 
-        if existing.is_some() {
-            return Err(AuthError::AccountAlreadyExists);
-        }
-
-        conn.execute(
-            "INSERT INTO accounts (player_name, password_hash) VALUES (?1, ?2)",
-            params![player_name, password_hash],
-        )?;
-
-        Ok(())
-    }
-
-    fn verify_login(
-        &self,
-        conn: &Connection,
-        player_name: &str,
-        password_hash: &str,
-    ) -> Result<(), AuthError> {
-        let stored_hash: Option<String> = conn
-            .query_row(
-                "SELECT password_hash FROM accounts WHERE player_name = ?1",
-                params![player_name],
-                |row| row.get(0),
-            )
-            .optional()?;
-
-        match stored_hash {
-            None => Err(AuthError::AccountNotFound),
-            Some(hash) if hash == password_hash => Ok(()),
-            Some(_) => Err(AuthError::InvalidPassword),
+        match existing_sub {
+            Some(None) => Ok(account_name.to_string()),
+            Some(Some(_)) => Err(AuthError::InvalidInput(
+                "Account name belongs to a player account",
+            )),
+            None => {
+                conn.execute(
+                    "INSERT INTO accounts (player_name) VALUES (?1)",
+                    params![account_name],
+                )?;
+                Ok(account_name.to_string())
+            }
         }
     }
 
