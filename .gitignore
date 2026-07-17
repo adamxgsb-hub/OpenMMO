@@ -9,14 +9,12 @@ client/.svelte-kit/
 client/.env
 client/.env.local
 client/.env.production
-client/package-lock.json
 client/*.tsbuildinfo
 client/vite.config.d.ts
 tools/glb-editor/vite.config.d.ts
 
 # Rust (workspace)
 target/
-Cargo.lock
 
 # Wasm build output
 client/src/lib/wasm/

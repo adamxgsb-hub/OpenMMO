@@ -42,7 +42,6 @@
     "@threlte/core": "^8.4.1",
     "@threlte/extras": "^9.8.1",
     "@types/three": "^0.184.0",
-    "socket.io-client": "^4.8.1",
     "three": "^0.184.0"
   }
 }
