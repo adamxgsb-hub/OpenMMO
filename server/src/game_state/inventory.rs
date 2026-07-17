@@ -243,7 +243,7 @@ impl super::GameState {
 
     pub async fn give_item(&self, player_id: &PlayerId, item_def_id: &str) -> bool {
         if self.item_defs.get(item_def_id).is_none() {
-            warn!("give_item: unknown item_def_id '{}'", item_def_id);
+            warn!("give_item: unknown item_def_id {:?}", item_def_id);
             return false;
         }
 

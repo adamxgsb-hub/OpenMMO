@@ -16,6 +16,23 @@ const STARTER_ITEMS: &[(&str, u32, Option<&str>)] = &[("worn_iron_sword", 1, Som
 /// Reserved account-name prefix for headless NPC/bot accounts.
 pub const NPC_ACCOUNT_PREFIX: &str = "npc_";
 
+const MAX_NAME_CHARS: usize = 32;
+
+/// Names end up in logs, chat and the UI, so allowlist characters instead of
+/// chasing Unicode lookalikes/invisibles: ASCII alphanumeric, underscore,
+/// Hangul (syllables + modern jamo), kana (+ ー), CJK unified ideographs.
+fn valid_name_char(c: char) -> bool {
+    matches!(c,
+        'a'..='z' | 'A'..='Z' | '0'..='9' | '_'
+        | '가'..='힣' | 'ㄱ'..='ㅣ'
+        | 'ぁ'..='ゖ' | 'ァ'..='ヺ' | 'ー'
+        | '一'..='\u{9fff}')
+}
+
+fn valid_name(name: &str) -> bool {
+    !name.is_empty() && name.chars().count() <= MAX_NAME_CHARS && name.chars().all(valid_name_char)
+}
+
 /// One persisted inventory row: a bag stack (`equip_slot: None`) or an
 /// equipped item.
 #[derive(Debug, Clone)]
@@ -136,7 +153,9 @@ impl AuthError {
         match self {
             AuthError::InvalidInput(message) => message,
             AuthError::AccountNotFound => "Account not found",
-            AuthError::InvalidCharacterName => "Character name is required",
+            AuthError::InvalidCharacterName => {
+                "Character name is empty, too long, or contains invalid characters"
+            }
             AuthError::CharacterLimitReached => {
                 "A maximum of 3 characters can be created per account"
             }
@@ -150,15 +169,8 @@ impl AuthError {
 impl Display for AuthError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            AuthError::InvalidInput(message) => write!(f, "{message}"),
-            AuthError::AccountNotFound => write!(f, "Account not found"),
-            AuthError::InvalidCharacterName => write!(f, "Character name is required"),
-            AuthError::CharacterLimitReached => {
-                write!(f, "A maximum of 3 characters can be created per account")
-            }
-            AuthError::CharacterNameAlreadyExists => write!(f, "Character name already exists"),
-            AuthError::CharacterNotFound => write!(f, "Character not found"),
             AuthError::Database(message) => write!(f, "Database error: {message}"),
+            other => write!(f, "{}", other.client_message()),
         }
     }
 }
@@ -415,6 +427,11 @@ impl AuthService {
                 "NPC account names must start with 'npc_'",
             ));
         }
+        if !valid_name(account_name) {
+            return Err(AuthError::InvalidInput(
+                "Account name is too long or contains invalid characters",
+            ));
+        }
 
         let conn = self.open_connection()?;
         let existing_sub: Option<Option<String>> = conn
@@ -478,7 +495,7 @@ impl AuthService {
             return Err(AuthError::InvalidInput("Account name is required"));
         }
 
-        if character_name.is_empty() {
+        if !valid_name(character_name) {
             return Err(AuthError::InvalidCharacterName);
         }
 
@@ -800,6 +817,54 @@ mod tests {
         )
         .unwrap();
         assert!(auth.login_npc("npc_bob").is_err());
+    }
+
+    #[test]
+    fn name_validation_rejects_control_chars_and_long_names() {
+        let db_path =
+            std::env::temp_dir().join(format!("onlinerpg_auth_names_{}.db", uuid::Uuid::new_v4()));
+        let auth = AuthService::new(db_path).unwrap();
+
+        assert!(auth.login_npc("npc_bad\nname").is_err());
+
+        let account = auth.login_npc("npc_name_test").unwrap();
+        let attributes = CharacterAttributes {
+            r#str: 12,
+            dex: 12,
+            con: 12,
+            int: 12,
+            wis: 12,
+            cha: 12,
+            guard: 10,
+        };
+        let create = |name: &str| {
+            auth.create_character(
+                &account,
+                name,
+                &attributes,
+                16,
+                CharacterClass::Knight,
+                Gender::Male,
+            )
+        };
+        assert!(create("Bad\nName").is_err());
+        assert!(create("김철수").is_ok());
+        assert!(create("ㅇㅇ_Player1").is_ok());
+
+        assert!(!valid_name(""));
+        assert!(!valid_name("Bad\u{1b}[31mName"));
+        assert!(!valid_name("Zero\u{200b}Width"));
+        assert!(!valid_name("Emo😀ji"));
+        assert!(!valid_name("Rtl\u{202e}Name"));
+        assert!(!valid_name("With Space"));
+        assert!(!valid_name(&"x".repeat(33)));
+        assert!(!valid_name("Ｆｕｌｌ"));
+        assert!(!valid_name("ﾊﾝｶｸ"));
+        assert!(!valid_name("・"));
+        assert!(valid_name("さくら"));
+        assert!(valid_name("ローラ"));
+        assert!(valid_name("田中太郎"));
+        assert!(valid_name("劍聖"));
     }
 
     #[test]

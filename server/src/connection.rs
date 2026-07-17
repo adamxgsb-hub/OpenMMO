@@ -426,7 +426,7 @@ async fn handle_client_message(
             npc_token,
         } => {
             if !token_matches(&npc_token, &auth_ctx.npc_token) {
-                warn!("NPC auth rejected for '{}': bad token", account_name);
+                warn!("NPC auth rejected for {:?}: bad token", account_name);
                 return Ok(vec![ServerMessage::AuthError {
                     message: "Invalid NPC token".to_string(),
                 }]);
@@ -435,7 +435,7 @@ async fn handle_client_message(
             let account_name = match auth_service.login_npc(&account_name) {
                 Ok(name) => name,
                 Err(err) => {
-                    warn!("NPC login failed for '{}': {}", account_name, err);
+                    warn!("NPC login failed for {:?}: {}", account_name, err);
                     return Ok(vec![ServerMessage::AuthError {
                         message: err.client_message().to_string(),
                     }]);

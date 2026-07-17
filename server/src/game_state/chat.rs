@@ -33,7 +33,8 @@ impl super::GameState {
         };
 
         if let Some(player_name) = player_name {
-            info!("Chat message from {}: {}", player_name, message);
+            // Chat content stays out of logs on purpose (privacy, F-012).
+            info!(from = %player_name, len = message.len(), "chat message");
             let recipients = self
                 .player_ids_within(player_id, super::AGENT_EVENT_DELIVERY_RADIUS)
                 .await;

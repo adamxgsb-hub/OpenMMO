@@ -38,7 +38,7 @@ async fn get_schedule(
             std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
             std::io::ErrorKind::InvalidInput => StatusCode::BAD_REQUEST,
             _ => {
-                error!("Failed to read schedule for '{}': {}", name, e);
+                error!("Failed to read schedule for {:?}: {}", name, e);
                 StatusCode::INTERNAL_SERVER_ERROR
             }
         })?;
@@ -56,7 +56,7 @@ async fn put_schedule(
         .map_err(|e| match e.kind() {
             std::io::ErrorKind::InvalidInput => (StatusCode::BAD_REQUEST, e.to_string()),
             _ => {
-                error!("Failed to write schedule for '{}': {}", name, e);
+                error!("Failed to write schedule for {:?}: {}", name, e);
                 (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
             }
         })?;
