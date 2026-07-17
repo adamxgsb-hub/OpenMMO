@@ -55,7 +55,7 @@ const MAX_WS_MESSAGE_BYTES: usize = 64 * 1024;
 /// Per-connection read buffer; the 128 KiB default is oversized for game packets.
 const WS_READ_BUFFER_BYTES: usize = 16 * 1024;
 
-/// Tighter caps until auth succeeds (pre-auth traffic: auth attempts + heartbeats).
+/// Tighter caps until auth succeeds; legit pre-auth traffic is just auth attempts.
 const UNAUTH_MAX_MESSAGE_BYTES: usize = 8 * 1024;
 const UNAUTH_MAX_MESSAGES: u32 = 30;
 
@@ -221,6 +221,8 @@ pub async fn handle_connection(
             // Handle game state broadcasts
             broadcast_msg = game_receiver.recv() => {
                 match broadcast_msg {
+                    // Drop world state for unauthenticated sockets (info leak)
+                    Ok(_) if state.account_name.is_none() => {}
                     Ok(msg) => {
                         if let Err(e) = ws_sender.send(Message::Binary(msg.bytes.clone())).await {
                             error!("Failed to send message to client: {}", e);
