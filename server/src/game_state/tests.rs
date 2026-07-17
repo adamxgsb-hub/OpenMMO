@@ -592,14 +592,14 @@ async fn monster_events_do_not_cross_floors() {
     };
     {
         let mut monsters = game_state.monsters.write().await;
-        monsters.insert(
-            "dungeon_monster".to_string(),
-            make_monster("dungeon_monster", monster_pos, -1),
-        );
+        let mut monster = make_monster("dungeon_monster", monster_pos, -1);
+        monster.owner_id = Some("keeper".to_string());
+        monsters.insert("dungeon_monster".to_string(), monster);
     }
 
     game_state
         .update_monster_position(
+            "keeper",
             "dungeon_monster".to_string(),
             monster_pos,
             0.0,
@@ -625,6 +625,70 @@ async fn monster_events_do_not_cross_floors() {
             other
         ),
     }
+}
+
+#[tokio::test]
+async fn monster_move_requires_ownership() {
+    let game_state = make_test_game_state("monster_move_ownership");
+    let owner_id = "owner".to_string();
+    let hijacker_id = "hijacker".to_string();
+
+    game_state
+        .add_player(make_player(&owner_id, 0.0, 0.0))
+        .await;
+    game_state
+        .add_player(make_player(&hijacker_id, 0.0, 0.0))
+        .await;
+    let mut hijacker_rx = game_state.register_direct_channel(&hijacker_id).await;
+
+    {
+        let mut monsters = game_state.monsters.write().await;
+        let mut monster = make_monster("victim_monster", pos(1.0), 0);
+        monster.owner_id = Some(owner_id.clone());
+        monsters.insert("victim_monster".to_string(), monster);
+    }
+
+    game_state
+        .update_monster_position(
+            &hijacker_id,
+            "victim_monster".to_string(),
+            pos(50.0),
+            0.0,
+            MonsterState::Walk,
+            pos(50.0),
+        )
+        .await;
+
+    assert_eq!(
+        game_state.monsters.read().await["victim_monster"]
+            .position
+            .x,
+        1.0,
+        "a non-owner move must not change the monster position"
+    );
+    match hijacker_rx.try_recv() {
+        Err(MpscTryRecvError::Empty) => {}
+        other => panic!("a rejected move must not fan out, got {other:?}"),
+    }
+
+    game_state
+        .update_monster_position(
+            &owner_id,
+            "victim_monster".to_string(),
+            pos(2.0),
+            0.0,
+            MonsterState::Walk,
+            pos(2.0),
+        )
+        .await;
+
+    assert_eq!(
+        game_state.monsters.read().await["victim_monster"]
+            .position
+            .x,
+        2.0,
+        "the owner's move must apply"
+    );
 }
 
 #[tokio::test]

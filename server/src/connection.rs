@@ -795,9 +795,10 @@ async fn handle_client_message(
             state: monster_state,
             target_position,
         } => {
-            if state.player_id.is_some() {
+            if let Some(id) = &state.player_id {
                 game_state
                     .update_monster_position(
+                        id,
                         monster_id,
                         position,
                         rotation,

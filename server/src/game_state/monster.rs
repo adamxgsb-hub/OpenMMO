@@ -134,6 +134,7 @@ impl super::GameState {
 
     pub async fn update_monster_position(
         &self,
+        mover_id: &str,
         monster_id: String,
         new_position: Position,
         rotation: f32,
@@ -146,7 +147,7 @@ impl super::GameState {
             let Some(monster) = monsters.get_mut(&monster_id) else {
                 return;
             };
-            if monster.state == MonsterState::Dead {
+            if !monster.is_controllable_by(mover_id) {
                 return;
             }
             let old_position = monster.position;

@@ -433,9 +433,7 @@ impl super::GameState {
         {
             let mut monsters = self.monsters.write().await;
             if let Some(monster) = monsters.get_mut(monster_id) {
-                if monster.state != MonsterState::Dead
-                    && monster.owner_id.as_deref() == Some(attacker_player_id)
-                {
+                if monster.is_controllable_by(attacker_player_id) {
                     let def = self.monster_defs.get(&monster.monster_type);
                     let attack_cooldown_ms =
                         def.map(|d| u64::from(d.attack_cooldown)).unwrap_or(1500);

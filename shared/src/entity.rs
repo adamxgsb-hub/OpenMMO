@@ -97,6 +97,13 @@ pub struct Monster {
     pub last_attack_at: u64,
 }
 
+impl Monster {
+    /// Gate for client-driven mutations (move/attack): alive and owned by the requester.
+    pub fn is_controllable_by(&self, player_id: &str) -> bool {
+        self.state != MonsterState::Dead && self.owner_id.as_deref() == Some(player_id)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
