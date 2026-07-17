@@ -780,6 +780,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn npc_login_enforces_prefix_and_google_separation() {
+        let db_path =
+            std::env::temp_dir().join(format!("onlinerpg_auth_npc_{}.db", uuid::Uuid::new_v4()));
+        let auth = AuthService::new(db_path.clone()).unwrap();
+
+        assert!(auth.login_npc("merchant_bob").is_err());
+        assert!(auth.login_npc("").is_err());
+        assert_eq!(auth.login_npc("npc_bob").unwrap(), "npc_bob");
+
+        let player = auth.login_google("sub-123").unwrap();
+        assert!(player.starts_with("player_"));
+        assert!(auth.login_npc(&player).is_err());
+
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute(
+            "UPDATE accounts SET google_sub = 'sub-999' WHERE player_name = 'npc_bob'",
+            [],
+        )
+        .unwrap();
+        assert!(auth.login_npc("npc_bob").is_err());
+    }
+
+    #[test]
     fn admin_role_defaults_to_zero_and_loads_after_update() {
         let db_path =
             std::env::temp_dir().join(format!("onlinerpg_auth_admin_{}.db", uuid::Uuid::new_v4()));

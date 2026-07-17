@@ -1154,6 +1154,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn token_matches_requires_exact_token() {
+        assert!(token_matches("secret-token", "secret-token"));
+        assert!(!token_matches("secret-token", "secret-tokeN"));
+        assert!(!token_matches("secret", "secret-token"));
+        assert!(!token_matches("", "secret-token"));
+    }
+
+    #[test]
     fn requires_admin_classifies_cheat_messages() {
         assert!(requires_admin(&ClientMessage::DebugSetTime {
             hour: 0,
