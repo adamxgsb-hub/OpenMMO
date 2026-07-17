@@ -38,7 +38,7 @@ pub fn growth_mask(config: &WorldGenConfig) -> Vec<u8> {
     let total = res * res;
     let world_width = res as f32;
 
-    let mut rng = SmallRng::seed_from_u64(config.seed ^ 0x60_0_60_0_60_0_60_0_u64);
+    let mut rng = SmallRng::seed_from_u64(config.seed ^ 0x6006_0060_0600_u64);
     let seeds = place_seeds(
         &mut rng,
         res,
@@ -54,8 +54,8 @@ pub fn growth_mask(config: &WorldGenConfig) -> Vec<u8> {
     let n_groups = (config.target_continent_count.max(1) as usize).min(seeds.len());
     let seed_group = cluster_seeds(&seeds, n_groups, world_width, &mut rng);
 
-    let noise_x = PerlinNoise3D::new(config.seed ^ 0x7A_A_7A_A_7A_A_7A_A_u64);
-    let noise_y = PerlinNoise3D::new(config.seed ^ 0x7B_B_7B_B_7B_B_7B_B_u64);
+    let noise_x = PerlinNoise3D::new(config.seed ^ 0x7AA7_AA7A_A7AA_u64);
+    let noise_y = PerlinNoise3D::new(config.seed ^ 0x7BB7_BB7B_B7BB_u64);
     let warp_freq = config.scaled_freq(1.0 / WARP_WAVELENGTH);
     let warp_strength = config.scaled_cells(WARP_STRENGTH);
 
@@ -99,9 +99,7 @@ pub fn growth_mask(config: &WorldGenConfig) -> Vec<u8> {
             let wx = x as f32 + wx_off;
             let wy = y as f32 + wy_off;
 
-            for g in 0..n_groups {
-                best_group_d[g] = f32::INFINITY;
-            }
+            best_group_d.fill(f32::INFINITY);
             for (id, &(sx, sy)) in seeds.iter().enumerate() {
                 let dx_raw = (wx - sx as f32).abs();
                 let dx = dx_raw.min(world_width - dx_raw);
@@ -318,7 +316,7 @@ fn cluster_seeds(
             }
         }
         // Update centroids.
-        for c in 0..n_groups {
+        for (c, centroid) in centroids.iter_mut().enumerate() {
             let members: Vec<&(usize, usize)> = seeds
                 .iter()
                 .enumerate()
@@ -341,7 +339,7 @@ fn cluster_seeds(
             let cx = ((angle / (2.0 * std::f32::consts::PI)) * world_width + world_width)
                 .rem_euclid(world_width);
             let cy = sy_sum / members.len() as f32;
-            centroids[c] = (cx, cy);
+            *centroid = (cx, cy);
         }
         if !changed {
             break;

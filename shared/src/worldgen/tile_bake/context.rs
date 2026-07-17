@@ -201,15 +201,9 @@ fn apply_mouth_distributaries(
     map: &GlobalMap,
     dist_to_land: &[u16],
 ) {
-    let original_len = rivers_world.len();
     let mut branches = Vec::new();
-    for poly_idx in 0..original_len {
-        branches.extend(split_mouth_polyline(
-            poly_idx,
-            &mut rivers_world[poly_idx],
-            map,
-            dist_to_land,
-        ));
+    for (poly_idx, poly) in rivers_world.iter_mut().enumerate() {
+        branches.extend(split_mouth_polyline(poly_idx, poly, map, dist_to_land));
     }
     rivers_world.extend(branches);
 }
@@ -424,6 +418,7 @@ fn clamp_world_point(mut p: [f32; 2], map: &GlobalMap) -> [f32; 2] {
     p
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_distributary_branch(
     apex: [f32; 2],
     end: [f32; 2],

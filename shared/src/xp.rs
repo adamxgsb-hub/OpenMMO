@@ -24,20 +24,15 @@ pub fn xp_for_level(level: u32) -> u64 {
 /// Determine current level from cumulative XP. No upper bound.
 pub fn level_from_xp(xp: u64) -> u32 {
     let mut level = 1u32;
-    loop {
-        let next = match level.checked_add(1) {
-            Some(n) => n,
-            None => break,
-        };
+    while let Some(next) = level.checked_add(1) {
         let threshold = xp_for_level(next);
         if xp < threshold {
             break;
         }
+        level = next;
         if threshold == u64::MAX {
-            level = next;
             break;
         }
-        level = next;
     }
     level
 }

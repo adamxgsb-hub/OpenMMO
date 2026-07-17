@@ -422,6 +422,7 @@ fn shares_endpoint(a: &[(u32, u32)], b: &[(u32, u32)]) -> bool {
 /// distance threshold. Used to extend a candidate alignment found by the
 /// spatial bin scan into the longest contiguous parallel run on either
 /// side of the seed.
+#[allow(clippy::too_many_arguments)]
 fn extend_run(
     a: &[(u32, u32)],
     b: &[(u32, u32)],

@@ -16,10 +16,8 @@ fn build_perm_table(seed: u64) -> [u16; 512] {
         p.swap(i, j);
     }
     let mut perm = [0u16; 512];
-    for i in 0..256 {
-        perm[i] = p[i];
-        perm[i + 256] = p[i];
-    }
+    perm[..256].copy_from_slice(&p);
+    perm[256..].copy_from_slice(&p);
     perm
 }
 
@@ -163,6 +161,7 @@ fn grad3(hash: usize, x: f32, y: f32, z: f32) -> f32 {
 /// produces a noise field that is exactly periodic in X with period
 /// `world_width` (so cell x=0 and cell x=world_width see identical values).
 /// The Y axis is linear (non-wrapping).
+#[allow(clippy::too_many_arguments)]
 pub fn fbm_wrap_x(
     noise: &PerlinNoise3D,
     x: f32,
@@ -290,6 +289,7 @@ fn fade_deriv(t: f32) -> f32 {
 /// detail is damped wherever the surface is already steep — yielding eroded
 /// ridges and smooth basins instead of uniformly noisy fBm. Output rescaled
 /// to roughly [-1, 1] to match `fbm_wrap_x`'s contract.
+#[allow(clippy::too_many_arguments)]
 pub fn fbm_wrap_x_damped(
     noise: &ValueNoise3D,
     x: f32,

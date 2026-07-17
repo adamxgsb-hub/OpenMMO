@@ -180,6 +180,7 @@ fn land_peak_m(elevation: &[f32], land_mask: &[u8]) -> f32 {
         .max(1e-6)
 }
 
+#[allow(clippy::neg_cmp_op_on_partial_ord)]
 fn apply_plain_band_compression(map: &mut GlobalMap) {
     let pivot = map.config.plain_band_pivot_m;
     let q = map.config.plain_band_power;
@@ -195,6 +196,7 @@ fn apply_plain_band_compression(map: &mut GlobalMap) {
     }
 }
 
+#[allow(clippy::neg_cmp_op_on_partial_ord)]
 fn apply_lowland_expansion(map: &mut GlobalMap) {
     let p = map.config.lowland_expansion_power;
     if !(p > 0.0) || p == 1.0 {
@@ -751,6 +753,7 @@ fn downsample(
 /// leak a touch across the coastline). Returns an empty Vec when the
 /// sim produced no signal so callers can treat "no water field"
 /// uniformly.
+#[allow(clippy::neg_cmp_op_on_partial_ord)]
 fn upsample_water(sim_water: &[f32], sim_res: usize, dst_res: usize, dst_land: &[u8]) -> Vec<f32> {
     let max_w = sim_water.iter().copied().fold(0.0f32, f32::max);
     if !(max_w > 0.0) {
@@ -819,27 +822,28 @@ mod tests {
     use crate::worldgen::config::WorldGenConfig;
 
     fn test_config(res: u32) -> WorldGenConfig {
-        let mut cfg = WorldGenConfig::default();
-        cfg.seed = 0xBEEF;
-        cfg.world_size_m = 4096;
-        cfg.global_res = res;
-        cfg.reference_res = res;
-        cfg.continent_frequency = 1.0 / 64.0;
-        cfg.min_island_cells = 0;
-        cfg.min_strait_width_cells = 0;
-        cfg.continent_seed_count = 3;
-        cfg.continent_seed_min_distance_cells = 20;
-        cfg.target_continent_count = 1;
-        cfg.continent_gap_cells = 0;
-        cfg.small_island_count = 0;
-        cfg.y_border_wall_cells = 0;
-        cfg.y_border_wall_height_m = 0.0;
-        // Run the sim at the test resolution (skip downsample) and use a
-        // small iteration count so the test finishes quickly.
-        cfg.erosion_sim_res = res;
-        cfg.erosion_iterations = 24;
-        cfg.initial_relief_wavelength_cells = (res as f32 / 4.0).max(8.0);
-        cfg
+        WorldGenConfig {
+            seed: 0xBEEF,
+            world_size_m: 4096,
+            global_res: res,
+            reference_res: res,
+            continent_frequency: 1.0 / 64.0,
+            min_island_cells: 0,
+            min_strait_width_cells: 0,
+            continent_seed_count: 3,
+            continent_seed_min_distance_cells: 20,
+            target_continent_count: 1,
+            continent_gap_cells: 0,
+            small_island_count: 0,
+            y_border_wall_cells: 0,
+            y_border_wall_height_m: 0.0,
+            // Run the sim at the test resolution (skip downsample) and use a
+            // small iteration count so the test finishes quickly.
+            erosion_sim_res: res,
+            erosion_iterations: 24,
+            initial_relief_wavelength_cells: (res as f32 / 4.0).max(8.0),
+            ..Default::default()
+        }
     }
 
     #[test]

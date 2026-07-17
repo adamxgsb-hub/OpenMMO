@@ -10,23 +10,19 @@ use crate::Position;
 /// automatically.
 pub const MAX_FLOOR_LEVEL: u8 = 3;
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub enum RoomType {
     #[serde(rename = "normal")]
+    #[default]
     Normal,
     #[serde(rename = "stairwell")]
     Stairwell,
 }
 
-impl Default for RoomType {
-    fn default() -> Self {
-        Self::Normal
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub enum RoofType {
     #[serde(rename = "flat")]
+    #[default]
     Flat,
     #[serde(rename = "gabled")]
     Gabled,
@@ -34,26 +30,15 @@ pub enum RoofType {
     Steep,
 }
 
-impl Default for RoofType {
-    fn default() -> Self {
-        Self::Flat
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub enum RoofRidgeDir {
     #[serde(rename = "auto")]
+    #[default]
     Auto,
     #[serde(rename = "x")]
     X,
     #[serde(rename = "z")]
     Z,
-}
-
-impl Default for RoofRidgeDir {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

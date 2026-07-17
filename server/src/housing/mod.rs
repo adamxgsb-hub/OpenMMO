@@ -80,7 +80,7 @@ pub fn validate_house(house: &HouseData, neighbors: &[HouseData]) -> Result<(), 
             continue;
         }
         for (i, room) in house.rooms.iter().enumerate() {
-            for (_j, other) in neighbor.rooms.iter().enumerate() {
+            for other in neighbor.rooms.iter() {
                 if rooms_overlap_world(
                     room,
                     house.origin.x,

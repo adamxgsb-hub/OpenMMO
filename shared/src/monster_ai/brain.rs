@@ -44,6 +44,7 @@ pub struct MonsterBrain {
 }
 
 impl MonsterBrain {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         monster_id: String,
         monster_type: String,
@@ -86,7 +87,7 @@ impl MonsterBrain {
             current_waypoint_idx: 0,
             path_elapsed_ms: 0.0,
             last_known_target_pos: None,
-            spawn_position: position.clone(),
+            spawn_position: position,
             position,
             path_floor: 0,
         }
@@ -112,7 +113,7 @@ impl MonsterBrain {
     fn tick_result(&self, commands: Vec<AiCommand>) -> TickResult {
         TickResult {
             commands,
-            position: self.position.clone(),
+            position: self.position,
             rotation: self.rotation,
             state: self.state.to_monster_state(),
         }
@@ -245,13 +246,10 @@ impl MonsterBrain {
     pub(super) fn make_move_cmd(&self) -> AiCommand {
         AiCommand::Move {
             monster_id: self.monster_id.clone(),
-            position: self.position.clone(),
+            position: self.position,
             rotation: self.rotation,
             state: self.state.to_monster_state(),
-            target_position: self
-                .target_position
-                .clone()
-                .unwrap_or(self.position.clone()),
+            target_position: self.target_position.unwrap_or(self.position),
         }
     }
 }

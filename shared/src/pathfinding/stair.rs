@@ -35,7 +35,7 @@ pub(super) fn key_to_floor(k: u16) -> u8 {
 
 #[inline]
 pub(super) fn is_regular_key(k: u16) -> bool {
-    k % FLOOR_SCALE == 0
+    k.is_multiple_of(FLOOR_SCALE)
 }
 
 /// Precomputed stairwell cell neighbor info for the A* expansion.

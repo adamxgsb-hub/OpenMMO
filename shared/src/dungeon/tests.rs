@@ -283,7 +283,7 @@ fn shaft_opens_to_room_only_at_its_landing() {
             for &(x, z) in &shaft {
                 for (dx, dz, leave, enter) in EDGES {
                     let (nx, nz) = (x + dx, z + dz);
-                    if nx < 0 || nx >= GRID || nz < 0 || nz >= GRID {
+                    if !(0..GRID).contains(&nx) || !(0..GRID).contains(&nz) {
                         continue;
                     }
                     if !layout.carved[(nx + nz * GRID) as usize] || shaft.contains(&(nx, nz)) {

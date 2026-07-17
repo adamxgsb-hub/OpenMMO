@@ -135,6 +135,7 @@ pub(super) fn draw_text_centered(
 /// Used by the edge-region labels where text sits on arbitrary terrain colors
 /// and needs guaranteed contrast (settlement labels rely on the yellow disk
 /// behind them instead). `pad` is in scaled pixels around the glyph block.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_text_with_bg(
     img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>,
     n: usize,

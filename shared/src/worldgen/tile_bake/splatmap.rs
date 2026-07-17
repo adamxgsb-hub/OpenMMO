@@ -96,6 +96,7 @@ fn nearest_cliff_distance(mask: &[bool], cx: usize, cz: usize) -> f32 {
     best_sq.sqrt().min(CLIFF_PROXIMITY_RADIUS_M)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn bake_splatmap(
     map: &GlobalMap,
     ctx: &BakeContext,

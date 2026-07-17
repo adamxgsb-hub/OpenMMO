@@ -141,8 +141,8 @@ pub(super) const RIVER_MOUTH_BRANCH_MEANDER_M: f32 = 15.0;
 /// Range of full sine cycles per branch length. Each branch picks a value
 /// in [MIN, MAX) so neighbours don't share an obvious meander wavelength.
 /// >1.0 gives multiple S-bends instead of one broad arc. Sample density
-/// (`RIVER_MOUTH_BRANCH_SAMPLES`) must satisfy Nyquist for `MAX` to render
-/// — keep ≥ 4× MAX.
+/// > (`RIVER_MOUTH_BRANCH_SAMPLES`) must satisfy Nyquist for `MAX` to render
+/// > — keep ≥ 4× MAX.
 pub(super) const RIVER_MOUTH_BRANCH_MEANDER_CYCLES_MIN: f32 = 1.5;
 pub(super) const RIVER_MOUTH_BRANCH_MEANDER_CYCLES_MAX: f32 = 3.0;
 /// Pre-Chaikin control point count along each distributary branch. Needs

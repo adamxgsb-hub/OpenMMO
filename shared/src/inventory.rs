@@ -89,19 +89,10 @@ pub struct ItemInstance {
     pub enchant: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PlayerInventory {
     pub bag: Vec<ItemInstance>,
     pub equipped: HashMap<EquipSlot, ItemInstance>,
-}
-
-impl Default for PlayerInventory {
-    fn default() -> Self {
-        Self {
-            bag: Vec::new(),
-            equipped: HashMap::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

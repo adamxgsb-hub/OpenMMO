@@ -21,8 +21,8 @@ pub fn generate_continent_mask(config: &WorldGenConfig) -> GlobalMap {
     let res = config.global_res as usize;
     let total = res * res;
 
-    let noise = PerlinNoise3D::new(config.seed ^ 0xC0_0_C0_0_C0_0_C0_0_u64);
-    let channel_noise = PerlinNoise3D::new(config.seed ^ 0x5EA_C_5EA_C_5EA_C_u64);
+    let noise = PerlinNoise3D::new(config.seed ^ 0xC00C_00C0_0C00_u64);
+    let channel_noise = PerlinNoise3D::new(config.seed ^ 0x5EAC_5EAC_5EAC_u64);
     let world_width = config.global_res as f32;
     let base_freq = config.scaled_freq(config.continent_frequency);
     let channel_freq = config.scaled_freq(1.0 / config.sea_channel_wavelength.max(1.0));
@@ -428,28 +428,29 @@ mod tests {
     use super::*;
 
     fn test_config(res: u32, sea_ratio: f32) -> WorldGenConfig {
-        let mut cfg = WorldGenConfig::default();
-        cfg.seed = 0xBEEF;
-        cfg.world_size_m = 4096;
-        cfg.global_res = res;
-        cfg.reference_res = res;
-        cfg.sea_ratio = sea_ratio;
-        cfg.continent_frequency = 1.0 / 64.0;
-        cfg.continent_octaves = 5;
-        cfg.continent_gain = 0.55;
-        cfg.min_island_cells = 0;
-        cfg.min_strait_width_cells = 0;
-        cfg.continent_seed_count = 6;
-        cfg.continent_seed_min_distance_cells = 20;
-        cfg.target_continent_count = 3;
-        cfg.continent_gap_cells = 0;
-        cfg.small_island_count = 0;
-        cfg.small_island_radius_cells = 0;
-        cfg.small_island_min_clearance_cells = 0;
-        cfg.y_border_wall_cells = 0;
-        cfg.y_border_wall_height_m = 0.0;
-        cfg.river_gap_max_m = 0.0;
-        cfg
+        WorldGenConfig {
+            seed: 0xBEEF,
+            world_size_m: 4096,
+            global_res: res,
+            reference_res: res,
+            sea_ratio,
+            continent_frequency: 1.0 / 64.0,
+            continent_octaves: 5,
+            continent_gain: 0.55,
+            min_island_cells: 0,
+            min_strait_width_cells: 0,
+            continent_seed_count: 6,
+            continent_seed_min_distance_cells: 20,
+            target_continent_count: 3,
+            continent_gap_cells: 0,
+            small_island_count: 0,
+            small_island_radius_cells: 0,
+            small_island_min_clearance_cells: 0,
+            y_border_wall_cells: 0,
+            y_border_wall_height_m: 0.0,
+            river_gap_max_m: 0.0,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -567,7 +568,7 @@ mod tests {
         // [0, res-1]; x=res would be written as x=0.
         use super::super::noise::{fbm_wrap_x, PerlinNoise3D};
         let cfg = test_config(64, 0.4);
-        let noise = PerlinNoise3D::new(cfg.seed ^ 0xC0_0_C0_0_C0_0_C0_0_u64);
+        let noise = PerlinNoise3D::new(cfg.seed ^ 0xC00C_00C0_0C00_u64);
         let world_width = cfg.global_res as f32;
         for y in 0..cfg.global_res {
             let a = fbm_wrap_x(

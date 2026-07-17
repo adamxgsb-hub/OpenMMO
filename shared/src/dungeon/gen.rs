@@ -264,7 +264,7 @@ fn carve_corridor(carved: &mut [bool], from: (i32, i32), to: (i32, i32)) {
     let carve2 = |carved: &mut [bool], x: i32, z: i32, lateral_x: bool| {
         let (x2, z2) = if lateral_x { (x + 1, z) } else { (x, z + 1) };
         for (cx, cz) in [(x, z), (x2, z2)] {
-            if cx >= 1 && cx < GRID - 1 && cz >= 1 && cz < GRID - 1 {
+            if (1..GRID - 1).contains(&cx) && (1..GRID - 1).contains(&cz) {
                 carved[(cx + cz * GRID) as usize] = true;
             }
         }
@@ -336,7 +336,7 @@ fn floor_reachable(
         for (dx, dz, leave, enter) in EDGE_BITS {
             let nx = x + dx;
             let nz = z + dz;
-            if nx < 0 || nx >= GRID || nz < 0 || nz >= GRID {
+            if !(0..GRID).contains(&nx) || !(0..GRID).contains(&nz) {
                 continue;
             }
             let nidx = (nx + nz * GRID) as usize;
@@ -522,7 +522,7 @@ fn prop_cell_ok(
     // the (walled-off) shaft body are fine — "계단 옆쪽에 붙이는 것은 괜찮음".
     for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
         let (nx, nz) = (x + dx, z + dz);
-        if cell_is_corridor(layout, nx, nz) || landings.iter().any(|&l| l == (nx, nz)) {
+        if cell_is_corridor(layout, nx, nz) || landings.contains(&(nx, nz)) {
             return false;
         }
     }
@@ -783,7 +783,8 @@ fn fallback_floor(
     };
     let chest = if is_last || down_shaft.is_none() {
         let (cx, cz) = room.center();
-        let cell = [
+
+        [
             (cx, cz),
             (room.x + 2, room.z + 2),
             (room.x + room.w - 3, room.z + 2),
@@ -791,8 +792,7 @@ fn fallback_floor(
             (room.x + room.w - 3, room.z + room.d - 3),
         ]
         .into_iter()
-        .find(|&(x, z)| !in_shaft(x, z));
-        cell
+        .find(|&(x, z)| !in_shaft(x, z))
     } else {
         None
     };

@@ -306,7 +306,7 @@ mod tests {
             let bytes = serialize_server_msg(&msg).unwrap();
             let decoded = deserialize_server_msg(&bytes).unwrap();
             // Just verify it roundtrips without error
-            assert!(format!("{:?}", decoded).len() > 0);
+            assert!(!format!("{:?}", decoded).is_empty());
         }
     }
 }

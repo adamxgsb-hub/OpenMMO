@@ -182,7 +182,7 @@ impl MonsterBrain {
             self.state = AiState::Return;
             self.state_timer_ms = 0.0;
             self.move_speed = self.walk_speed;
-            self.target_position = Some(self.spawn_position.clone());
+            self.target_position = Some(self.spawn_position);
             self.compute_path(self.spawn_position.x, self.spawn_position.z, path_provider);
             if self.waypoints.is_empty() {
                 self.transition_to_idle(commands);
@@ -214,7 +214,7 @@ impl MonsterBrain {
         let max_duration_ms = param(params, "maxDurationMs", DEFAULT_FLEE_MAX_DURATION_MS);
 
         if let Some(target) = self.current_target(nearby_players) {
-            self.last_known_target_pos = Some(target.position.clone());
+            self.last_known_target_pos = Some(target.position);
         }
 
         if self.beyond_safe_dist(safe_dist) {
@@ -321,7 +321,7 @@ impl MonsterBrain {
             None => return BehaviorStatus::Failure,
         };
 
-        let target_pos = target.position.clone();
+        let target_pos = target.position;
         let path_recalc_ms = param(params, "pathRecalcMs", DEFAULT_PATH_RECALC_MS);
         let target_move_threshold =
             param(params, "targetMoveThreshold", DEFAULT_TARGET_MOVE_THRESHOLD);
@@ -336,7 +336,7 @@ impl MonsterBrain {
 
         if needs_repath {
             self.compute_path(target_pos.x, target_pos.z, path_provider);
-            self.last_known_target_pos = Some(target_pos.clone());
+            self.last_known_target_pos = Some(target_pos);
             if self.waypoints.is_empty() {
                 return BehaviorStatus::Failure;
             }
@@ -345,7 +345,7 @@ impl MonsterBrain {
         self.follow_path(delta_ms);
         commands.push(AiCommand::Move {
             monster_id: self.monster_id.clone(),
-            position: self.position.clone(),
+            position: self.position,
             rotation: self.rotation,
             state: MonsterState::Run,
             target_position: target_pos,

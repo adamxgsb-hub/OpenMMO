@@ -476,48 +476,6 @@ pub fn group_flattens_by_tile(
     out
 }
 
-#[cfg(test)]
-mod canonical_tests {
-    use super::canonical_deck_angle;
-    use std::f32::consts::PI;
-
-    #[test]
-    fn canonical_collapses_180_degree_pairs() {
-        // The bridge deck has bilateral symmetry across the XZ plane, so
-        // rotations that differ by 180° look identical. The canonical form
-        // must collapse them onto the same value.
-        let pairs = [
-            (0.25 * PI, 1.25 * PI),
-            (0.5 * PI, 1.5 * PI),
-            (0.75 * PI, 1.75 * PI),
-        ];
-        for (a, b) in pairs {
-            let ca = canonical_deck_angle(a);
-            let cb = canonical_deck_angle(b);
-            assert!((ca - cb).abs() < 1e-4, "pair {a} {b}: got {ca}, {cb}");
-        }
-    }
-
-    #[test]
-    fn canonical_in_zero_to_pi_range() {
-        // Output must always sit in [0, π) so JSON diffs are stable across
-        // bakes regardless of upstream tangent sign flips.
-        let samples = [
-            -2.0 * PI,
-            -1.5 * PI,
-            -0.1,
-            0.0,
-            0.5 * PI,
-            PI - 1e-6,
-            2.5 * PI,
-        ];
-        for theta in samples {
-            let c = canonical_deck_angle(theta);
-            assert!(c >= 0.0 && c < PI + 1e-4, "θ={theta} → {c}");
-        }
-    }
-}
-
 /// Apply each flatten directive to the tile's heights buffer. The flatten
 /// hits only the two foot rects at the deck ends — `foot_length_z` along
 /// local Z at each end, full deck width along local X. The arch span between
@@ -573,6 +531,48 @@ pub(super) fn apply_bridge_flatten(
                     heights[idx] = heights[idx] + (fl.target_y - heights[idx]) * s;
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod canonical_tests {
+    use super::canonical_deck_angle;
+    use std::f32::consts::PI;
+
+    #[test]
+    fn canonical_collapses_180_degree_pairs() {
+        // The bridge deck has bilateral symmetry across the XZ plane, so
+        // rotations that differ by 180° look identical. The canonical form
+        // must collapse them onto the same value.
+        let pairs = [
+            (0.25 * PI, 1.25 * PI),
+            (0.5 * PI, 1.5 * PI),
+            (0.75 * PI, 1.75 * PI),
+        ];
+        for (a, b) in pairs {
+            let ca = canonical_deck_angle(a);
+            let cb = canonical_deck_angle(b);
+            assert!((ca - cb).abs() < 1e-4, "pair {a} {b}: got {ca}, {cb}");
+        }
+    }
+
+    #[test]
+    fn canonical_in_zero_to_pi_range() {
+        // Output must always sit in [0, π) so JSON diffs are stable across
+        // bakes regardless of upstream tangent sign flips.
+        let samples = [
+            -2.0 * PI,
+            -1.5 * PI,
+            -0.1,
+            0.0,
+            0.5 * PI,
+            PI - 1e-6,
+            2.5 * PI,
+        ];
+        for theta in samples {
+            let c = canonical_deck_angle(theta);
+            assert!((0.0..PI + 1e-4).contains(&c), "θ={theta} → {c}");
         }
     }
 }

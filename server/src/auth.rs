@@ -452,7 +452,7 @@ impl AuthService {
         ))?;
 
         let characters = stmt
-            .query_map(params![account_name], |row| character_record_from_row(row))?
+            .query_map(params![account_name], character_record_from_row)?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(characters)
@@ -640,7 +640,7 @@ impl AuthService {
                     CHARACTER_COLUMNS
                 ),
                 params![character_id, account_name],
-                |row| character_record_from_row(row),
+                character_record_from_row,
             )
             .optional()?;
 

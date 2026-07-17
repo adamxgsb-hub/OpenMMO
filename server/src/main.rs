@@ -33,7 +33,6 @@ use tokio::net::TcpListener;
 use tokio::time::Duration;
 use tower_http::compression::CompressionLayer;
 use tracing::{error, info, warn};
-use tracing_subscriber;
 
 #[derive(Parser, Debug)]
 #[command(name = "onlinerpg-server")]
@@ -241,7 +240,7 @@ async fn main() {
             tick_count = tick_count.wrapping_add(1);
 
             // Regenerate player health every 2 ticks (16 seconds)
-            if tick_count % 2 == 0 {
+            if tick_count.is_multiple_of(2) {
                 game_state_for_time_sync.tick_regeneration().await;
             }
 
@@ -253,7 +252,7 @@ async fn main() {
             game_state_for_time_sync.tick_npc_salaries().await;
 
             // Batch-save dirty character states every 4 ticks (32 seconds)
-            if tick_count % 4 == 0 {
+            if tick_count.is_multiple_of(4) {
                 let dirty_states = game_state_for_time_sync
                     .collect_dirty_character_states()
                     .await;

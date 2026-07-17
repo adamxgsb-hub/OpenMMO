@@ -21,31 +21,6 @@ pub(super) fn offset_position_at_angle(origin: Position, angle: f32, distance: f
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn pos(x: f32, y: f32, z: f32) -> Position {
-        Position { x, y, z }
-    }
-
-    fn assert_close(actual: f32, expected: f32) {
-        assert!(
-            (actual - expected).abs() < 0.0001,
-            "expected {expected}, got {actual}"
-        );
-    }
-
-    #[test]
-    fn weapon_drop_offsets_two_meters_at_angle() {
-        let drop_pos = offset_position_at_angle(pos(10.0, 3.0, 20.0), 0.0, 2.0);
-
-        assert_close(drop_pos.x, 12.0);
-        assert_close(drop_pos.y, 3.0);
-        assert_close(drop_pos.z, 20.0);
-    }
-}
-
 impl super::GameState {
     /// Sum of the guard bonuses from every equipped item — the single place
     /// that maps equipped gear to a guard number. Pure over the loaded item
@@ -759,5 +734,30 @@ impl super::GameState {
                 ""
             }
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pos(x: f32, y: f32, z: f32) -> Position {
+        Position { x, y, z }
+    }
+
+    fn assert_close(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() < 0.0001,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    #[test]
+    fn weapon_drop_offsets_two_meters_at_angle() {
+        let drop_pos = offset_position_at_angle(pos(10.0, 3.0, 20.0), 0.0, 2.0);
+
+        assert_close(drop_pos.x, 12.0);
+        assert_close(drop_pos.y, 3.0);
+        assert_close(drop_pos.z, 20.0);
     }
 }

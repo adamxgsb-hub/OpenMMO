@@ -136,9 +136,7 @@ impl GameState {
         depth: u8,
         door_id: u32,
     ) -> Option<bool> {
-        if self.dungeon_defs.get(entrance_id).is_none() {
-            return None;
-        }
+        self.dungeon_defs.get(entrance_id)?;
         self.ensure_dungeon_runtime(entrance_id).await;
         let mut dungeons = self.dungeons.write().await;
         let rt = dungeons.get_mut(entrance_id)?;
@@ -179,7 +177,7 @@ impl GameState {
         let (player_pos, player_floor) = {
             let players = self.players.read().await;
             match players.get(player_id) {
-                Some(p) if p.health > 0 => (p.position.clone(), p.floor_level),
+                Some(p) if p.health > 0 => (p.position, p.floor_level),
                 _ => return,
             }
         };
@@ -461,7 +459,7 @@ impl GameState {
         let (player_pos, player_floor) = {
             let players = self.players.read().await;
             match players.get(player_id) {
-                Some(p) if p.health > 0 => (p.position.clone(), p.floor_level),
+                Some(p) if p.health > 0 => (p.position, p.floor_level),
                 _ => return None,
             }
         };
@@ -472,9 +470,7 @@ impl GameState {
         // missing (silent no-op).
         let outcome: Option<Result<Position, String>> = {
             let mut dungeons = self.dungeons.write().await;
-            let Some(rt) = dungeons.get_mut(entrance_id) else {
-                return None;
-            };
+            let rt = dungeons.get_mut(entrance_id)?;
             let prop = match rt
                 .layouts
                 .get((depth - 1) as usize)

@@ -107,6 +107,7 @@ pub struct GameState {
     id_state: Arc<RwLock<IdState>>,
     direct_channels: Arc<RwLock<HashMap<PlayerId, mpsc::UnboundedSender<ServerMessage>>>>,
     // player_id → (character_id, current_xp, attributes)
+    #[allow(clippy::type_complexity)]
     player_characters: Arc<RwLock<HashMap<PlayerId, (i64, u64, CharacterAttributes)>>>,
     /// player_id → current gold (smallest currency unit). Kept out of the
     /// broadcast `Player` struct: gold is private to its owner.
@@ -226,7 +227,7 @@ impl GameState {
         let (player_pos, player_floor) = {
             let players = self.players.read().await;
             let p = players.get(player_id)?;
-            (p.position.clone(), p.floor_level)
+            (p.position, p.floor_level)
         };
 
         let house = match self.housing_io.find_house(house_id).await {

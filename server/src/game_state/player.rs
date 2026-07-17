@@ -169,7 +169,7 @@ impl super::GameState {
         let player_id = player.id.clone();
         let player_name = player.name.clone();
         let player_number = self.get_or_assign_player_number(&player_id).await;
-        let player_position = player.position.clone();
+        let player_position = player.position;
         let player_floor = player.floor_level;
 
         {
@@ -250,7 +250,7 @@ impl super::GameState {
             players
                 .get(player_id)
                 .filter(|p| p.floor_level < 0)
-                .map(|p| (p.floor_level, p.position.clone()))
+                .map(|p| (p.floor_level, p.position))
         };
         if let Some((floor, position)) = dungeon_exit {
             self.handle_player_floor_change(player_id, floor, 0, &position, &position)
@@ -340,8 +340,8 @@ impl super::GameState {
                 return;
             };
 
-            let old_position = player.position.clone();
-            player.position = new_position.clone();
+            let old_position = player.position;
+            player.position = new_position;
             player.rotation = new_rotation;
             player.floor_level = floor_level;
             (old_position, player.clone())
@@ -386,9 +386,9 @@ impl super::GameState {
         let moved = {
             let mut players = self.players.write().await;
             if let Some(player) = players.get_mut(player_id) {
-                let old_position = player.position.clone();
+                let old_position = player.position;
                 let old_floor = player.floor_level;
-                player.position = new_position.clone();
+                player.position = new_position;
                 player.rotation = new_rotation;
                 player.floor_level = new_floor_level;
                 Some((old_position, old_floor, player.clone()))
@@ -443,7 +443,7 @@ impl super::GameState {
                 }
                 player.health = player.max_health;
                 let old_floor = player.floor_level;
-                let old_position = player.position.clone();
+                let old_position = player.position;
                 let spawn = &world_config().spawn_position;
                 player.position = spawn.position();
                 player.rotation = spawn.rotation;

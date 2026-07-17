@@ -249,6 +249,7 @@ impl AStarScratch {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn a_star(
     map: &GlobalMap,
     sx: usize,

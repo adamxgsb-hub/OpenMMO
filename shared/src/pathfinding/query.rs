@@ -62,18 +62,24 @@ pub fn is_cardinal_move_blocked(
 
             let gx = cell_x - fx;
             let gz = cell_z - fz;
-            if gx >= 0 && gx < w && gz >= 0 && gz < d {
-                if floor.cells[(gx + gz * w) as usize] & leave_bit != 0 {
-                    return true;
-                }
+            if gx >= 0
+                && gx < w
+                && gz >= 0
+                && gz < d
+                && floor.cells[(gx + gz * w) as usize] & leave_bit != 0
+            {
+                return true;
             }
 
             let ngx = nx - fx;
             let ngz = nz - fz;
-            if ngx >= 0 && ngx < w && ngz >= 0 && ngz < d {
-                if floor.cells[(ngx + ngz * w) as usize] & enter_bit != 0 {
-                    return true;
-                }
+            if ngx >= 0
+                && ngx < w
+                && ngz >= 0
+                && ngz < d
+                && floor.cells[(ngx + ngz * w) as usize] & enter_bit != 0
+            {
+                return true;
             }
         }
     }

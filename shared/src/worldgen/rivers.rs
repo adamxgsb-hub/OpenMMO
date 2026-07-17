@@ -359,10 +359,9 @@ fn naturalize_river_meanders(map: &GlobalMap, rivers: &mut [Polyline]) {
         // exactly where they are; the displacement amplitude tapers as we
         // approach them.
         let mut anchor_flags = vec![false; n];
-        for i in 0..n {
-            let (px, py) = poly.points[i];
+        for (flag, &(px, py)) in anchor_flags.iter_mut().zip(&poly.points) {
             if anchors[py as usize * res + px as usize] {
-                anchor_flags[i] = true;
+                *flag = true;
             }
         }
         anchor_flags[0] = true;
@@ -378,7 +377,7 @@ fn naturalize_river_meanders(map: &GlobalMap, rivers: &mut [Polyline]) {
         let phase = hash_unit(
             map.config.seed
                 ^ ((ri as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15))
-                ^ 0xA11C_E5ED_5EA_u64,
+                ^ 0x0A11_CE5E_D5EA_u64,
         ) * std::f32::consts::TAU;
 
         let mut target_x = vec![0.0f32; n];
@@ -1144,29 +1143,30 @@ mod tests {
     use crate::worldgen::global_map::GlobalMap;
 
     fn test_config(res: u32) -> WorldGenConfig {
-        let mut cfg = WorldGenConfig::default();
-        cfg.seed = 0xBEEF;
-        cfg.world_size_m = 4096;
-        cfg.global_res = res;
-        cfg.reference_res = res;
-        cfg.sea_ratio = 0.3;
-        cfg.continent_frequency = 1.0 / 64.0;
-        cfg.min_island_cells = 0;
-        cfg.min_strait_width_cells = 0;
-        cfg.continent_seed_count = 3;
-        cfg.continent_seed_min_distance_cells = 20;
-        cfg.target_continent_count = 1;
-        cfg.continent_gap_cells = 0;
-        cfg.small_island_count = 0;
-        cfg.y_border_wall_cells = 0;
-        cfg.y_border_wall_height_m = 0.0;
-        cfg.river_gap_max_m = 0.0;
-        // Default wavelength is sized for a 4096-cell production map; in
-        // the small test resolutions a 700-cell wavelength is wider than
-        // the world and degenerates to one monotonic gradient. Pick a
-        // wavelength that produces several peaks at this scale.
-        cfg.initial_relief_wavelength_cells = (res as f32 / 4.0).max(8.0);
-        cfg
+        WorldGenConfig {
+            seed: 0xBEEF,
+            world_size_m: 4096,
+            global_res: res,
+            reference_res: res,
+            sea_ratio: 0.3,
+            continent_frequency: 1.0 / 64.0,
+            min_island_cells: 0,
+            min_strait_width_cells: 0,
+            continent_seed_count: 3,
+            continent_seed_min_distance_cells: 20,
+            target_continent_count: 1,
+            continent_gap_cells: 0,
+            small_island_count: 0,
+            y_border_wall_cells: 0,
+            y_border_wall_height_m: 0.0,
+            river_gap_max_m: 0.0,
+            // Default wavelength is sized for a 4096-cell production map; in
+            // the small test resolutions a 700-cell wavelength is wider than
+            // the world and degenerates to one monotonic gradient. Pick a
+            // wavelength that produces several peaks at this scale.
+            initial_relief_wavelength_cells: (res as f32 / 4.0).max(8.0),
+            ..Default::default()
+        }
     }
 
     fn cell_idx(res: u32, x: u32, y: u32) -> usize {

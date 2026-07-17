@@ -235,7 +235,7 @@ pub struct FloorLayout {
 
 impl FloorLayout {
     pub fn is_carved(&self, x: i32, z: i32) -> bool {
-        x >= 0 && x < GRID && z >= 0 && z < GRID && self.carved[(x + z * GRID) as usize]
+        (0..GRID).contains(&x) && (0..GRID).contains(&z) && self.carved[(x + z * GRID) as usize]
     }
 
     /// Pick a walkable world position to drop loot near a monster's death
@@ -475,7 +475,7 @@ pub fn floor_passability_cells(layout: &FloorLayout) -> Vec<u8> {
 /// OR an edge bit into a floor cell, ignoring out-of-grid coordinates. Shared by
 /// the shaft-walling and door-sealing passes, both of which seal grid boundaries.
 fn or_edge_bit(cells: &mut [u8], x: i32, z: i32, bit: u8) {
-    if x >= 0 && x < GRID && z >= 0 && z < GRID {
+    if (0..GRID).contains(&x) && (0..GRID).contains(&z) {
         cells[(x + z * GRID) as usize] |= bit;
     }
 }

@@ -210,7 +210,7 @@ pub fn bake_trees(
     for cz in 0..TILE_DIM {
         for cx in 0..TILE_DIM {
             let r_val = splatmap[(cz * TILE_DIM + cx) * CHANNELS + VEGMETA_OFFSET];
-            if r_val < SHORT_GRASS_R_MIN || r_val > TALL_GRASS_R_MAX {
+            if !(SHORT_GRASS_R_MIN..=TALL_GRASS_R_MAX).contains(&r_val) {
                 continue;
             }
             if veg_density(r_val) < TREE_MIN_DENSITY {
@@ -458,7 +458,7 @@ fn compute_flower_instances(
     for cz in 0..TILE_DIM {
         for cx in 0..TILE_DIM {
             let r_val = splatmap[(cz * TILE_DIM + cx) * CHANNELS + VEGMETA_OFFSET];
-            if r_val < SHORT_GRASS_R_MIN || r_val > SHORT_GRASS_R_MAX {
+            if !(SHORT_GRASS_R_MIN..=SHORT_GRASS_R_MAX).contains(&r_val) {
                 continue;
             }
 
@@ -520,6 +520,7 @@ fn encode_grass_v3(
     let pos_scale = 65535.0 / TILE_DIM as f32;
     let rot_scale = 255.0 / std::f32::consts::TAU;
 
+    #[allow(clippy::type_complexity)]
     let buckets: [(&[(f32, f32, f32, f32)], (f32, f32)); 3] = [
         (short_list, (SHORT_SCALE_MIN, SHORT_SCALE_RANGE)),
         (tall_list, (TALL_SCALE_MIN, TALL_SCALE_RANGE)),

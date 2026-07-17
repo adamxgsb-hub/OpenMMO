@@ -186,6 +186,7 @@ mod tests {
     use crate::worldgen::rivers::Polyline;
 
     #[test]
+    #[allow(clippy::needless_range_loop)]
     fn snap_aligns_road_and_river_at_crossing() {
         // Synthetic crossing: a diagonal road meets an N-S river at one
         // shared cell. The river's local direction (vertical) drives the
@@ -255,6 +256,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::needless_range_loop)]
     fn snap_picks_diagonal_axes_for_diagonal_river() {
         // Synthetic crossing: a NW-SE river meets a NE-SW road at one
         // shared cell. The river's local direction is (+1, +1) so snap

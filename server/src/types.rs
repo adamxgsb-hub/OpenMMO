@@ -4,6 +4,7 @@ pub use onlinerpg_shared::{
 };
 use uuid::Uuid;
 
+#[allow(clippy::too_many_arguments)]
 pub fn new_player(
     name: String,
     level: u32,

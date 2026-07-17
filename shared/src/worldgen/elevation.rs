@@ -29,7 +29,7 @@ pub fn generate_elevation(map: &mut GlobalMap) {
     let world_width = res as f32;
 
     let seed = map.config.seed;
-    let noise = PerlinNoise3D::new(seed ^ 0xE1_E_E1_E_E1_E_E1_E_u64);
+    let noise = PerlinNoise3D::new(seed ^ 0xE1EE_1EE1_EE1E_u64);
     let base_freq = map
         .config
         .scaled_freq(1.0 / map.config.initial_relief_wavelength_cells.max(1.0));
@@ -465,24 +465,25 @@ mod tests {
     use super::*;
 
     fn test_config(res: u32) -> WorldGenConfig {
-        let mut cfg = WorldGenConfig::default();
-        cfg.seed = 0xBEEF;
-        cfg.world_size_m = 4096;
-        cfg.global_res = res;
-        cfg.reference_res = res;
-        cfg.continent_frequency = 1.0 / 64.0;
-        cfg.min_island_cells = 0;
-        cfg.min_strait_width_cells = 0;
-        cfg.continent_seed_count = 5;
-        cfg.continent_seed_min_distance_cells = 20;
-        cfg.target_continent_count = 3;
-        cfg.continent_gap_cells = 10;
-        cfg.small_island_count = 0;
-        cfg.y_border_wall_cells = 8;
-        cfg.y_border_wall_height_m = 2200.0;
-        cfg.river_gap_max_m = 0.0;
-        cfg.initial_relief_wavelength_cells = (res as f32 / 4.0).max(8.0);
-        cfg
+        WorldGenConfig {
+            seed: 0xBEEF,
+            world_size_m: 4096,
+            global_res: res,
+            reference_res: res,
+            continent_frequency: 1.0 / 64.0,
+            min_island_cells: 0,
+            min_strait_width_cells: 0,
+            continent_seed_count: 5,
+            continent_seed_min_distance_cells: 20,
+            target_continent_count: 3,
+            continent_gap_cells: 10,
+            small_island_count: 0,
+            y_border_wall_cells: 8,
+            y_border_wall_height_m: 2200.0,
+            river_gap_max_m: 0.0,
+            initial_relief_wavelength_cells: (res as f32 / 4.0).max(8.0),
+            ..Default::default()
+        }
     }
 
     #[test]

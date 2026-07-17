@@ -295,7 +295,7 @@ impl SharedState {
                 };
                 // Update local position immediately so subsequent reads don't use stale data
                 if let Some(ref mut p) = self.self_player {
-                    p.position = position.clone();
+                    p.position = position;
                     p.rotation = rotation;
                 }
                 ClientMessage::PlayerMove {
@@ -350,7 +350,7 @@ impl SharedState {
         let Some(ref p) = self.self_player else {
             return Ok(());
         };
-        let pos = p.position.clone();
+        let pos = p.position;
         let rotation = p.rotation;
         self.send_command(ClientMessage::PlayerMove {
             position: pos,
@@ -560,11 +560,11 @@ impl SharedState {
                 // Update tracked position for self and nearby players
                 if self.self_player_id.as_deref() == Some(player_id.as_str()) {
                     if let Some(ref mut p) = self.self_player {
-                        p.position = position.clone();
+                        p.position = *position;
                     }
                 }
                 if let Some(p) = self.nearby_players.get_mut(player_id) {
-                    p.position = position.clone();
+                    p.position = *position;
                 }
             }
             ServerMessage::MonsterMoved {
@@ -573,7 +573,7 @@ impl SharedState {
                 ..
             } => {
                 if let Some(m) = self.nearby_monsters.get_mut(monster_id) {
-                    m.position = position.clone();
+                    m.position = *position;
                 }
             }
             ServerMessage::HouseSpawned { ref house } => {
@@ -790,7 +790,7 @@ impl SharedState {
         // doesn't generate spawn requests the server will reject around towns.
         const TOWN_MARGIN: f32 = 30.0;
 
-        let center = self.self_player.as_ref()?.position.clone();
+        let center = self.self_player.as_ref()?.position;
 
         // Don't spawn around a bot that is standing in (or near) a town.
         if self

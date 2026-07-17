@@ -20,6 +20,7 @@ impl super::GameState {
     /// `floor_level` < 0 marks dungeon monsters; `level_override` applies
     /// depth scaling (health here, combat stats in combat.rs). Dungeon
     /// spawns skip the ambient per-player cap — their spawn slots are the cap.
+    #[allow(clippy::too_many_arguments)]
     pub async fn spawn_monster(
         &self,
         monster_type: String,
@@ -149,7 +150,7 @@ impl super::GameState {
                 return;
             }
             let old_position = monster.position;
-            monster.position = new_position.clone();
+            monster.position = new_position;
             monster.rotation = rotation;
             monster.state = state;
             (old_position, monster.owner_id.clone(), monster.clone())
@@ -189,7 +190,7 @@ impl super::GameState {
             )
             .await
             .into_iter()
-            .filter(|id| skip_player_id.map_or(true, |skip_id| skip_id != id))
+            .filter(|id| skip_player_id != Some(id))
             .collect();
         let new_visible: HashSet<_> = self
             .player_ids_within_position(
@@ -199,7 +200,7 @@ impl super::GameState {
             )
             .await
             .into_iter()
-            .filter(|id| skip_player_id.map_or(true, |skip_id| skip_id != id))
+            .filter(|id| skip_player_id != Some(id))
             .collect();
 
         let left: Vec<_> = old_visible.difference(&new_visible).cloned().collect();
@@ -374,7 +375,7 @@ impl super::GameState {
         let player_pos = {
             let players = self.players.read().await;
             match players.get(player_id) {
-                Some(p) => p.position.clone(),
+                Some(p) => p.position,
                 None => return false,
             }
         };

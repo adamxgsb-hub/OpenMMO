@@ -153,8 +153,7 @@ pub async fn llm_driver(
             info!("[{label}] LLM driver: NPC is sleeping, skipping initial prompt");
         } else if s.has_nearby_human_players() {
             let agent_events = s.drain_agent_events();
-            let initial_prompt =
-                build_prompt(&*s, &[], &agent_events, &schedule, active_schedule.0);
+            let initial_prompt = build_prompt(&s, &[], &agent_events, &schedule, active_schedule.0);
             drop(s);
             info!("[{label}] LLM driver: sending initial world state");
             match scheduler
@@ -288,7 +287,7 @@ pub async fn llm_driver(
                 .map(|e| LlmPriority::from(s.classify_event(e)))
                 .fold(pending_urgency, std::cmp::min);
 
-            let prompt = build_prompt(&*s, &events, &agent_events, &schedule, active_schedule.0);
+            let prompt = build_prompt(&s, &events, &agent_events, &schedule, active_schedule.0);
             (prompt, has_events, max_urgency)
         };
         pending_urgency = LlmPriority::Idle; // reset for next cycle

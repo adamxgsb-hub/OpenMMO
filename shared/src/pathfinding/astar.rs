@@ -51,6 +51,7 @@ struct ClosedEntry {
 }
 
 /// Find a path on a virtual 1m world grid with floor-level awareness.
+#[allow(clippy::too_many_arguments)]
 pub fn find_path(
     start_x: f32,
     start_z: f32,

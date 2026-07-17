@@ -150,8 +150,8 @@ mod tests {
         let (id, mut rp) = make_rect_room(8, 5);
         let cells = &mut rp.floors[0].cells;
         let w = 8usize;
-        cells[3 + 1 * w] |= EDGE_S;
-        cells[4 + 1 * w] |= EDGE_S;
+        cells[3 + w] |= EDGE_S;
+        cells[4 + w] |= EDGE_S;
         (id, rp)
     }
 

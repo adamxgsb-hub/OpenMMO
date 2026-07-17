@@ -160,6 +160,7 @@ fn cells_line_passable(from: &PathWaypoint, to: &PathWaypoint, cache: &Passabili
 }
 
 /// Convenience: find path and smooth it in one call.
+#[allow(clippy::too_many_arguments)]
 pub fn find_and_smooth_path(
     start_x: f32,
     start_z: f32,

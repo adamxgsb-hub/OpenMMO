@@ -638,7 +638,7 @@ async fn handle_client_message(
             });
 
             let rejoin_floor = player.floor_level;
-            let rejoin_pos = player.position.clone();
+            let rejoin_pos = player.position;
             if let Some(game_state_msg) = game_state.add_player(player).await {
                 responses.push(game_state_msg);
             }

@@ -155,7 +155,7 @@ impl MonsterAiManager {
             monster.id.clone(),
             monster.monster_type.clone(),
             behavior,
-            monster.position.clone(),
+            monster.position,
             monster.health,
             monster.max_health,
             movement.walk_speed,
@@ -208,7 +208,7 @@ impl MonsterAiManager {
             .values()
             .map(|p| NearbyPlayer {
                 id: p.id.clone(),
-                position: p.position.clone(),
+                position: p.position,
                 health: p.health,
             })
             .collect();
