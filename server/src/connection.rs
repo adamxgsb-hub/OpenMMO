@@ -9,6 +9,7 @@ use crate::types::{
 };
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
+use onlinerpg_shared::inventory::EquipSlot;
 use onlinerpg_shared::{deserialize_client_msg, serialize_server_msg};
 use std::sync::Arc;
 use tokio::net::TcpStream;
@@ -660,6 +661,18 @@ async fn handle_client_message(
                 )
                 .await;
 
+            // Load inventory from DB
+            game_state
+                .load_player_inventory(&id, character_id, auth_service)
+                .await;
+
+            // The equipped off-hand is the authoritative carried-torch state.
+            // Resolve it before add_player builds the late-join GameState snapshot.
+            let inventory = game_state.get_player_inventory(&id).await;
+            player.torch_on = inventory
+                .as_ref()
+                .is_some_and(|inv| inv.has_equipped_item(EquipSlot::OffHand, "torch"));
+
             let mut responses = vec![ServerMessage::JoinSuccess {
                 player: player.clone(),
                 is_admin: state.is_admin,
@@ -675,13 +688,8 @@ async fn handle_client_message(
                 zones: game_state.no_spawn_zones().to_vec(),
             });
 
-            // Load inventory from DB
-            game_state
-                .load_player_inventory(&id, character_id, auth_service)
-                .await;
-
             // Send inventory state
-            if let Some(inv) = game_state.get_player_inventory(&id).await {
+            if let Some(inv) = inventory {
                 responses.push(ServerMessage::InventoryState { inventory: inv });
             }
 
@@ -959,7 +967,7 @@ async fn handle_client_message(
 
         ClientMessage::TorchToggle { enabled } => {
             if let Some(id) = &state.player_id {
-                game_state.toggle_player_torch(id, enabled).await;
+                game_state.set_player_torch(id, enabled).await;
             } else {
                 warn!("Received torch toggle from client that is not in game");
             }

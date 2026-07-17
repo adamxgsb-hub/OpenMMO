@@ -255,7 +255,7 @@ impl super::GameState {
     }
 
     pub async fn equip_item(&self, player_id: &PlayerId, instance_id: u64) {
-        let snapshot = {
+        let (snapshot, torch_on) = {
             let mut inventories = self.inventories.write().await;
             let inv = match inventories.get_mut(player_id) {
                 Some(inv) => inv,
@@ -296,11 +296,16 @@ impl super::GameState {
             if let Some(old_item) = inv.equipped.insert(target_slot, item) {
                 inv.bag.push(old_item);
             }
-            inv.clone()
+            let torch_on = (target_slot == EquipSlot::OffHand)
+                .then(|| inv.has_equipped_item(EquipSlot::OffHand, "torch"));
+            (inv.clone(), torch_on)
         };
 
         self.mark_inventory_dirty(player_id).await;
         self.send_inventory_snapshot(player_id, snapshot).await;
+        if let Some(torch_on) = torch_on {
+            self.set_player_torch(player_id, torch_on).await;
+        }
     }
 
     pub async fn unequip_item(&self, player_id: &PlayerId, slot: EquipSlot) {
@@ -327,6 +332,9 @@ impl super::GameState {
 
         self.mark_inventory_dirty(player_id).await;
         self.send_inventory_snapshot(player_id, snapshot).await;
+        if slot == EquipSlot::OffHand {
+            self.set_player_torch(player_id, false).await;
+        }
     }
 
     /// Use a consumable from the bag: resolve its effect and dispatch to the
@@ -623,30 +631,33 @@ impl super::GameState {
             }
         };
 
-        let (snapshot, dropped) = {
+        let (snapshot, dropped, dropped_from_off_hand) = {
             let mut inventories = self.inventories.write().await;
             let inv = match inventories.get_mut(player_id) {
                 Some(inv) => inv,
                 None => return,
             };
 
-            let dropped =
+            let (dropped, dropped_from_off_hand) =
                 if let Some(idx) = inv.bag.iter().position(|i| i.instance_id == instance_id) {
-                    inv.bag.remove(idx)
+                    (inv.bag.remove(idx), false)
                 } else if let Some(slot) = inv
                     .equipped
                     .iter()
                     .find(|(_, item)| item.instance_id == instance_id)
                     .map(|(slot, _)| *slot)
                 {
-                    inv.equipped.remove(&slot).expect("checked above")
+                    (
+                        inv.equipped.remove(&slot).expect("checked above"),
+                        slot == EquipSlot::OffHand,
+                    )
                 } else {
                     drop(inventories);
                     self.send_inventory_error(player_id, "Item not found").await;
                     return;
                 };
 
-            (inv.clone(), dropped)
+            (inv.clone(), dropped, dropped_from_off_hand)
         };
 
         let ground_item = GroundItem {
@@ -659,6 +670,9 @@ impl super::GameState {
 
         self.mark_inventory_dirty(player_id).await;
         self.send_inventory_snapshot(player_id, snapshot).await;
+        if dropped_from_off_hand {
+            self.set_player_torch(player_id, false).await;
+        }
         self.spawn_ground_item(ground_item, None).await;
     }
 

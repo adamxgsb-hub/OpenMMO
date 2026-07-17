@@ -669,10 +669,13 @@ impl super::GameState {
             .map(|p| (p.position, p.rotation, p.floor_level))
     }
 
-    pub async fn toggle_player_torch(&self, player_id: &PlayerId, enabled: bool) {
+    pub async fn set_player_torch(&self, player_id: &PlayerId, enabled: bool) {
         let position = {
             let mut players = self.players.write().await;
             if let Some(player) = players.get_mut(player_id) {
+                if player.torch_on == enabled {
+                    return;
+                }
                 player.torch_on = enabled;
                 Some((player.position, player.floor_level))
             } else {
@@ -689,7 +692,7 @@ impl super::GameState {
                     player_id: player_id.clone(),
                     enabled,
                 },
-                None,
+                Some(player_id),
             )
             .await;
         }

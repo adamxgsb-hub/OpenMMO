@@ -4,7 +4,7 @@ use crate::item_defs::ItemDefs;
 use crate::monster_defs::MonsterDefs;
 use crate::types::{CharacterClass, Gender, MonsterState, Position, ServerMessage};
 use crate::world_config::world_config;
-use onlinerpg_shared::inventory::{EquipSlot, GroundItem, ItemInstance};
+use onlinerpg_shared::inventory::{EquipSlot, GroundItem, ItemInstance, PlayerInventory};
 use onlinerpg_shared::messages::DealKind;
 use tokio::sync::broadcast::error::TryRecvError;
 use tokio::sync::mpsc::error::TryRecvError as MpscTryRecvError;
@@ -63,6 +63,43 @@ fn make_test_game_state(test_name: &str) -> GameState {
         vec![],
         crate::dungeon_defs::DungeonDefs::load(),
     )
+}
+
+#[tokio::test]
+async fn equipped_torch_syncs_live_and_late_join_player_state() {
+    let game_state = make_test_game_state("late_join_torch_snapshot");
+    let torch_holder_id = "torch_holder".to_string();
+
+    game_state
+        .add_player(make_player(&torch_holder_id, 0.0, 0.0))
+        .await;
+    game_state.inventories.write().await.insert(
+        torch_holder_id.clone(),
+        PlayerInventory {
+            bag: vec![bag_item(1, "torch", 1)],
+            equipped: Default::default(),
+        },
+    );
+
+    game_state.equip_item(&torch_holder_id, 1).await;
+    assert!(game_state.get_all_players().await[&torch_holder_id].torch_on);
+
+    let snapshot = game_state
+        .add_player(make_player("late_joiner", 1.0, 0.0))
+        .await
+        .expect("nearby existing player should produce a GameState snapshot");
+    match snapshot {
+        ServerMessage::GameState { players, .. } => {
+            assert!(players[&torch_holder_id].torch_on);
+        }
+        other => panic!("expected GameState, got {other:?}"),
+    }
+
+    game_state
+        .unequip_item(&torch_holder_id, EquipSlot::OffHand)
+        .await;
+
+    assert!(!game_state.get_all_players().await[&torch_holder_id].torch_on);
 }
 
 #[tokio::test]

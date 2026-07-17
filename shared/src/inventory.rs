@@ -95,6 +95,14 @@ pub struct PlayerInventory {
     pub equipped: HashMap<EquipSlot, ItemInstance>,
 }
 
+impl PlayerInventory {
+    pub fn has_equipped_item(&self, slot: EquipSlot, item_def_id: &str) -> bool {
+        self.equipped
+            .get(&slot)
+            .is_some_and(|item| item.item_def_id == item_def_id)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroundItem {
     pub instance_id: u64,
