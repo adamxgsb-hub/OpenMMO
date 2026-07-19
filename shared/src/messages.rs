@@ -133,7 +133,8 @@ pub enum ClientMessage {
     /// Toggle a dungeon door's open state. `depth` 0 is the surface entrance
     /// door; ≥1 is an interior room door. `door_id` is the client's opaque
     /// door key (derived from the door's geometry). The server flips the
-    /// stored state for (entrance, depth, door_id) and broadcasts it nearby.
+    /// stored state for (entrance, depth, door_id) and broadcasts nearby
+    /// (surface floor for depth 0, the toggler's floor for interior doors).
     ToggleDungeonDoor {
         entrance_id: String,
         depth: u8,
@@ -141,8 +142,8 @@ pub enum ClientMessage {
     },
     /// Ask for the open/closed state of every door in a dungeon (entrance +
     /// interior, all depths). The server replies with DungeonDoorsState. Sent
-    /// when the client registers/enters the dungeon so doors others left open
-    /// render correctly.
+    /// when the client registers the dungeon and again when crossing into
+    /// toggle-delivery range, so doors others left open render correctly.
     RequestDungeonDoors {
         entrance_id: String,
     },
@@ -340,8 +341,9 @@ pub enum ServerMessage {
         opened: Vec<u32>,
     },
     /// A dungeon door was toggled (surface entrance at depth 0, or an interior
-    /// room door at depth ≥1). Broadcast to nearby players (the toggler
-    /// included) so everyone sees it swing.
+    /// room door at depth ≥1). Delivered to nearby players on the door's floor
+    /// (surface floor for depth 0); the toggler always receives it. Clients
+    /// re-pull DungeonDoorsState when crossing into delivery range.
     DungeonDoorToggled {
         entrance_id: String,
         depth: u8,
@@ -350,8 +352,8 @@ pub enum ServerMessage {
     },
     /// Snapshot of every open door in a dungeon (entrance + interior), sent in
     /// reply to RequestDungeonDoors and pushed on every dungeon floor entry
-    /// (the live toggle broadcast is floor/radius-gated, so an arriving player
-    /// may have missed toggles since their registration-time snapshot). Each
+    /// (door broadcasts are floor/radius-gated, so an arriving player may
+    /// have missed toggles since their registration-time snapshot). Each
     /// entry is (depth, door_id); doors not listed are shut.
     DungeonDoorsState {
         entrance_id: String,

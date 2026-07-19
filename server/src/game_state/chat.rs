@@ -36,7 +36,7 @@ impl super::GameState {
             // Chat content stays out of logs on purpose (privacy, F-012).
             info!(from = %player_name, len = message.len(), "chat message");
             let recipients = self
-                .player_ids_within(player_id, super::AGENT_EVENT_DELIVERY_RADIUS)
+                .player_ids_within(player_id, super::EVENT_DELIVERY_RADIUS)
                 .await;
             self.send_direct_message_to_players(
                 &recipients,

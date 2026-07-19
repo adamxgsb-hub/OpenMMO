@@ -1863,6 +1863,102 @@ fn first_dungeon_door(
     (entrance, depth, door)
 }
 
+#[tokio::test]
+async fn dungeon_door_toggle_delivery_gates_radius_and_floor() {
+    let game_state = make_test_game_state("dungeon_door_delivery");
+    let entrance = game_state
+        .dungeon_defs
+        .all()
+        .next()
+        .expect("a dungeon def")
+        .clone();
+    let ep = entrance.position();
+    let toggler = "door_toggler".to_string();
+    let near_surface = "near_surface".to_string();
+    let far_surface = "far_surface".to_string();
+    let near_underground = "near_underground".to_string();
+    game_state
+        .add_player(make_player(&toggler, ep.x, ep.z))
+        .await;
+    game_state
+        .add_player(make_player(&near_surface, ep.x + 30.0, ep.z))
+        .await;
+    game_state
+        .add_player(make_player(&far_surface, ep.x + 100.0, ep.z))
+        .await;
+    let mut delver = make_player(&near_underground, ep.x + 10.0, ep.z);
+    delver.floor_level = -1;
+    game_state.add_player(delver).await;
+
+    let mut toggler_rx = game_state.register_direct_channel(&toggler).await;
+    let mut near_rx = game_state.register_direct_channel(&near_surface).await;
+    let mut far_rx = game_state.register_direct_channel(&far_surface).await;
+    let mut under_rx = game_state.register_direct_channel(&near_underground).await;
+    let mut broadcast_rx = game_state.subscribe();
+
+    game_state
+        .publish_dungeon_door_toggle(&toggler, entrance.id.clone(), 0, 0, true)
+        .await;
+
+    // Surface door: never global; surface players within EVENT_DELIVERY_RADIUS
+    // only. Underground players wait for the floor-entry snapshot; players
+    // farther out re-pull the snapshot when they cross into range.
+    assert!(matches!(broadcast_rx.try_recv(), Err(TryRecvError::Empty)));
+    for rx in [&mut toggler_rx, &mut near_rx] {
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(ServerMessage::DungeonDoorToggled {
+                entrance_id,
+                depth: 0,
+                door_id: 0,
+                is_open: true,
+            }) if entrance_id == entrance.id
+        ));
+    }
+    assert!(matches!(far_rx.try_recv(), Err(MpscTryRecvError::Empty)));
+    assert!(matches!(under_rx.try_recv(), Err(MpscTryRecvError::Empty)));
+
+    game_state
+        .publish_dungeon_door_toggle(&near_underground, entrance.id.clone(), 1, 123, false)
+        .await;
+
+    // Interior door: gated to the door's floor, so nearby surface players
+    // hear nothing.
+    assert!(matches!(broadcast_rx.try_recv(), Err(TryRecvError::Empty)));
+    assert!(matches!(
+        under_rx.try_recv(),
+        Ok(ServerMessage::DungeonDoorToggled {
+            entrance_id,
+            depth: 1,
+            door_id: 123,
+            is_open: false,
+        }) if entrance_id == entrance.id
+    ));
+    assert!(matches!(
+        toggler_rx.try_recv(),
+        Err(MpscTryRecvError::Empty)
+    ));
+    assert!(matches!(near_rx.try_recv(), Err(MpscTryRecvError::Empty)));
+
+    // Entrance toggled from the shaft ramp (toggler floor-tracked
+    // underground): the toggler still hears their own toggle, and nearby
+    // surface players still get it.
+    game_state
+        .publish_dungeon_door_toggle(&near_underground, entrance.id.clone(), 0, 0, false)
+        .await;
+    for rx in [&mut under_rx, &mut toggler_rx, &mut near_rx] {
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(ServerMessage::DungeonDoorToggled {
+                depth: 0,
+                is_open: false,
+                ..
+            })
+        ));
+    }
+    assert!(matches!(far_rx.try_recv(), Err(MpscTryRecvError::Empty)));
+}
+
 /// A shut interior dungeon door must block server-simulated movement across
 /// its corridor mouth from boot (doors default shut); toggling it open lets
 /// the move through, toggling again reseals it.

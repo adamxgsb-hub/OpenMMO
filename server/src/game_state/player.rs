@@ -267,7 +267,7 @@ impl super::GameState {
         );
 
         let nearby_player_ids = self
-            .player_ids_within(&player_id, super::AGENT_EVENT_DELIVERY_RADIUS)
+            .player_ids_within(&player_id, super::EVENT_DELIVERY_RADIUS)
             .await;
         let nearby_player_set: HashSet<_> = nearby_player_ids.iter().cloned().collect();
         self.send_direct_message_to_players_except(
@@ -295,7 +295,7 @@ impl super::GameState {
             .filter(|(_, monster)| {
                 monster.floor_level == player_floor
                     && monster.position.dist_xz_sq(&player_position)
-                        <= super::AGENT_EVENT_DELIVERY_RADIUS * super::AGENT_EVENT_DELIVERY_RADIUS
+                        <= super::EVENT_DELIVERY_RADIUS * super::EVENT_DELIVERY_RADIUS
             })
             .map(|(id, monster)| (id.clone(), monster.clone()))
             .collect();
@@ -307,7 +307,7 @@ impl super::GameState {
             .filter(|sgi| {
                 sgi.item.floor_level == player_floor
                     && sgi.item.position.dist_xz_sq(&player_position)
-                        <= super::AGENT_EVENT_DELIVERY_RADIUS * super::AGENT_EVENT_DELIVERY_RADIUS
+                        <= super::EVENT_DELIVERY_RADIUS * super::EVENT_DELIVERY_RADIUS
             })
             .map(|sgi| sgi.item.clone())
             .collect();
@@ -357,7 +357,7 @@ impl super::GameState {
         };
 
         let nearby_player_ids = self
-            .player_ids_within(player_id, super::AGENT_EVENT_DELIVERY_RADIUS)
+            .player_ids_within(player_id, super::EVENT_DELIVERY_RADIUS)
             .await;
         let removed_player = {
             let mut players = self.players.write().await;
@@ -754,7 +754,7 @@ impl super::GameState {
             self.send_direct_message_to_players_within_position(
                 &position,
                 floor_level,
-                super::AGENT_EVENT_DELIVERY_RADIUS,
+                super::EVENT_DELIVERY_RADIUS,
                 ServerMessage::PlayerTorchToggled {
                     player_id: player_id.clone(),
                     enabled,
@@ -802,7 +802,7 @@ impl super::GameState {
             self.send_direct_message_to_players_within_position(
                 &position,
                 floor_level,
-                super::AGENT_EVENT_DELIVERY_RADIUS,
+                super::EVENT_DELIVERY_RADIUS,
                 ServerMessage::PlayerInteractionChanged {
                     player_id: player_id.clone(),
                     object_type,
@@ -927,17 +927,13 @@ impl super::GameState {
         // disappear-from-old-floor + appear-on-new-floor.
         let new_floor = player.floor_level;
         let old_visible: HashSet<PlayerId> = self
-            .player_ids_within_position(old_position, old_floor, super::AGENT_EVENT_DELIVERY_RADIUS)
+            .player_ids_within_position(old_position, old_floor, super::EVENT_DELIVERY_RADIUS)
             .await
             .into_iter()
             .filter(|id| id != player_id)
             .collect();
         let new_visible: HashSet<PlayerId> = self
-            .player_ids_within_position(
-                &player.position,
-                new_floor,
-                super::AGENT_EVENT_DELIVERY_RADIUS,
-            )
+            .player_ids_within_position(&player.position, new_floor, super::EVENT_DELIVERY_RADIUS)
             .await
             .into_iter()
             .filter(|id| id != player_id)
@@ -991,7 +987,7 @@ impl super::GameState {
 
         let (monsters_left, monsters_entered) = {
             let monsters = self.monsters.read().await;
-            let radius_sq = super::AGENT_EVENT_DELIVERY_RADIUS * super::AGENT_EVENT_DELIVERY_RADIUS;
+            let radius_sq = super::EVENT_DELIVERY_RADIUS * super::EVENT_DELIVERY_RADIUS;
             let old_monsters: HashSet<_> = monsters
                 .iter()
                 .filter(|(_, monster)| {
@@ -1031,7 +1027,7 @@ impl super::GameState {
 
         let (items_left, items_entered) = {
             let ground_items = self.ground_items.read().await;
-            let radius_sq = super::AGENT_EVENT_DELIVERY_RADIUS * super::AGENT_EVENT_DELIVERY_RADIUS;
+            let radius_sq = super::EVENT_DELIVERY_RADIUS * super::EVENT_DELIVERY_RADIUS;
             let old_items: HashSet<_> = ground_items
                 .iter()
                 .filter(|(_, sgi)| {

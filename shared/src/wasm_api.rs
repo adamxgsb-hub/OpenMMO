@@ -300,6 +300,7 @@ pub fn dungeon_constants() -> Result<JsValue, JsError> {
         shaft_len: i32,
         max_depth: u8,
         path_max_nodes: u32,
+        event_delivery_radius: f32,
     }
     to_js(&DungeonConstants {
         grid: crate::dungeon::GRID,
@@ -310,6 +311,7 @@ pub fn dungeon_constants() -> Result<JsValue, JsError> {
         shaft_len: crate::dungeon::SHAFT_LEN,
         max_depth: crate::dungeon::MAX_DEPTH,
         path_max_nodes: crate::dungeon::DUNGEON_PATH_MAX_NODES as u32,
+        event_delivery_radius: crate::EVENT_DELIVERY_RADIUS,
     })
 }
 

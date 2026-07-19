@@ -156,6 +156,47 @@ impl GameState {
         Some(is_open)
     }
 
+    /// Deliver a toggle to players near the door on the door's own floor.
+    /// Depth 0 centers on the entrance so the circle matches the client's
+    /// snapshot re-pull boundary; interior doors center on the toggler (who
+    /// stands within interact range of the door). The toggler is always sent
+    /// directly — their tracked floor may lag mid-stairs.
+    pub(crate) async fn publish_dungeon_door_toggle(
+        &self,
+        player_id: &PlayerId,
+        entrance_id: String,
+        depth: u8,
+        door_id: u32,
+        is_open: bool,
+    ) {
+        let (center, floor_level) = if depth == 0 {
+            let Some(def) = self.dungeon_defs.get(&entrance_id) else {
+                return;
+            };
+            (def.position(), 0)
+        } else {
+            let Some((position, _, _)) = self.get_player_position(player_id).await else {
+                return;
+            };
+            (position, -(depth as i8))
+        };
+        let toggled = ServerMessage::DungeonDoorToggled {
+            entrance_id,
+            depth,
+            door_id,
+            is_open,
+        };
+        self.send_direct_message(player_id, toggled.clone()).await;
+        self.send_direct_message_to_players_within_position(
+            &center,
+            floor_level,
+            super::EVENT_DELIVERY_RADIUS,
+            toggled,
+            Some(player_id),
+        )
+        .await;
+    }
+
     /// Every currently-open door in a dungeon as (depth, door_id) pairs, for the
     /// RequestDungeonDoors snapshot. Reads without creating the runtime — an
     /// untouched dungeon simply has no open doors.
@@ -283,7 +324,7 @@ impl GameState {
         self.send_direct_message_to_players_within_position(
             &player_pos,
             player_floor,
-            super::AGENT_EVENT_DELIVERY_RADIUS,
+            super::EVENT_DELIVERY_RADIUS,
             ServerMessage::DungeonChestOpened {
                 entrance_id: entrance_id.to_string(),
                 player_id: player_id.clone(),
@@ -516,7 +557,7 @@ impl GameState {
                 self.send_direct_message_to_players_within_position(
                     &player_pos,
                     player_floor,
-                    super::AGENT_EVENT_DELIVERY_RADIUS,
+                    super::EVENT_DELIVERY_RADIUS,
                     on_success,
                     None,
                 )
@@ -838,7 +879,7 @@ impl GameState {
                     self.send_direct_message_to_players_within_position(
                         &monster.position,
                         monster.floor_level,
-                        super::AGENT_EVENT_DELIVERY_RADIUS,
+                        super::EVENT_DELIVERY_RADIUS,
                         ServerMessage::MonsterRemoved {
                             monster_id: monster.id,
                         },

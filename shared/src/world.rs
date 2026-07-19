@@ -100,10 +100,19 @@ mod tests {
 }
 
 /// Distance (game units) within which agent (NPC) clients perceive nearby
-/// humans and monsters. The server uses it to decide which gameplay events to
-/// deliver to an agent connection; the agent-client uses the same value to
-/// decide which entities to surface to the LLM. Shared so the two stay equal.
+/// humans and monsters: the agent-client surfaces only entities within it to
+/// the LLM, and the server applies it to NPC gameplay checks (e.g. deal
+/// offers). Event *delivery* uses the wider EVENT_DELIVERY_RADIUS.
 pub const NPC_SIGHT_RADIUS: f32 = 27.0;
+
+/// Server AOI for gameplay event delivery, and the client's dungeon
+/// registration / door-resync boundary (exposed to TS via
+/// dungeon_constants()): the farthest world point visible in a fullscreen
+/// browser spanning dual 4K monitors.
+pub const EVENT_DELIVERY_RADIUS: f32 = 43.0;
+
+/// Agent connections must receive everything they perceive.
+const _: () = assert!(EVENT_DELIVERY_RADIUS >= NPC_SIGHT_RADIUS);
 
 /// Player walk speed in units/sec. Client prediction, agent-client walks and
 /// the server's authoritative movement simulation must all agree on this.

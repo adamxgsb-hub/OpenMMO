@@ -376,7 +376,7 @@ class NetworkManager {
   }
 
   /** Toggle a dungeon door (entrance at depth 0, or an interior room door at
-   *  depth ≥1). The server flips and broadcasts the new state to nearby players. */
+   *  depth ≥1). The server flips and broadcasts the authoritative state. */
   sendToggleDungeonDoor(entranceId: string, depth: number, doorId: number) {
     this.sendMessage({
       ToggleDungeonDoor: {

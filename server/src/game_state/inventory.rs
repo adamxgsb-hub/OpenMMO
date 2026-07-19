@@ -429,7 +429,7 @@ impl super::GameState {
         self.send_direct_message_to_players_within_position(
             &position,
             floor_level,
-            super::AGENT_EVENT_DELIVERY_RADIUS,
+            super::EVENT_DELIVERY_RADIUS,
             ServerMessage::PlayerHealthUpdate {
                 player_id: player_id.clone(),
                 health,
@@ -585,7 +585,7 @@ impl super::GameState {
         self.send_direct_message_to_players_within_position(
             &position,
             floor_level,
-            super::AGENT_EVENT_DELIVERY_RADIUS,
+            super::EVENT_DELIVERY_RADIUS,
             ServerMessage::GroundItemSpawned {
                 item: ground_item,
                 source_monster_id,
@@ -824,7 +824,7 @@ impl super::GameState {
         self.send_direct_message_to_players_within_position(
             &item_position,
             player_floor,
-            super::AGENT_EVENT_DELIVERY_RADIUS,
+            super::EVENT_DELIVERY_RADIUS,
             ServerMessage::GroundItemRemoved { instance_id },
             None,
         )
@@ -872,7 +872,7 @@ impl super::GameState {
         self.send_direct_message_to_players_within_position(
             &ground_item.position,
             player_floor,
-            super::AGENT_EVENT_DELIVERY_RADIUS,
+            super::EVENT_DELIVERY_RADIUS,
             ServerMessage::GroundItemRemoved { instance_id },
             None,
         )
@@ -913,7 +913,7 @@ impl super::GameState {
             self.send_direct_message_to_players_within_position(
                 &position,
                 floor_level,
-                super::AGENT_EVENT_DELIVERY_RADIUS,
+                super::EVENT_DELIVERY_RADIUS,
                 ServerMessage::GroundItemRemoved { instance_id: id },
                 None,
             )

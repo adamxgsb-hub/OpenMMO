@@ -28,7 +28,7 @@ struct SpatialCell {
     z: i32,
 }
 
-const PLAYER_SPATIAL_CELL_SIZE: f32 = onlinerpg_shared::NPC_SIGHT_RADIUS;
+const PLAYER_SPATIAL_CELL_SIZE: f32 = EVENT_DELIVERY_RADIUS;
 
 impl SpatialCell {
     fn from_position(position: &Position) -> Self {
@@ -64,9 +64,7 @@ mod trading;
 #[cfg(test)]
 mod tests;
 
-/// Agent clients only need gameplay events when a human is close enough to
-/// plausibly matter. Same physical radius the agent-client perceives with.
-pub(crate) const AGENT_EVENT_DELIVERY_RADIUS: f32 = onlinerpg_shared::NPC_SIGHT_RADIUS;
+pub(crate) const EVENT_DELIVERY_RADIUS: f32 = onlinerpg_shared::EVENT_DELIVERY_RADIUS;
 
 /// Item def id for the loose-coin pickup spilled by an opened dungeon chest
 /// prop. It never enters a bag — picking it up credits a few copper straight

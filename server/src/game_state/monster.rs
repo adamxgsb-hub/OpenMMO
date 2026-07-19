@@ -122,7 +122,7 @@ impl super::GameState {
         self.send_direct_message_to_players_within_position(
             &monster.position,
             monster.floor_level,
-            super::AGENT_EVENT_DELIVERY_RADIUS,
+            super::EVENT_DELIVERY_RADIUS,
             ServerMessage::MonsterSpawned {
                 monster: monster.clone(),
             },
@@ -187,7 +187,7 @@ impl super::GameState {
             .player_ids_within_position(
                 &old_position,
                 monster.floor_level,
-                super::AGENT_EVENT_DELIVERY_RADIUS,
+                super::EVENT_DELIVERY_RADIUS,
             )
             .await
             .into_iter()
@@ -197,7 +197,7 @@ impl super::GameState {
             .player_ids_within_position(
                 &monster.position,
                 monster.floor_level,
-                super::AGENT_EVENT_DELIVERY_RADIUS,
+                super::EVENT_DELIVERY_RADIUS,
             )
             .await
             .into_iter()
@@ -249,7 +249,7 @@ impl super::GameState {
             self.send_direct_message_to_players_within_position(
                 &monster.position,
                 monster.floor_level,
-                super::AGENT_EVENT_DELIVERY_RADIUS,
+                super::EVENT_DELIVERY_RADIUS,
                 ServerMessage::MonsterRemoved {
                     monster_id: monster.id,
                 },
@@ -276,7 +276,7 @@ impl super::GameState {
         // once under a single read lock so the per-rule loop below needs none.
         let player_ids: Vec<String> = {
             let players = self.players.read().await;
-            let radius_sq = super::AGENT_EVENT_DELIVERY_RADIUS * super::AGENT_EVENT_DELIVERY_RADIUS;
+            let radius_sq = super::EVENT_DELIVERY_RADIUS * super::EVENT_DELIVERY_RADIUS;
             let human_positions: Vec<_> = players
                 .values()
                 .filter(|p| !p.is_npc)

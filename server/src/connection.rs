@@ -865,24 +865,9 @@ async fn handle_client_message(
                     .toggle_dungeon_door(&entrance_id, depth, door_id)
                     .await
                 {
-                    if let Some((position, _, floor_level)) =
-                        game_state.get_player_position(id).await
-                    {
-                        game_state
-                            .send_direct_message_to_players_within_position(
-                                &position,
-                                floor_level,
-                                crate::game_state::AGENT_EVENT_DELIVERY_RADIUS,
-                                ServerMessage::DungeonDoorToggled {
-                                    entrance_id,
-                                    depth,
-                                    door_id,
-                                    is_open,
-                                },
-                                None,
-                            )
-                            .await;
-                    }
+                    game_state
+                        .publish_dungeon_door_toggle(id, entrance_id, depth, door_id, is_open)
+                        .await;
                 }
             }
         }
@@ -1009,7 +994,7 @@ async fn handle_client_message(
                             .send_direct_message_to_players_within_position(
                                 &position,
                                 floor_level,
-                                crate::game_state::AGENT_EVENT_DELIVERY_RADIUS,
+                                crate::game_state::EVENT_DELIVERY_RADIUS,
                                 ServerMessage::DoorToggled {
                                     house_id,
                                     room_index,

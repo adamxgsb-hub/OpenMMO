@@ -177,7 +177,7 @@ impl super::GameState {
             self.send_direct_message_to_players_within_position(
                 &monster_position,
                 monster_floor_level,
-                super::AGENT_EVENT_DELIVERY_RADIUS,
+                super::EVENT_DELIVERY_RADIUS,
                 ServerMessage::PlayerAttacked {
                     player_id: player_id.clone(),
                     monster_id: monster_id.clone(),
@@ -225,7 +225,7 @@ impl super::GameState {
                     self.send_direct_message_to_players_within_position(
                         &monster_position,
                         monster_floor_level,
-                        super::AGENT_EVENT_DELIVERY_RADIUS,
+                        super::EVENT_DELIVERY_RADIUS,
                         ServerMessage::MonsterDead {
                             monster_id: monster_id.clone(),
                             dropped_weapon_item_def_id: dropped_weapon_item_def_id.clone(),
@@ -402,7 +402,7 @@ impl super::GameState {
                                     .send_direct_message_to_players_within_position(
                                         &monster_position,
                                         monster_floor,
-                                        super::AGENT_EVENT_DELIVERY_RADIUS,
+                                        super::EVENT_DELIVERY_RADIUS,
                                         ServerMessage::MonsterRemoved {
                                             monster_id: id_to_remove,
                                         },
@@ -541,7 +541,7 @@ impl super::GameState {
             self.send_direct_message_to_players_within_position(
                 &target_position,
                 target_floor,
-                super::AGENT_EVENT_DELIVERY_RADIUS,
+                super::EVENT_DELIVERY_RADIUS,
                 attack_msg,
                 None,
             )
@@ -559,7 +559,7 @@ impl super::GameState {
                 self.send_direct_message_to_players_within_position(
                     &target_position,
                     target_floor,
-                    super::AGENT_EVENT_DELIVERY_RADIUS,
+                    super::EVENT_DELIVERY_RADIUS,
                     ServerMessage::PlayerDead {
                         player_id: dead_player_id,
                     },
@@ -635,7 +635,7 @@ impl super::GameState {
             self.send_direct_message_to_players_within_position(
                 &position,
                 floor_level,
-                super::AGENT_EVENT_DELIVERY_RADIUS,
+                super::EVENT_DELIVERY_RADIUS,
                 msg,
                 None,
             )

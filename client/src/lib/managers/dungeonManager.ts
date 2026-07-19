@@ -27,6 +27,7 @@ import {
   dungeonPropsRevision,
 } from '../stores/dungeonStore'
 import { DUNGEON_ENTRANCES } from '../data/dungeonDefs'
+import { shortestWrappedDeltaX } from '../terrain/world-wrap'
 import type { DungeonWall } from '../utils/dungeon-geo-constants'
 
 export interface DungeonRoom {
@@ -107,6 +108,7 @@ export interface DungeonConstants {
   shaftLen: number
   maxDepth: number
   pathMaxNodes: number
+  eventDeliveryRadius: number
 }
 
 export interface DungeonEntrance {
@@ -133,10 +135,10 @@ const PLAYER_RADIUS = 0.3
  *  on the wall's outer face — the player stops short of the *visible* wall, not
  *  its inner footprint edge. */
 export const ENTRANCE_WALL_T = 0.25
-/** Register a registry dungeon when the player gets this close (m). */
-const ENTRANCE_REGISTER_DIST = 80
-/** Drop a surface-level dungeon registration beyond this distance (m). */
-const ENTRANCE_UNREGISTER_DIST = 120
+/** Drop a surface-level dungeon registration beyond this distance (m). The
+ *  wide band past the delivery radius keeps boundary walking from re-running
+ *  registration (layouts + passability + entrance rebuild). */
+const ENTRANCE_UNREGISTER_DIST = 80
 
 /** Shared immutable empty set returned for floors with no broken props. */
 const EMPTY_BROKEN: ReadonlySet<number> = new Set<number>()
@@ -326,6 +328,13 @@ class DungeonManager {
    *  the surface entrance door; ≥1 are interior room doors. Cleared on
    *  enter/exit; (re)populated by the snapshot + live toggle broadcasts. */
   private openDoors = new Map<number, Set<number>>()
+  /** True while the last surface-frame check was inside the delivery radius;
+   *  a false→true crossing queues a door-snapshot re-pull (door toggles
+   *  outside the radius are never delivered). */
+  private doorSyncInside = true
+  /** Entrance id whose door snapshot must be re-pulled, consumed once by the
+   *  render layer (takeDoorSnapshotRequest). */
+  private doorSnapshotRequest: string | null = null
 
   get active(): boolean {
     return this.id !== null
@@ -471,6 +480,8 @@ class DungeonManager {
     this.brokenProps.clear()
     this.openedProps.clear()
     this.openDoors.clear()
+    this.doorSyncInside = true
+    this.doorSnapshotRequest = null
     this.id = id
     this.entrance = entrance
     currentDungeonId.set(id)
@@ -486,6 +497,8 @@ class DungeonManager {
     this.brokenProps.clear()
     this.openedProps.clear()
     this.openDoors.clear()
+    this.doorSyncInside = true
+    this.doorSnapshotRequest = null
     this.pendingBreakState = null
     this.pendingOpenState = null
     currentDungeonId.set(null)
@@ -889,16 +902,18 @@ class DungeonManager {
   /**
    * Register/unregister registry dungeons by proximity so the entrance
    * structure and passability exist before the player reaches the stairs.
+   * Registration and the door-snapshot re-pull share the server's delivery
+   * radius (shared EVENT_DELIVERY_RADIUS via dungeon_constants()): while
+   * registered on the surface, each crossing back inside it queues a re-pull,
+   * since door toggles outside the radius are never delivered.
    */
   private updateAutoRegister(x: number, z: number) {
+    const r = constants().eventDeliveryRadius
     if (!this.active) {
       for (const e of DUNGEON_ENTRANCES) {
-        const dx = x - e.x
+        const dx = shortestWrappedDeltaX(e.x, x)
         const dz = z - e.z
-        if (
-          dx * dx + dz * dz <
-          ENTRANCE_REGISTER_DIST * ENTRANCE_REGISTER_DIST
-        ) {
+        if (dx * dx + dz * dz < r * r) {
           this.enter(e.id, { x: e.x, y: e.y, z: e.z })
           return
         }
@@ -906,12 +921,13 @@ class DungeonManager {
       return
     }
     if (get(currentDungeonDepth) === 0 && this.entrance) {
-      const dx = x - this.entrance.x
+      const dx = shortestWrappedDeltaX(this.entrance.x, x)
       const dz = z - this.entrance.z
-      if (
-        dx * dx + dz * dz >
-        ENTRANCE_UNREGISTER_DIST * ENTRANCE_UNREGISTER_DIST
-      ) {
+      const d2 = dx * dx + dz * dz
+      const inside = d2 < r * r
+      if (inside && !this.doorSyncInside) this.doorSnapshotRequest = this.id
+      this.doorSyncInside = inside
+      if (d2 > ENTRANCE_UNREGISTER_DIST * ENTRANCE_UNREGISTER_DIST) {
         this.exit()
       }
     }
@@ -943,6 +959,14 @@ class DungeonManager {
       this.enter(covering.id, { x: covering.x, y: covering.y, z: covering.z })
     }
     currentDungeonDepth.set(-floorLevel)
+  }
+
+  /** Entrance id needing a door-snapshot re-pull (the player crossed back
+   *  into delivery range); cleared on read. */
+  takeDoorSnapshotRequest(): string | null {
+    const id = this.doorSnapshotRequest
+    this.doorSnapshotRequest = null
+    return id
   }
 
   /**
