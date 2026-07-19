@@ -125,11 +125,13 @@ impl GameState {
             });
     }
 
-    /// Toggle a dungeon door's open state and return the new state. `door_id`
-    /// is opaque to the server (the client derives it from the door geometry);
-    /// we just flip membership and let the connection layer broadcast. No
-    /// proximity check — doors are cosmetic and the client gates the click by
-    /// interaction range, mirroring the original client-only entrance door.
+    /// Toggle a dungeon door's open state and return the new state. The
+    /// client gates the click by interaction range; the server flips the
+    /// stored state, reseals the floor's passability (a shut interior door
+    /// blocks movement and pathing) and lets the connection layer broadcast.
+    /// Interior door ids map to corridor-mouth segments via `interior_doors`;
+    /// depth 0 (the surface entrance door) has no server-side grid and stays
+    /// cosmetic.
     pub async fn toggle_dungeon_door(
         &self,
         entrance_id: &str,
@@ -138,15 +140,19 @@ impl GameState {
     ) -> Option<bool> {
         self.dungeon_defs.get(entrance_id)?;
         self.ensure_dungeon_runtime(entrance_id).await;
-        let mut dungeons = self.dungeons.write().await;
-        let rt = dungeons.get_mut(entrance_id)?;
-        let set = rt.open_doors.entry(depth).or_default();
-        let is_open = if set.remove(&door_id) {
-            false
-        } else {
-            set.insert(door_id);
-            true
+        let is_open = {
+            let mut dungeons = self.dungeons.write().await;
+            let rt = dungeons.get_mut(entrance_id)?;
+            let set = rt.open_doors.entry(depth).or_default();
+            if set.remove(&door_id) {
+                false
+            } else {
+                set.insert(door_id);
+                true
+            }
         };
+        self.rebuild_dungeon_floor_passability(entrance_id, depth)
+            .await;
         Some(is_open)
     }
 
@@ -645,6 +651,16 @@ impl GameState {
                 depth,
                 broken,
                 opened,
+            },
+        )
+        .await;
+        // Same for doors — see `DungeonDoorsState` for why arrival needs it.
+        let doors = self.dungeon_open_doors(entrance_id).await;
+        self.send_direct_message(
+            player_id,
+            ServerMessage::DungeonDoorsState {
+                entrance_id: entrance_id.to_string(),
+                doors,
             },
         )
         .await;

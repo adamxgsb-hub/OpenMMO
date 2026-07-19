@@ -349,8 +349,10 @@ pub enum ServerMessage {
         is_open: bool,
     },
     /// Snapshot of every open door in a dungeon (entrance + interior), sent in
-    /// reply to RequestDungeonDoors so a fresh client renders the doors others
-    /// left open. Each entry is (depth, door_id); doors not listed are shut.
+    /// reply to RequestDungeonDoors and pushed on every dungeon floor entry
+    /// (the live toggle broadcast is floor/radius-gated, so an arriving player
+    /// may have missed toggles since their registration-time snapshot). Each
+    /// entry is (depth, door_id); doors not listed are shut.
     DungeonDoorsState {
         entrance_id: String,
         doors: Vec<(u8, u32)>,

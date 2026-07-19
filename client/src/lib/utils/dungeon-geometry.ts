@@ -41,13 +41,8 @@ export {
   DUNGEON_CEILING_TEXTURE_IDX,
   DUNGEON_PILLAR_TEXTURE_IDX,
   UP_SHAFT_GROUP_NAME,
-  WALL_N,
-  WALL_E,
-  WALL_S,
-  WALL_W,
-  WALL_SIDES,
 } from './dungeon-geo-constants'
-export type { DungeonGeoCtx, DungeonWall } from './dungeon-geo-constants'
+export type { DungeonGeoCtx } from './dungeon-geo-constants'
 
 export { shaftStepCell } from './dungeon-geo-shaft'
 

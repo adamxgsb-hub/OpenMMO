@@ -175,6 +175,20 @@ fn shaft_footprint(s: &StairShaft) -> Vec<(i32, i32)> {
     cells
 }
 
+/// `dungeon_passability` grids with every interior door open. Reachability
+/// tests verify layout connectivity: doors default shut in the shipped grids
+/// but are player-openable, so they never wall anything off permanently.
+fn passability_with_doors_open(entrance: &Position, floors: &[FloorLayout]) -> RuntimePassability {
+    let mut rp = dungeon_passability(entrance, floors);
+    for f in floors {
+        let fl = passability_floor_for_depth(f.depth);
+        if let Some(g) = rp.floors.iter_mut().find(|g| g.floor_level == fl) {
+            g.cells = floor_passability_cells(f);
+        }
+    }
+    rp
+}
+
 /// End-to-end pathfinding through the real passability machinery: from
 /// the surface entrance, walk down every floor to the chest.
 #[test]
@@ -182,7 +196,7 @@ fn full_descent_path_through_passability() {
     let entrance = test_entrance();
     for seed in 0..40u64 {
         let floors = generate_dungeon(seed);
-        let rp = dungeon_passability(&entrance, &floors);
+        let rp = passability_with_doors_open(&entrance, &floors);
         let mut cache = PassabilityCache::new();
         cache.insert(dungeon_cache_key("t"), rp);
 
@@ -316,6 +330,89 @@ fn shaft_opens_to_room_only_at_its_landing() {
             );
         }
     }
+}
+
+/// Every interior door must sit on a genuine corridor mouth (room cell on one
+/// side, corridor cell on the other), be sealed while shut — both in the
+/// per-floor rebuild and in the default `dungeon_passability` grids (doors
+/// start shut) — and reopen cleanly. Guards the Rust port of the client's
+/// original door scan and the default-shut wiring.
+#[test]
+fn interior_doors_seal_corridor_mouths_until_opened() {
+    use super::{EDGE_E, EDGE_N, EDGE_S, EDGE_W};
+    let mut total = 0usize;
+    // The door-mouth invariant is not seed-sensitive; a few seeds keep the
+    // suite fast while still covering every wall orientation.
+    for seed in 0..10u64 {
+        let floors = generate_dungeon(seed);
+        // Client registration + server boot grids — doors default shut.
+        let rp = dungeon_passability(&test_entrance(), &floors);
+        for layout in &floors {
+            let doors = interior_doors(layout);
+            total += doors.len();
+            let base = floor_passability_cells(layout);
+            let sealed = floor_passability_cells_full(layout, &[], &closed_door_segs(layout, None));
+            let all_open: std::collections::HashSet<u32> =
+                doors.iter().map(|d| d.door_id).collect();
+            let reopened = floor_passability_cells_full(
+                layout,
+                &[],
+                &closed_door_segs(layout, Some(&all_open)),
+            );
+            assert_eq!(reopened, base, "seed {seed} depth {}", layout.depth);
+
+            let at = |cells: &[u8], x: i32, z: i32| cells[(x + z * GRID) as usize];
+            let room_at = |x: i32, z: i32| layout.rooms.iter().any(|r| r.contains(x, z));
+            let corridor_at = |x: i32, z: i32| {
+                layout.is_carved(x, z)
+                    && !room_at(x, z)
+                    && !layout.up_shaft.contains(x, z)
+                    && !layout.down_shaft.is_some_and(|s| s.contains(x, z))
+            };
+            for d in &doors {
+                let [ax, az, bx, bz] = d.seg();
+                // Cell pairs straddling the wall line, and the edge bits a
+                // shut door must set on each (mirrors `is_*_blocked`'s OR).
+                let pairs: Vec<((i32, i32), (i32, i32), u8, u8)> = if az == bz {
+                    (ax..bx)
+                        .map(|x| ((x, az), (x, az - 1), EDGE_N, EDGE_S))
+                        .collect()
+                } else {
+                    (az..bz)
+                        .map(|z| ((ax, z), (ax - 1, z), EDGE_W, EDGE_E))
+                        .collect()
+                };
+                for (hi, lo, hi_bit, lo_bit) in pairs {
+                    assert!(
+                        (room_at(hi.0, hi.1) && corridor_at(lo.0, lo.1))
+                            || (room_at(lo.0, lo.1) && corridor_at(hi.0, hi.1)),
+                        "seed {seed} depth {} door {:x}: ({},{})↔({},{}) is not a room↔corridor mouth",
+                        layout.depth, d.door_id, hi.0, hi.1, lo.0, lo.1
+                    );
+                    let crossing_blocked = |cells: &[u8]| {
+                        at(cells, hi.0, hi.1) & hi_bit != 0 || at(cells, lo.0, lo.1) & lo_bit != 0
+                    };
+                    assert!(
+                        !crossing_blocked(&base),
+                        "seed {seed} depth {} door {:x}: mouth blocked in base grid",
+                        layout.depth,
+                        d.door_id
+                    );
+                    assert!(
+                        crossing_blocked(&sealed),
+                        "seed {seed} depth {} door {:x}: shut door not sealed",
+                        layout.depth,
+                        d.door_id
+                    );
+                }
+            }
+
+            let fl = passability_floor_for_depth(layout.depth);
+            let grid = rp.floors.iter().find(|f| f.floor_level == fl).unwrap();
+            assert_eq!(grid.cells, sealed, "seed {seed} depth {}", layout.depth);
+        }
+    }
+    assert!(total > 0, "no interior doors across any test seed");
 }
 
 #[test]
@@ -513,7 +610,7 @@ fn props_keep_rooms_reachable() {
     let mut total_props = 0u32;
     for seed in 0..60u64 {
         let floors = generate_dungeon(seed);
-        let rp = dungeon_passability(&entrance, &floors);
+        let rp = passability_with_doors_open(&entrance, &floors);
         let mut cache = PassabilityCache::new();
         cache.insert(dungeon_cache_key("t"), rp);
         for f in &floors {

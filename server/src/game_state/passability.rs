@@ -2,15 +2,15 @@
 //! browser (wasm) and agent-client build, fed from the server's own data
 //! (housing files, region objects, dungeon layouts). `tick_player_movement`
 //! checks untrusted simulated steps against it so players can't walk
-//! through walls. Dungeon interior doors are always treated as open — the
-//! server can't map their opaque ids to grid segments, and open only errs
-//! permissive.
+//! through walls. Dungeon interior doors seal their corridor mouth while
+//! shut — `interior_doors` derives the same door list (and ids) the client
+//! renders, and every toggle rebuilds the floor's cells.
 
 use std::path::Path;
 
 use onlinerpg_shared::dungeon::{
-    dungeon_cache_key, dungeon_passability, dungeon_seed, floor_passability_cells_full,
-    generate_dungeon, passability_floor_for_depth,
+    closed_door_segs, dungeon_cache_key, dungeon_passability, dungeon_seed,
+    floor_passability_cells_full, generate_dungeon, passability_floor_for_depth,
 };
 use onlinerpg_shared::furniture::{self, FurniturePlacement};
 use onlinerpg_shared::housing::HouseData;
@@ -183,8 +183,9 @@ impl super::GameState {
         RegionObjects::deserialize(body).map(|objects| objects.placements)
     }
 
-    /// Re-derive one dungeon floor's cells from its current broken-prop set
-    /// (doors stay open, see module docs).
+    /// Re-derive one dungeon floor's cells from its current dynamic state:
+    /// broken props open their cells, shut interior doors seal their mouth.
+    /// Both route through this one call so neither clobbers the other.
     pub(super) async fn rebuild_dungeon_floor_passability(&self, entrance_id: &str, depth: u8) {
         if depth == 0 {
             return;
@@ -202,7 +203,8 @@ impl super::GameState {
                 .get(&depth)
                 .map(|s| s.iter().copied().collect())
                 .unwrap_or_default();
-            floor_passability_cells_full(layout, &broken, &[])
+            let closed = closed_door_segs(layout, rt.open_doors.get(&depth));
+            floor_passability_cells_full(layout, &broken, &closed)
         };
         let floor_level = passability_floor_for_depth(depth);
         let mut cache = self.passability_write();

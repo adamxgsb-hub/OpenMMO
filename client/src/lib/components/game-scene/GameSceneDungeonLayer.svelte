@@ -184,11 +184,11 @@
   const WALL_RUN_MIN_OCCLUSION = 0.05
 
   // ── Interior room doors ──────────────────────────────────
-  // Double doors across corridor mouths in room north/east walls. Click to
-  // open/close (server-synced, like the entrance door); a shut door blocks its
-  // corridor mouth (dungeonManager.interiorDoorBlocksMovement). The leaves live
-  // in their own pickable group (not the floor click group), positioned at the
-  // floor origin and replaced on every floor (re)build.
+  // Double doors across corridor mouths in room walls. Click to open/close
+  // (server-synced, like the entrance door); a shut door seals its corridor
+  // mouth in the wasm passability cells. The leaves live in their own pickable
+  // group (not the floor click group), positioned at the floor origin and
+  // replaced on every floor (re)build.
   let interiorDoors: InteriorDoor[] = []
   const interiorDoorGroup = new THREE.Group()
   root.add(interiorDoorGroup)
@@ -824,13 +824,17 @@
     const layout = dungeonManager.layoutAt(depth)
     if (!layout) return
     const c = dungeonManager.consts
-    const built = buildDungeonFloorGroup(layout, {
-      grid: c.grid,
-      wallHeight: c.wallHeight,
-      floorHeight: c.floorHeight,
-      shaftW: c.shaftW,
-      shaftLen: c.shaftLen,
-    })
+    const built = buildDungeonFloorGroup(
+      layout,
+      {
+        grid: c.grid,
+        wallHeight: c.wallHeight,
+        floorHeight: c.floorHeight,
+        shaftW: c.shaftW,
+        shaftLen: c.shaftLen,
+      },
+      dungeonManager.interiorDoorsAt(depth)
+    )
     currentGroup = built.group
     currentGroup.position.set(
       dungeonManager.originX,
@@ -842,21 +846,11 @@
     cacheWallRuns(currentGroup, built.wallRuns)
 
     // Interior doors: parent the leaves to the door group (same origin as the
-    // floor) and register their world-space blocking segments for collision.
+    // floor); collision comes from the wasm passability cells.
     interiorDoors = built.doors
     interiorDoorGroup.position.copy(currentGroup.position)
     for (const door of built.doors)
       for (const leaf of door.leaves) interiorDoorGroup.add(leaf.pivot)
-    dungeonManager.registerDoorSegs(
-      depth,
-      built.doors.map((d) => ({
-        doorId: d.doorId,
-        ax: dungeonManager.originX + d.seg.ax,
-        az: dungeonManager.originZ + d.seg.az,
-        bx: dungeonManager.originX + d.seg.bx,
-        bz: dungeonManager.originZ + d.seg.bz,
-      }))
-    )
     void buildProps(layout, key, depth)
   })
 

@@ -3,7 +3,7 @@
  * arc / dome / arch shape helpers, the swinging half-heptagon leaves, and the
  * surface-entrance and interior-room door assemblies. The arch quads merge
  * statically into the caller's group; the leaves are returned so the layer can
- * animate them and the manager can block them when shut.
+ * animate them (collision comes from the wasm passability cells).
  */
 import * as THREE from 'three'
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
@@ -13,9 +13,8 @@ import {
   ENTRANCE_WALL_T,
   ENTRANCE_DOOR_DEPTH,
   ENTRANCE_DOOR_ID,
-  encodeInteriorDoorId,
-  type DungeonDoorSeg,
   type DungeonShaft,
+  type InteriorDoorSpec,
 } from '../managers/dungeonManager'
 import {
   WALL_THICKNESS,
@@ -337,9 +336,6 @@ export interface InteriorDoor {
   doorId: number
   /** The two swinging leaves (added to a sibling group, animated by the layer). */
   leaves: DoorLeaf[]
-  /** Doorway blocking segment in floor-local XZ (add the floor origin for world
-   *  space); the player can't cross it while the door is shut. */
-  seg: DungeonDoorSeg
   /** Eased open fraction (0 shut .. 1 open); the layer advances it toward the
    *  click-toggled, server-synced open state. */
   open: number
@@ -392,10 +388,8 @@ interface DoorWallInfo {
   outZ: number
 }
 
-/** Per-wall geometry, the single source of truth for door placement: the scan
- *  derives the wall line and corridor neighbour from `spansX`/`outerLow`, and
- *  `buildInteriorDoor` reads the swing and wall-plane offset from the same row. */
-export const DOOR_WALL_INFO: Record<DungeonWall, DoorWallInfo> = {
+/** Per-wall swing direction and wall-plane side for `buildInteriorDoor`. */
+const DOOR_WALL_INFO: Record<DungeonWall, DoorWallInfo> = {
   [WALL_N]: { spansX: true, outerLow: true, outX: 0, outZ: 1 },
   [WALL_E]: { spansX: false, outerLow: false, outX: -1, outZ: 0 },
   [WALL_S]: { spansX: true, outerLow: false, outX: 0, outZ: -1 },
@@ -403,57 +397,32 @@ export const DOOR_WALL_INFO: Record<DungeonWall, DoorWallInfo> = {
 }
 
 /**
- * One interior room door across a corridor mouth: a pair of swinging leaves
- * (same half-heptagon shape as the surface entrance doors) plus a stone arch
- * filling the wall above the rounded cap. `wall` is which of the room's four
- * walls (`WALL_N/E/S/W`) holds the mouth: north/south doors span X and swing
- * along Z into the room, east/west span Z and swing along X. `lat0`/`len` are
- * the opening's start cell and width along the wall; `wallLine` is the
- * room↔corridor grid line. Arch quads go to `archEntries` (room-wall texture,
- * merged statically); the returned leaves are added to the floor group and
- * animated.
+ * One interior room door across a corridor mouth (placement from a wasm
+ * `InteriorDoorSpec`): a pair of swinging leaves (same half-heptagon shape as
+ * the surface entrance doors) plus a stone arch filling the wall above the
+ * rounded cap. Arch quads go to `archEntries` (room-wall texture, merged
+ * statically); the returned leaves are added to the floor group and animated.
  */
 export function buildInteriorDoor(
   depth: number,
-  wall: DungeonWall,
-  lat0: number,
-  len: number,
-  wallLine: number,
+  spec: InteriorDoorSpec,
   wallTop: number,
   mat: THREE.Material,
   archEntries: GeoEntry[]
 ): InteriorDoor {
+  const { lat0, len, wallLine, doorId } = spec
   const halfW = len / 2
-  const { spansX, outerLow, outX, outZ } = DOOR_WALL_INFO[wall]
+  const { spansX, outerLow, outX, outZ } = DOOR_WALL_INFO[spec.wall]
   // The room wall run sits half its thickness outside the room boundary: below
   // the grid line for low-coordinate walls (north/west), above for high
   // (south/east). Place the visible leaves and arch on that plane to keep them
-  // flush with the wall; the door id and blocking segment stay on the grid line.
+  // flush with the wall; the door id and collision stay on the grid line.
   const wallPlane =
     wallLine + (outerLow ? -WALL_HALF_THICKNESS : WALL_HALF_THICKNESS)
   // spansX ≙ the entrance's along-Z case (door spans X at z=wallPlane).
-  const specs = doorLeafSpecs(spansX, lat0, lat0 + len, wallPlane)
-  const leaves = specs.map((s) => makeDoorLeaf(s, halfW, outX, outZ, mat))
-  const doorId = encodeInteriorDoorId(wall, lat0, wallLine)
+  const leafSpecs = doorLeafSpecs(spansX, lat0, lat0 + len, wallPlane)
+  const leaves = leafSpecs.map((s) => makeDoorLeaf(s, halfW, outX, outZ, mat))
   tagDoorLeaves(leaves, depth, doorId)
   addInteriorDoorArch(archEntries, spansX, lat0, len, wallPlane, wallTop)
-  // Blocking segment along the wall line (floor-local; the layer adds origin).
-  const seg: DungeonDoorSeg = spansX
-    ? { doorId, ax: lat0, az: wallLine, bx: lat0 + len, bz: wallLine }
-    : { doorId, ax: wallLine, az: lat0, bx: wallLine, bz: lat0 + len }
-  return { depth, doorId, leaves, seg, open: 0 }
-}
-
-/** Percent chance a qualifying corridor mouth gets a door. */
-export const INTERIOR_DOOR_PCT = 30
-
-/** Stable [0,1) hash of four small ints — picks which corridor mouths get a
- *  door, deterministically per layout so every re-render matches (geometry is
- *  generated, never transmitted, so this needs no server agreement). */
-export function doorHash(a: number, b: number, c: number, d: number): number {
-  let h = 2166136261
-  for (const v of [a, b, c, d]) {
-    h = Math.imul(h ^ (v >>> 0), 16777619)
-  }
-  return ((h >>> 0) % 1000) / 1000
+  return { depth, doorId, leaves, open: 0 }
 }

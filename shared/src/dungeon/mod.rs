@@ -24,9 +24,12 @@
 //! shallower floor, the exit landing to the deeper one, and A* walks
 //! them via the existing housing stairwell intermediate-key machinery.
 
+mod doors;
 mod gen;
 #[cfg(test)]
 mod tests;
+
+pub use doors::{closed_door_segs, interior_doors, InteriorDoorSpec};
 
 use serde::Serialize;
 use std::sync::LazyLock;
@@ -93,6 +96,11 @@ impl Room {
         (self.x + self.w / 2, self.z + self.d / 2)
     }
 
+    /// Half-open cell membership, mirrored by the client's `rectContains`.
+    pub fn contains(&self, x: i32, z: i32) -> bool {
+        x >= self.x && x < self.x + self.w && z >= self.z && z < self.z + self.d
+    }
+
     fn expanded(&self, by: i32) -> Room {
         Room {
             x: self.x - by,
@@ -145,8 +153,7 @@ impl StairShaft {
     }
 
     pub fn contains(&self, x: i32, z: i32) -> bool {
-        let r = self.rect();
-        x >= r.x && x < r.x + r.w && z >= r.z && z < r.z + r.d
+        self.rect().contains(x, z)
     }
 
     /// Cell at run position `i` (0 = entry end), lateral offset `w`.
@@ -660,7 +667,9 @@ fn floor_passability_cells_inner(
 /// dungeon, including the surface-entrance stairwell (floor 0 → depth 1)
 /// and one stairwell per inter-floor shaft. Register it under
 /// `dungeon_cache_key(..)` in the same cache houses live in; all existing
-/// collision/A* queries then work unchanged.
+/// collision/A* queries then work unchanged. Interior doors are sealed
+/// shut (their default state); callers with live door/prop state rebuild
+/// floors via `floor_passability_cells_full`.
 pub fn dungeon_passability(entrance: &Position, layouts: &[FloorLayout]) -> RuntimePassability {
     let (ox, oz) = dungeon_origin(entrance.x, entrance.z);
 
@@ -674,7 +683,7 @@ pub fn dungeon_passability(entrance: &Position, layouts: &[FloorLayout]) -> Runt
             depth: GRID as u8,
             y_base: floor_world_y(entrance.y, layout.depth),
             wall_height: DUNGEON_WALL_HEIGHT,
-            cells: floor_passability_cells(layout),
+            cells: floor_passability_cells_full(layout, &[], &closed_door_segs(layout, None)),
         })
         .collect();
 

@@ -10,7 +10,7 @@ import { addMergedMeshes, type GeoEntry } from './house-geo-utils'
 import { getHousingMaterial } from './housing-textures'
 import type {
   DungeonFloorLayout,
-  DungeonRoom,
+  InteriorDoorSpec,
 } from '../managers/dungeonManager'
 import { addBox } from './dungeon-geo-primitives'
 import {
@@ -20,13 +20,7 @@ import {
   shaftStepCell,
   collectShaftStairs,
 } from './dungeon-geo-shaft'
-import {
-  buildInteriorDoor,
-  DOOR_WALL_INFO,
-  doorHash,
-  INTERIOR_DOOR_PCT,
-  type InteriorDoor,
-} from './dungeon-geo-doors'
+import { buildInteriorDoor, type InteriorDoor } from './dungeon-geo-doors'
 import {
   DUNGEON_FLOOR_TEXTURE_IDX,
   DUNGEON_CHEST_TEXTURE_IDX,
@@ -39,8 +33,6 @@ import {
   WALL_THICKNESS,
   WALL_HALF_THICKNESS,
   UP_SHAFT_GROUP_NAME,
-  WALL_SIDES,
-  type DungeonWall,
   type DungeonGeoCtx,
 } from './dungeon-geo-constants'
 
@@ -64,18 +56,19 @@ export interface DungeonFloorGroup {
   upShaftAABB: THREE.Box3
   /** Per-side wall runs (all four directions), faded individually on occlusion. */
   wallRuns: WallRun[]
-  /** Interior room doors (corridor mouths in north/east room walls), opened by
-   *  the layer on player proximity. */
+  /** Interior room doors at corridor mouths, animated by the layer. */
   doors: InteriorDoor[]
 }
 
 /**
  * Build the renderable group for one dungeon floor. The caller positions
- * it at (originX, floorY(depth), originZ) in world space.
+ * it at (originX, floorY(depth), originZ) in world space. `doorSpecs` is the
+ * floor's interior-door placement list from `dungeonManager.interiorDoorsAt`.
  */
 export function buildDungeonFloorGroup(
   layout: DungeonFloorLayout,
-  ctx: DungeonGeoCtx
+  ctx: DungeonGeoCtx,
+  doorSpecs: InteriorDoorSpec[]
 ): DungeonFloorGroup {
   const grid = ctx.grid
   const carvedAt = (x: number, z: number) =>
@@ -356,67 +349,14 @@ export function buildDungeonFloorGroup(
   }
   group.add(wallRunGroup)
 
-  // --- Interior room doors: a corridor mouth in any of a room's four walls
-  // gets a double door (same shape as the surface entrance) with a 30% chance.
-  // Placement is hashed from the opening's coordinates so it's stable across
-  // re-renders and matches the door-id the toggle packet uses. The arch above
-  // (room-wall texture) merges statically; the swinging leaves are returned so
-  // the layer can open them on click and the manager can block them when shut.
-  const isCorridor = (x: number, z: number) =>
-    carvedAt(x, z) && !roomAt(x, z) && !inAnyShaft(x, z)
+  // --- Interior room doors, placed by the shared wasm scan (see the Rust
+  // `dungeon::doors` module doc). Arches merge statically; the swinging
+  // leaves are returned for the layer to animate.
   const doorMat = getHousingMaterial(DUNGEON_DOOR_TEXTURE_IDX)
   const archEntries: GeoEntry[] = []
-  const doors: InteriorDoor[] = []
-  const tryDoorway = (
-    wall: DungeonWall,
-    lat0: number,
-    len: number,
-    wallLine: number
-  ) => {
-    if (doorHash(layout.depth, wall, lat0, wallLine) * 100 >= INTERIOR_DOOR_PCT)
-      return
-    doors.push(
-      buildInteriorDoor(
-        layout.depth,
-        wall,
-        lat0,
-        len,
-        wallLine,
-        ctx.wallHeight,
-        doorMat,
-        archEntries
-      )
-    )
-  }
-  // Scan one of a room's four walls cell-by-cell for maximal runs whose outward
-  // neighbour is a corridor (a corridor mouth / doorway gap) and try a door at
-  // each. `lat` runs along the wall; the perpendicular wall line and the corridor
-  // neighbour both follow from the wall's spansX/outerLow descriptor.
-  const scanWall = (room: DungeonRoom, wall: DungeonWall) => {
-    const { spansX, outerLow } = DOOR_WALL_INFO[wall]
-    const latLo = spansX ? room.x : room.z
-    const latHi = latLo + (spansX ? room.w : room.d)
-    const wallLine =
-      (spansX ? room.z : room.x) + (outerLow ? 0 : spansX ? room.d : room.w)
-    const fixed = outerLow ? wallLine : wallLine - 1 // interior cell on the wall
-    const step = outerLow ? -1 : 1 // toward the corridor neighbour
-    let start = -1
-    for (let lat = latLo; lat <= latHi; lat++) {
-      const cx = spansX ? lat : fixed
-      const cz = spansX ? fixed : lat
-      const nx = spansX ? cx : cx + step
-      const nz = spansX ? cz + step : cz
-      const open = lat < latHi && carvedAt(cx, cz) && isCorridor(nx, nz)
-      if (open && start < 0) start = lat
-      if (!open && start >= 0) {
-        tryDoorway(wall, start, lat - start, wallLine)
-        start = -1
-      }
-    }
-  }
-  for (const room of layout.rooms) {
-    for (const wall of WALL_SIDES) scanWall(room, wall)
-  }
+  const doors: InteriorDoor[] = doorSpecs.map((spec) =>
+    buildInteriorDoor(layout.depth, spec, ctx.wallHeight, doorMat, archEntries)
+  )
   // Arches merge into the floor group but stay non-pickable, so a ground click
   // near a doorway falls through to the floor. The door leaves are NOT added
   // here — the layer parents them to a separate pickable group (so the door

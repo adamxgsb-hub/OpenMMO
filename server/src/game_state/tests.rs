@@ -1839,6 +1839,135 @@ async fn npc_movement_is_exempt_from_collision() {
     assert_eq!(player_xz(&game_state, &player_id).await, (0.5, 6.5));
 }
 
+use onlinerpg_shared::dungeon::cell_center;
+
+/// First registry dungeon plus its shallowest floor holding an interior door.
+fn first_dungeon_door(
+    game_state: &GameState,
+) -> (
+    crate::dungeon_defs::DungeonEntranceDef,
+    u8,
+    onlinerpg_shared::dungeon::InteriorDoorSpec,
+) {
+    use onlinerpg_shared::dungeon::{dungeon_seed, generate_dungeon, interior_doors};
+    let entrance = game_state
+        .dungeon_defs
+        .all()
+        .next()
+        .expect("a dungeon def")
+        .clone();
+    let (depth, door) = generate_dungeon(dungeon_seed(&entrance.id))
+        .iter()
+        .find_map(|l| interior_doors(l).first().copied().map(|d| (l.depth, d)))
+        .expect("a floor with an interior door");
+    (entrance, depth, door)
+}
+
+/// A shut interior dungeon door must block server-simulated movement across
+/// its corridor mouth from boot (doors default shut); toggling it open lets
+/// the move through, toggling again reseals it.
+#[tokio::test]
+async fn dungeon_door_blocks_movement_until_opened() {
+    let game_state = make_test_game_state("dungeon_door_block");
+    let (entrance, depth, door) = first_dungeon_door(&game_state);
+    game_state.init_passability("nonexistent_terrain_dir").await;
+
+    // Cell centres on either side of the door's first crossing.
+    let [ax, az, _, _] = door.seg();
+    let (outside, inside) = if door.spans_x() {
+        ((ax, az - 1), (ax, az))
+    } else {
+        ((ax - 1, az), (ax, az))
+    };
+    let from = cell_center(&entrance.position(), depth, outside);
+    let to = cell_center(&entrance.position(), depth, inside);
+
+    let player_id = "delver".to_string();
+    let mut player = make_player(&player_id, from.x, from.z);
+    player.position.y = from.y;
+    game_state.add_player(player).await;
+    let go = |p: Position| move_cmd(p, false);
+
+    // Shut (boot default): the crossing is sealed.
+    game_state
+        .update_player_position(&player_id, go(to), false, false)
+        .await;
+    game_state.tick_player_movement(60.0).await;
+    assert_eq!(player_xz(&game_state, &player_id).await, (from.x, from.z));
+
+    // Open: same move goes through.
+    assert_eq!(
+        game_state
+            .toggle_dungeon_door(&entrance.id, depth, door.door_id)
+            .await,
+        Some(true)
+    );
+    game_state
+        .update_player_position(&player_id, go(to), false, false)
+        .await;
+    game_state.tick_player_movement(60.0).await;
+    assert_eq!(player_xz(&game_state, &player_id).await, (to.x, to.z));
+
+    // Shut again: the way back is sealed.
+    assert_eq!(
+        game_state
+            .toggle_dungeon_door(&entrance.id, depth, door.door_id)
+            .await,
+        Some(false)
+    );
+    game_state
+        .update_player_position(&player_id, go(from), false, false)
+        .await;
+    game_state.tick_player_movement(60.0).await;
+    assert_eq!(player_xz(&game_state, &player_id).await, (to.x, to.z));
+}
+
+/// Arriving on a dungeon floor must push the full open-door snapshot: the
+/// live DungeonDoorToggled broadcast is floor- and radius-gated, so a player
+/// who registered the dungeon before someone else toggled a door (or who was
+/// on another floor at the time) would otherwise render it stale.
+#[tokio::test]
+async fn floor_entry_pushes_open_door_snapshot() {
+    let game_state = make_test_game_state("dungeon_door_entry_snapshot");
+    let (entrance, depth, door) = first_dungeon_door(&game_state);
+
+    // Player A opens a door before B has ever seen the dungeon.
+    assert_eq!(
+        game_state
+            .toggle_dungeon_door(&entrance.id, depth, door.door_id)
+            .await,
+        Some(true)
+    );
+
+    let player_id = "latecomer".to_string();
+    game_state
+        .add_player(make_player(&player_id, entrance.x, entrance.z))
+        .await;
+    let mut direct_rx = game_state.register_direct_channel(&player_id).await;
+
+    let inside = Position {
+        x: entrance.x,
+        y: entrance.y - 4.0,
+        z: entrance.z,
+    };
+    game_state
+        .handle_player_floor_change(&player_id, 0, -(depth as i8), &inside, &inside)
+        .await;
+
+    let mut doors_state = None;
+    while let Ok(msg) = direct_rx.try_recv() {
+        if let ServerMessage::DungeonDoorsState { entrance_id, doors } = msg {
+            assert_eq!(entrance_id, entrance.id);
+            doors_state = Some(doors);
+        }
+    }
+    let doors = doors_state.expect("floor entry should push DungeonDoorsState");
+    assert!(
+        doors.contains(&(depth, door.door_id)),
+        "snapshot should list the door A opened, got {doors:?}"
+    );
+}
+
 #[tokio::test]
 async fn furniture_removal_reopens_blocked_cells() {
     let game_state = make_test_game_state("movement_furniture_removed");

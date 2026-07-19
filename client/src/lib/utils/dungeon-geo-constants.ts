@@ -92,6 +92,3 @@ export type DungeonWall =
   | typeof WALL_E
   | typeof WALL_S
   | typeof WALL_W
-
-/** All four walls, in scan order. */
-export const WALL_SIDES = [WALL_N, WALL_E, WALL_S, WALL_W] as const

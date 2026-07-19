@@ -468,19 +468,16 @@ fn roll_spawns(rng: &mut ChaCha8Rng, layout: &FloorLayout) -> Vec<SpawnSpec> {
     spawns
 }
 
-fn cell_in_any_room(layout: &FloorLayout, x: i32, z: i32) -> bool {
-    layout
-        .rooms
-        .iter()
-        .any(|r| x >= r.x && x < r.x + r.w && z >= r.z && z < r.z + r.d)
+pub(super) fn cell_in_any_room(layout: &FloorLayout, x: i32, z: i32) -> bool {
+    layout.rooms.iter().any(|r| r.contains(x, z))
 }
 
-fn cell_in_any_shaft(layout: &FloorLayout, x: i32, z: i32) -> bool {
+pub(super) fn cell_in_any_shaft(layout: &FloorLayout, x: i32, z: i32) -> bool {
     layout.up_shaft.contains(x, z) || layout.down_shaft.as_ref().is_some_and(|s| s.contains(x, z))
 }
 
 /// Carved floor that belongs to a connecting corridor (not a room, not a shaft).
-fn cell_is_corridor(layout: &FloorLayout, x: i32, z: i32) -> bool {
+pub(super) fn cell_is_corridor(layout: &FloorLayout, x: i32, z: i32) -> bool {
     layout.is_carved(x, z) && !cell_in_any_room(layout, x, z) && !cell_in_any_shaft(layout, x, z)
 }
 

@@ -9,7 +9,8 @@
 //! TypeScript wrappers can group them by subsystem.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
@@ -242,12 +243,47 @@ pub fn passability_get_floor_y_base(x: f32, z: f32, floor_level: u8) -> f32 {
 
 // --- Dungeon (procedural, seed-deterministic) ---
 
+thread_local! {
+    static DUNGEON_LAYOUTS: RefCell<HashMap<String, Rc<Vec<crate::dungeon::FloorLayout>>>> =
+        RefCell::new(HashMap::new());
+}
+
+/// Layouts are deterministic per entrance id, so generate once and memoize —
+/// regeneration costs milliseconds in wasm and several exports need them per
+/// floor transition. The registry is tiny, so entries are never evicted.
+fn dungeon_layouts(entrance_id: &str) -> Rc<Vec<crate::dungeon::FloorLayout>> {
+    DUNGEON_LAYOUTS.with(|c| {
+        c.borrow_mut()
+            .entry(entrance_id.to_string())
+            .or_insert_with(|| {
+                Rc::new(crate::dungeon::generate_dungeon(
+                    crate::dungeon::dungeon_seed(entrance_id),
+                ))
+            })
+            .clone()
+    })
+}
+
 /// Full layout of every floor of a dungeon, generated from the entrance
 /// id. Identical to what the server generates natively from the same id.
 #[wasm_bindgen]
 pub fn dungeon_layout(entrance_id: &str) -> Result<JsValue, JsError> {
-    let floors = crate::dungeon::generate_dungeon(crate::dungeon::dungeon_seed(entrance_id));
-    to_js(&floors)
+    to_js(&*dungeon_layouts(entrance_id))
+}
+
+/// Interior-door specs for one floor: wall side, opening span, wall line and
+/// door id (see `dungeon::doors`).
+#[wasm_bindgen]
+pub fn dungeon_interior_doors(entrance_id: &str, depth: u8) -> Result<JsValue, JsError> {
+    let doors = if depth == 0 {
+        Vec::new()
+    } else {
+        dungeon_layouts(entrance_id)
+            .get((depth - 1) as usize)
+            .map(crate::dungeon::interior_doors)
+            .unwrap_or_default()
+    };
+    to_js(&doors)
 }
 
 /// Shared dungeon constants so the TS side never hardcodes them.
@@ -288,14 +324,13 @@ pub fn dungeon_add_passability(
     entrance_y: f32,
     entrance_z: f32,
 ) {
-    let floors = crate::dungeon::generate_dungeon(crate::dungeon::dungeon_seed(entrance_id));
     let rp = crate::dungeon::dungeon_passability(
         &Position {
             x: entrance_x,
             y: entrance_y,
             z: entrance_z,
         },
-        &floors,
+        &dungeon_layouts(entrance_id),
     );
     with_cache_mut(|c| {
         c.insert(crate::dungeon::dungeon_cache_key(entrance_id), rp);
@@ -309,27 +344,23 @@ pub fn dungeon_remove_passability(entrance_id: &str) {
 
 /// Rebuild one dungeon floor's passability with its current dynamic state:
 /// `broken` props (indices into that floor's `props`) destroyed, opening their
-/// cells, and shut interior doors sealed. `closed_door_segs` is a flat list of
-/// floor-local grid quads (ax, az, bx, bz), one per *closed* corridor-mouth
-/// door (open doors omitted by the caller) — matching the client's
-/// `DungeonDoorSeg`. Both the broken-prop set and the open-door set route the
-/// full current state through here (on-entry snapshots and live toggles alike),
-/// so the two never clobber each other.
+/// cells, and every interior door not in `open_door_ids` sealed (the closed
+/// segments are derived from the layout, same as the server). Both the
+/// broken-prop set and the open-door set route the full current state through
+/// here (on-entry snapshots and live toggles alike), so the two never clobber
+/// each other.
 #[wasm_bindgen]
-pub fn dungeon_rebuild_floor(
-    entrance_id: &str,
-    depth: u8,
-    broken: &[u32],
-    closed_door_segs: &[i32],
-) {
+pub fn dungeon_rebuild_floor(entrance_id: &str, depth: u8, broken: &[u32], open_door_ids: &[u32]) {
     if depth == 0 {
         return;
     }
-    let floors = crate::dungeon::generate_dungeon(crate::dungeon::dungeon_seed(entrance_id));
+    let floors = dungeon_layouts(entrance_id);
     let Some(layout) = floors.get((depth - 1) as usize) else {
         return;
     };
-    let new_cells = crate::dungeon::floor_passability_cells_full(layout, broken, closed_door_segs);
+    let open: HashSet<u32> = open_door_ids.iter().copied().collect();
+    let closed = crate::dungeon::closed_door_segs(layout, Some(&open));
+    let new_cells = crate::dungeon::floor_passability_cells_full(layout, broken, &closed);
     let floor_level = crate::dungeon::passability_floor_for_depth(depth);
     with_cache_mut(|c| {
         if let Some(rp) = c.get_mut(&crate::dungeon::dungeon_cache_key(entrance_id)) {

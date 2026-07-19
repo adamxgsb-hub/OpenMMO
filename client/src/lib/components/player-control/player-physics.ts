@@ -65,10 +65,9 @@ export function createPlayerPhysics(deps: PlayerPhysicsDeps): PlayerPhysics {
     if (housingManager.isMovementBlocked(fromX, fromZ, toX, toZ, y)) return true
     if (bridgeManager.isMovementBlocked(fromX, fromZ, toX, toZ, y)) return true
     // Surface dungeon entrance walls (and the shut door) seal the stair hole.
+    // Shut interior doors need no check here — they're sealed into the wasm
+    // passability cells like walls.
     if (dungeonManager.entranceBlocksMovement(fromX, fromZ, toX, toZ))
-      return true
-    // Shut interior room doors block their corridor mouth underground.
-    if (dungeonManager.interiorDoorBlocksMovement(fromX, fromZ, toX, toZ))
       return true
     if (housingManager.isCircleBlocked(toX, toZ, PLAYER_RADIUS, y)) {
       // Allow movement when the source is already overlapping a wall (e.g.
