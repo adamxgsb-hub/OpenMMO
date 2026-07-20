@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use onlinerpg_shared::ClientMessage;
+use onlinerpg_shared::{ClientMessage, PlayerId};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
@@ -119,7 +119,7 @@ pub(super) enum ChaseResult {
 /// on top of them).
 pub(super) enum ChaseTarget<'a> {
     Monster(&'a str),
-    Player(&'a str),
+    Player(&'a PlayerId),
 }
 
 impl ChaseTarget<'_> {
@@ -163,10 +163,15 @@ impl ChaseTarget<'_> {
             Self::Player(_) => MAX_APPROACH_SECS,
         }
     }
+}
 
-    fn label(&self) -> &str {
+/// Log label. `Display` rather than a `-> String` helper so the monster arm
+/// keeps borrowing its id instead of allocating a copy for a log line.
+impl std::fmt::Display for ChaseTarget<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Monster(id) | Self::Player(id) => id,
+            Self::Monster(id) => f.write_str(id),
+            Self::Player(id) => write!(f, "{id}"),
         }
     }
 }
@@ -183,7 +188,7 @@ pub(super) async fn chase_monster(
 /// following the target if it moves. Same loop as the combat chase.
 pub(super) async fn approach_player(
     state: &Arc<Mutex<SharedState>>,
-    player_id: &str,
+    player_id: &PlayerId,
 ) -> ChaseResult {
     chase_target(state, &ChaseTarget::Player(player_id)).await
 }
@@ -200,7 +205,7 @@ async fn chase_target(state: &Arc<Mutex<SharedState>>, target: &ChaseTarget<'_>)
 
     loop {
         if chase_start.elapsed().as_secs_f32() > target.max_secs() {
-            warn!("Chase timeout for target {}", target.label());
+            warn!("Chase timeout for target {}", target);
             return ChaseResult::Lost;
         }
 
@@ -220,7 +225,7 @@ async fn chase_target(state: &Arc<Mutex<SharedState>>, target: &ChaseTarget<'_>)
             if to_target.dist > target.max_distance() {
                 info!(
                     "Giving up chase: target {} is {:.1}m away (>{:.1}m)",
-                    target.label(),
+                    target,
                     to_target.dist,
                     target.max_distance()
                 );

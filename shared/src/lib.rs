@@ -26,10 +26,10 @@ pub const NPC_TOKEN_PATH_FROM_ROOT: &str = "data/npc_token";
 mod wasm_api;
 
 pub use character::{Character, CharacterAttributes, CharacterClass, Gender};
-pub use entity::{Monster, MonsterState, Player};
+pub use entity::{Monster, MonsterState, Player, PlayerId};
 pub use messages::{
     deserialize_client_msg, deserialize_server_msg, serialize_client_msg, serialize_server_msg,
-    ActiveDeal, ClientMessage, DealKind, PlayerId, ServerMessage,
+    ActiveDeal, ClientMessage, DealKind, ServerMessage,
 };
 pub use world::{
     shortest_world_delta_x, wrap_world_x, GameDateTime, NoSpawnZone, Position,
@@ -83,31 +83,27 @@ mod tests {
 
     #[test]
     fn roundtrip_server_message_with_hashmap() {
-        let mut players = HashMap::new();
-        players.insert(
-            "p1".to_string(),
-            Player {
-                id: "p1".to_string(),
-                name: "Test".to_string(),
-                position: Position {
-                    x: 0.0,
-                    y: 0.0,
-                    z: 0.0,
-                },
-                rotation: 0.0,
-                level: 1,
-                health: 10,
-                max_health: 10,
-                class: CharacterClass::Knight,
-                gender: Gender::default(),
-                is_npc: false,
-                torch_on: false,
-                floor_level: 0,
-                object_type: None,
-                object_id: None,
-                last_combat_at: 0,
+        let players = vec![Player {
+            id: 1.into(),
+            name: "Test".to_string(),
+            position: Position {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
             },
-        );
+            rotation: 0.0,
+            level: 1,
+            health: 10,
+            max_health: 10,
+            class: CharacterClass::Knight,
+            gender: Gender::default(),
+            is_npc: false,
+            torch_on: false,
+            floor_level: 0,
+            object_type: None,
+            object_id: None,
+            last_combat_at: 0,
+        }];
         // A monster with every Option None guards the wire format itself:
         // rmp_serde encodes structs as positional arrays, so any field that
         // fails to serialize (e.g. a future `skip_serializing_if`) shifts
@@ -145,7 +141,8 @@ mod tests {
             ServerMessage::GameState {
                 players, monsters, ..
             } => {
-                assert!(players.contains_key("p1"));
+                assert_eq!(players.len(), 1);
+                assert_eq!(players[0].id, PlayerId::from(1));
                 let m = &monsters["m1"];
                 assert_eq!(m.level_override, None);
                 assert!(m.aggressive);
@@ -284,28 +281,28 @@ mod tests {
                 message: "bad".to_string(),
             },
             ServerMessage::PlayerLeft {
-                player_id: "p1".to_string(),
+                player_id: 1.into(),
             },
             ServerMessage::PlayerDisappeared {
-                player_id: "p1".to_string(),
+                player_id: 1.into(),
             },
             ServerMessage::MonsterDead {
                 monster_id: "m1".to_string(),
                 dropped_weapon_item_def_id: Some("goblin_sword".to_string()),
             },
             ServerMessage::PlayerAttacked {
-                player_id: "p1".to_string(),
+                player_id: 1.into(),
                 monster_id: "m1".to_string(),
                 hit: true,
                 roll: 18,
                 damage: 5,
             },
             ServerMessage::MonsterProvoked {
-                player_id: "p1".to_string(),
+                player_id: 1.into(),
                 monster_id: "m1".to_string(),
             },
             ServerMessage::Kicked {
-                player_id: "p1".to_string(),
+                player_id: 1.into(),
                 reason: "test".to_string(),
             },
         ];

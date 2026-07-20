@@ -205,7 +205,7 @@ impl super::GameState {
         }
 
         let mut inventories = self.inventories.write().await;
-        inventories.insert(player_id.clone(), inventory);
+        inventories.insert(*player_id, inventory);
     }
 
     /// Detach a player's inventory from memory and hand back the snapshot to
@@ -238,7 +238,7 @@ impl super::GameState {
 
     pub(super) async fn mark_inventory_dirty(&self, player_id: &PlayerId) {
         let mut dirty = self.dirty_inventories.write().await;
-        dirty.insert(player_id.clone());
+        dirty.insert(*player_id);
     }
 
     pub async fn give_item(&self, player_id: &PlayerId, item_def_id: &str) -> bool {
@@ -431,7 +431,7 @@ impl super::GameState {
             floor_level,
             super::EVENT_DELIVERY_RADIUS,
             ServerMessage::PlayerHealthUpdate {
-                player_id: player_id.clone(),
+                player_id: *player_id,
                 health,
                 max_health,
             },
@@ -855,7 +855,7 @@ impl super::GameState {
         let copper: i64 = rand::thread_rng().gen_range(1..=10);
         let new_gold = {
             let mut gold_map = self.player_gold.write().await;
-            let wallet = gold_map.entry(player_id.clone()).or_insert(0);
+            let wallet = gold_map.entry(*player_id).or_insert(0);
             *wallet += copper;
             *wallet
         };
@@ -866,7 +866,8 @@ impl super::GameState {
             .await;
         info!(
             "Player {} picked up a coin pile: +{} copper",
-            player_id, copper
+            self.player_name_of(player_id).await,
+            copper
         );
 
         self.send_direct_message_to_players_within_position(

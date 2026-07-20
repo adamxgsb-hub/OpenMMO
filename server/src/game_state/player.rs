@@ -72,16 +72,14 @@ fn build_save_data(player: &Player, character_id: i64, xp: u64, gold: i64) -> Ch
 }
 
 impl super::GameState {
-    pub async fn get_or_assign_player_number(&self, player_id: &str) -> u32 {
+    pub async fn get_or_assign_player_number(&self, player_id: &PlayerId) -> u32 {
         let mut id_state = self.id_state.write().await;
         if let Some(player_number) = id_state.player_numbers.get(player_id).copied() {
             player_number
         } else {
             id_state.next_player_number = id_state.next_player_number.saturating_add(1);
             let player_number = id_state.next_player_number;
-            id_state
-                .player_numbers
-                .insert(player_id.to_string(), player_number);
+            id_state.player_numbers.insert(*player_id, player_number);
             player_number
         }
     }
@@ -92,7 +90,7 @@ impl super::GameState {
     ) -> mpsc::UnboundedReceiver<ServerMessage> {
         let (tx, rx) = mpsc::unbounded_channel();
         let mut channels = self.direct_channels.write().await;
-        channels.insert(player_id.clone(), tx);
+        channels.insert(*player_id, tx);
         rx
     }
 
@@ -165,10 +163,10 @@ impl super::GameState {
     ) {
         {
             let mut map = self.player_characters.write().await;
-            map.insert(player_id.clone(), (character_id, xp, attributes));
+            map.insert(*player_id, (character_id, xp, attributes));
         }
         let mut gold_map = self.player_gold.write().await;
-        gold_map.insert(player_id.clone(), gold);
+        gold_map.insert(*player_id, gold);
     }
 
     pub async fn unregister_player_character(&self, player_id: &PlayerId) {
@@ -185,13 +183,24 @@ impl super::GameState {
         gold_map.get(player_id).copied().unwrap_or(0)
     }
 
+    /// Character name for logs and player-facing text. Falls back to the raw
+    /// id when the player is gone, so log sites stay useful on the paths that
+    /// fire precisely because the lookup missed.
+    pub(crate) async fn player_name_of(&self, player_id: &PlayerId) -> String {
+        let players = self.players.read().await;
+        players
+            .get(player_id)
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| player_id.to_string())
+    }
+
     pub async fn kick_player_by_name(&self, name: &str, auth: &AuthService) -> Option<PlayerId> {
         let old_player_id = {
             let players = self.players.read().await;
             players
                 .iter()
                 .find(|(_, p)| p.name == name)
-                .map(|(id, _)| id.clone())
+                .map(|(id, _)| *id)
         };
 
         if let Some(ref player_id) = old_player_id {
@@ -206,7 +215,7 @@ impl super::GameState {
             self.send_direct_message(
                 player_id,
                 ServerMessage::Kicked {
-                    player_id: player_id.clone(),
+                    player_id: *player_id,
                     reason: "Another session logged in with the same account".to_string(),
                 },
             )
@@ -248,7 +257,7 @@ impl super::GameState {
         // Normalize persisted legacy positions before they enter the spatial
         // index or are sent to clients.
         player.position.x = onlinerpg_shared::wrap_world_x(player.position.x);
-        let player_id = player.id.clone();
+        let player_id = player.id;
         let player_name = player.name.clone();
         let player_number = self.get_or_assign_player_number(&player_id).await;
         let player_position = player.position;
@@ -256,7 +265,7 @@ impl super::GameState {
 
         {
             let mut players = self.players.write().await;
-            players.insert(player_id.clone(), player.clone());
+            players.insert(player_id, player.clone());
         }
         self.insert_player_spatial_cell(&player_id, &player_position)
             .await;
@@ -281,10 +290,10 @@ impl super::GameState {
 
         // Return visible game_state to be sent directly to the new player only
         let current_players = self.players.read().await;
-        let other_players: HashMap<String, Player> = current_players
+        let other_players: Vec<Player> = current_players
             .iter()
             .filter(|(id, _)| nearby_player_set.contains(*id) && *id != &player_id)
-            .map(|(id, player)| (id.clone(), player.clone()))
+            .map(|(_, player)| player.clone())
             .collect();
 
         let monsters: HashMap<String, crate::types::Monster> = self
@@ -378,7 +387,7 @@ impl super::GameState {
             self.send_direct_message_to_players_except(
                 &nearby_player_ids,
                 ServerMessage::PlayerLeft {
-                    player_id: player_id.clone(),
+                    player_id: *player_id,
                 },
                 Some(player_id),
             )
@@ -405,12 +414,18 @@ impl super::GameState {
             append,
         } = cmd;
         if !(new_position.is_finite() && new_rotation.is_finite()) {
-            warn!("Rejected non-finite move from player {}", player_id);
+            warn!(
+                "Rejected non-finite move from player {}",
+                self.player_name_of(player_id).await
+            );
             return;
         }
         new_position.x = wrap_world_x(new_position.x);
         // Dungeon floors (negative) are validated against the entrance
         // registry and the floor's expected world Y before being stored.
+        // Deliberately does not carry the name out: this runs for every move
+        // packet, and the only consumers are the two rejection logs below,
+        // which can afford their own lookup.
         let (current_floor, current_position) = {
             let players = self.players.read().await;
             match players.get(player_id) {
@@ -435,7 +450,7 @@ impl super::GameState {
                 new_rotation,
                 floor_level,
                 ServerMessage::PlayerMoved {
-                    player_id: player_id.clone(),
+                    player_id: *player_id,
                     position: new_position,
                     rotation: new_rotation,
                     floor_level,
@@ -462,11 +477,11 @@ impl super::GameState {
             warn!(
                 "Rejected move target {:.0}m away from player {}",
                 dist_sq.sqrt(),
-                player_id
+                self.player_name_of(player_id).await
             );
             return;
         }
-        let queue = queues.entry(player_id.clone()).or_default();
+        let queue = queues.entry(*player_id).or_default();
         if !append {
             queue.clear();
         } else if queue.len() >= MAX_QUEUED_WAYPOINTS {
@@ -477,7 +492,7 @@ impl super::GameState {
             queue.pop_front();
             warn!(
                 "Waypoint queue full for player {}, dropped oldest",
-                player_id
+                self.player_name_of(player_id).await
             );
         }
         queue.push_back(MoveIntent {
@@ -581,7 +596,7 @@ impl super::GameState {
                     || player.floor_level != old_floor
                     || player.rotation != old_rotation
                 {
-                    moved.push((player_id.clone(), old_position, old_floor, player.clone()));
+                    moved.push((*player_id, old_position, old_floor, player.clone()));
                 }
                 !blocked && !waypoints.is_empty()
             });
@@ -589,7 +604,7 @@ impl super::GameState {
 
         for (player_id, old_position, old_floor, moved_player) in moved {
             let update_msg = ServerMessage::PlayerMoved {
-                player_id: player_id.clone(),
+                player_id,
                 position: moved_player.position,
                 rotation: moved_player.rotation,
                 floor_level: moved_player.floor_level,
@@ -714,7 +729,7 @@ impl super::GameState {
         };
 
         let update_msg = ServerMessage::PlayerMoved {
-            player_id: player_id.clone(),
+            player_id: *player_id,
             position: moved_player.position,
             rotation: moved_player.rotation,
             floor_level,
@@ -737,7 +752,7 @@ impl super::GameState {
             new_rotation,
             new_floor_level,
             ServerMessage::PlayerTeleported {
-                player_id: player_id.clone(),
+                player_id: *player_id,
                 position: new_position,
                 rotation: new_rotation,
                 floor_level: new_floor_level,
@@ -812,7 +827,7 @@ impl super::GameState {
                 floor_level,
                 super::EVENT_DELIVERY_RADIUS,
                 ServerMessage::PlayerTorchToggled {
-                    player_id: player_id.clone(),
+                    player_id: *player_id,
                     enabled,
                 },
                 Some(player_id),
@@ -860,7 +875,7 @@ impl super::GameState {
                 floor_level,
                 super::EVENT_DELIVERY_RADIUS,
                 ServerMessage::PlayerInteractionChanged {
-                    player_id: player_id.clone(),
+                    player_id: *player_id,
                     object_type,
                 },
                 None,
@@ -871,7 +886,7 @@ impl super::GameState {
 
     pub async fn mark_dirty(&self, player_id: &PlayerId) {
         let mut dirty = self.dirty_players.write().await;
-        dirty.insert(player_id.clone());
+        dirty.insert(*player_id);
     }
 
     pub async fn remove_dirty(&self, player_id: &PlayerId) {
@@ -923,7 +938,7 @@ impl super::GameState {
         cells
             .entry(super::SpatialCell::from_position(position))
             .or_default()
-            .insert(player_id.clone());
+            .insert(*player_id);
     }
 
     async fn remove_player_spatial_cell(&self, player_id: &PlayerId, position: &Position) {
@@ -965,7 +980,7 @@ impl super::GameState {
             cells.remove(&old_cell);
         }
 
-        cells.entry(new_cell).or_default().insert(player_id.clone());
+        cells.entry(new_cell).or_default().insert(*player_id);
     }
 
     async fn fanout_player_position_update(
@@ -1003,14 +1018,14 @@ impl super::GameState {
             self.send_direct_message(
                 player_id,
                 ServerMessage::PlayerDisappeared {
-                    player_id: other_id.clone(),
+                    player_id: *other_id,
                 },
             )
             .await;
             self.send_direct_message(
                 other_id,
                 ServerMessage::PlayerDisappeared {
-                    player_id: player_id.clone(),
+                    player_id: *player_id,
                 },
             )
             .await;
@@ -1171,7 +1186,7 @@ impl super::GameState {
                         if player.floor_level == floor_level
                             && position.dist_xz_sq(&player.position) <= radius_sq
                         {
-                            player_ids.insert(player_id.clone());
+                            player_ids.insert(*player_id);
                         }
                     }
                 }

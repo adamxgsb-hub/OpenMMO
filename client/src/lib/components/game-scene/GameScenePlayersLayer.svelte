@@ -51,9 +51,9 @@
     camera: THREE.OrthographicCamera | undefined
     cameraInitialized: boolean
     currentPlayer: LocalPlayer | null
-    otherPlayers: Map<string, RemotePlayer>
-    remotePlayers: Map<string, PlayerState>
-    chatBubbles: Map<string, ChatBubble>
+    otherPlayers: Map<number, RemotePlayer>
+    remotePlayers: Map<number, PlayerState>
+    chatBubbles: Map<number, ChatBubble>
     currentPlayerState: PlayerState
     terrainMeshes: (THREE.Mesh | undefined)[]
     housingGroup: THREE.Group | null
@@ -144,7 +144,7 @@
   }
 
   let remoteVisibility = $derived.by(() => {
-    const map = new SvelteMap<string, boolean>()
+    const map = new SvelteMap<number, boolean>()
     for (const [id, player] of otherPlayers) {
       const rp = remotePlayers.get(id)
       map.set(
@@ -376,7 +376,7 @@
       .map((model) => model?.getModelGroup())
       .filter(
         (group): group is THREE.Group =>
-          group !== undefined && typeof group.userData.npcPlayerId === 'string'
+          group !== undefined && group.userData.npcPlayerId != null
       )}
     {doorMeshes}
     {objectMeshes}

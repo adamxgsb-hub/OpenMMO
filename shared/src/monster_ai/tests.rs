@@ -1,6 +1,6 @@
 use super::*;
 use crate::pathfinding::{PathResult, PathWaypoint};
-use crate::{MonsterState, Position};
+use crate::{MonsterState, PlayerId, Position};
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
 
@@ -92,7 +92,7 @@ fn idle_can_transition_to_move() {
 fn handle_hit_transitions_to_hit_state() {
     let mut brain = make_brain();
 
-    let cmds = brain.handle_hit_with_behavior_tree("player1", true, 3);
+    let cmds = brain.handle_hit_with_behavior_tree(&1.into(), true, 3);
     assert!(!cmds.is_empty());
     assert_eq!(brain.state(), AiState::Hit);
     assert_eq!(brain.health, 7);
@@ -102,7 +102,7 @@ fn handle_hit_transitions_to_hit_state() {
 fn handle_hit_death() {
     let mut brain = make_brain();
 
-    let cmds = brain.handle_hit_with_behavior_tree("player1", true, 100);
+    let cmds = brain.handle_hit_with_behavior_tree(&1.into(), true, 100);
     assert!(cmds.is_empty()); // dead returns empty
     assert!(brain.is_dead());
     assert_eq!(brain.health, 0);
@@ -148,7 +148,7 @@ fn behavior_tree_attacks_target_in_range() {
     let mut rng = SmallRng::seed_from_u64(42);
 
     let players = vec![NearbyPlayer {
-        id: "p1".into(),
+        id: 1.into(),
         position: Position {
             x: 11.0,
             y: 0.0,
@@ -170,7 +170,7 @@ fn behavior_tree_attacks_target_in_range() {
 fn chase_to_attack_fires_without_waiting_full_cooldown() {
     let mut brain = make_brain();
     brain.state = AiState::Chase;
-    brain.target_player_id = Some("p1".into());
+    brain.target_player_id = Some(1.into());
     brain.attack_cooldown_ms = 4100.0;
 
     let tree = BehaviorTree {
@@ -203,7 +203,7 @@ fn chase_to_attack_fires_without_waiting_full_cooldown() {
     let mut rng = SmallRng::seed_from_u64(42);
 
     let players = vec![NearbyPlayer {
-        id: "p1".into(),
+        id: 1.into(),
         position: Position {
             x: 11.9,
             y: 0.0,
@@ -250,7 +250,7 @@ fn behavior_tree_chases_target_in_range() {
     let mut rng = SmallRng::seed_from_u64(42);
 
     let players = vec![NearbyPlayer {
-        id: "p1".into(),
+        id: 1.into(),
         position: Position {
             x: 15.0,
             y: 0.0,
@@ -279,7 +279,7 @@ fn behavior_tree_chases_target_in_range() {
 
 fn attacker_at(x: f32, z: f32) -> Vec<NearbyPlayer> {
     vec![NearbyPlayer {
-        id: "p1".into(),
+        id: 1.into(),
         position: Position { x, y: 0.0, z },
         health: 10,
     }]
@@ -307,7 +307,7 @@ fn flee_tree() -> BehaviorTree {
 fn behavior_tree_flee_without_threat_position_runs_to_spawn() {
     let mut brain = make_brain();
     brain.position.x = 20.0;
-    brain.target_player_id = Some("p1".into());
+    brain.target_player_id = Some(1.into());
     brain.health = 2;
     let tree = flee_tree();
     let mut rng = SmallRng::seed_from_u64(42);
@@ -334,7 +334,7 @@ fn behavior_tree_flee_without_threat_position_runs_to_spawn() {
 #[test]
 fn behavior_tree_flee_runs_away_from_attacker_beyond_sight() {
     let mut brain = make_brain();
-    brain.target_player_id = Some("p1".into());
+    brain.target_player_id = Some(1.into());
     brain.health = 2;
     let tree = flee_tree();
     let mut rng = SmallRng::seed_from_u64(42);
@@ -361,7 +361,7 @@ fn behavior_tree_flee_runs_away_from_attacker_beyond_sight() {
 #[test]
 fn behavior_tree_flee_stops_once_beyond_safe_distance() {
     let mut brain = make_brain();
-    brain.target_player_id = Some("p1".into());
+    brain.target_player_id = Some(1.into());
     brain.health = 2;
     let tree = flee_tree();
     let mut rng = SmallRng::seed_from_u64(42);
@@ -383,7 +383,7 @@ fn behavior_tree_flee_stops_once_beyond_safe_distance() {
 #[test]
 fn behavior_tree_flee_repaths_when_attacker_keeps_chasing() {
     let mut brain = make_brain();
-    brain.target_player_id = Some("p1".into());
+    brain.target_player_id = Some(1.into());
     brain.health = 2;
     let tree = flee_tree();
     let mut rng = SmallRng::seed_from_u64(42);
@@ -495,7 +495,7 @@ fn behavior_tree_requires_existing_target_before_attacking() {
     };
     let mut rng = SmallRng::seed_from_u64(42);
     let players = vec![NearbyPlayer {
-        id: "p1".into(),
+        id: 1.into(),
         position: Position {
             x: 11.0,
             y: 0.0,
@@ -511,7 +511,7 @@ fn behavior_tree_requires_existing_target_before_attacking() {
         .any(|c| matches!(c, AiCommand::Attack { .. })));
     assert_eq!(brain.state(), AiState::Idle);
 
-    brain.handle_hit_with_behavior_tree("p1", false, 0);
+    brain.handle_hit_with_behavior_tree(&1.into(), false, 0);
     let provoked = brain.tick_with_behavior_tree(16.0, &players, &tree, &DirectPath, &mut rng);
     assert!(provoked
         .commands
@@ -528,10 +528,10 @@ fn provocation_interrupts_an_in_progress_wander() {
     brain.transition_to_move(&mut commands, 10.0, 11.0, &DirectPath, &mut rng);
     assert!(matches!(brain.state(), AiState::Walk | AiState::Run));
 
-    let provoke_commands = brain.handle_hit_with_behavior_tree("p1", false, 0);
+    let provoke_commands = brain.handle_hit_with_behavior_tree(&1.into(), false, 0);
 
     assert_eq!(brain.state(), AiState::Idle);
-    assert_eq!(brain.target_player_id.as_deref(), Some("p1"));
+    assert_eq!(brain.target_player_id, Some(PlayerId::from(1)));
     assert!(brain.target_position.is_none());
     assert!(brain.waypoints.is_empty());
     assert!(provoke_commands.iter().any(|command| matches!(
@@ -576,11 +576,11 @@ fn attack_chases_nearby_player() {
     let mut rng = SmallRng::seed_from_u64(42);
 
     brain.state = AiState::Attack;
-    brain.target_player_id = Some("p1".into());
+    brain.target_player_id = Some(1.into());
     brain.move_speed = brain.run_speed;
 
     let players = vec![NearbyPlayer {
-        id: "p1".into(),
+        id: 1.into(),
         position: Position {
             x: 15.0,
             y: 0.0,
@@ -629,11 +629,11 @@ fn attack_command_uses_monster_cooldown() {
     let mut rng = SmallRng::seed_from_u64(42);
 
     brain.state = AiState::Attack;
-    brain.target_player_id = Some("p1".into());
+    brain.target_player_id = Some(1.into());
     brain.attack_cooldown_ms = 1800.0;
 
     let players = vec![NearbyPlayer {
-        id: "p1".into(),
+        id: 1.into(),
         position: Position {
             x: 11.0,
             y: 0.0,

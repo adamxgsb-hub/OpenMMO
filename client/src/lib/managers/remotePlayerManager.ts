@@ -22,7 +22,7 @@ const MOVEMENT_CONFIG: MovementConfig = {
 }
 
 class PlayerStateManager {
-  players = new SvelteMap<string, PlayerState>()
+  players = new SvelteMap<number, PlayerState>()
 
   heightManager: TerrainHeightManager | null = null
 
@@ -30,26 +30,26 @@ class PlayerStateManager {
   attackAnimationDuration = 1.0
 
   // Remote player movement data (for acceleration/deceleration)
-  private movementData = new SvelteMap<string, MovementState>()
+  private movementData = new SvelteMap<number, MovementState>()
 
   // Server-authoritative movement targets for each remote player.
-  private targetPositions = new SvelteMap<string, Position>()
+  private targetPositions = new SvelteMap<number, Position>()
 
   // Server-authoritative target rotation for each remote player.
-  private targetRotations = new SvelteMap<string, number>()
+  private targetRotations = new SvelteMap<number, number>()
 
   // Queue for pending attacks when player is still moving
-  private attackQueue = new SvelteMap<string, string[]>()
+  private attackQueue = new SvelteMap<number, string[]>()
 
   // Buffered position/rotation received during attack animation (1-slot queue).
   // Applied when the attack ends.
   private pendingMove = new Map<
-    string,
+    number,
     { position: Position; rotation: number }
   >()
 
   // Timestamp (performance.now()) when each player's attack animation started
-  private attackStartTimes = new Map<string, number>()
+  private attackStartTimes = new Map<number, number>()
 
   // Move remote players toward their target positions with acceleration/deceleration
   update(deltaTime: number) {
@@ -195,7 +195,7 @@ class PlayerStateManager {
   }
 
   // Initialize remote player state with position and rotation
-  initPlayer(playerId: string, position: Position, rotation: number) {
+  initPlayer(playerId: number, position: Position, rotation: number) {
     this.targetPositions.set(playerId, { ...position })
     this.players.set(playerId, {
       position: { ...position },
@@ -206,7 +206,7 @@ class PlayerStateManager {
   }
 
   // Clean up data for players that have left
-  removePlayer(playerId: string) {
+  removePlayer(playerId: number) {
     this.players.delete(playerId)
     this.movementData.delete(playerId)
     this.targetPositions.delete(playerId)
@@ -227,7 +227,7 @@ class PlayerStateManager {
     this.attackStartTimes.clear()
   }
 
-  handleDead(playerId: string) {
+  handleDead(playerId: number) {
     const player = this.players.get(playerId)
     if (!player) return
 
@@ -239,7 +239,7 @@ class PlayerStateManager {
     })
   }
 
-  handleRespawn(playerId: string, position: Position, rotation: number) {
+  handleRespawn(playerId: number, position: Position, rotation: number) {
     this.movementData.delete(playerId)
     this.attackQueue.delete(playerId)
     this.attackStartTimes.delete(playerId)
@@ -252,7 +252,7 @@ class PlayerStateManager {
     })
   }
 
-  teleportPlayer(playerId: string, position: Position, rotation: number) {
+  teleportPlayer(playerId: number, position: Position, rotation: number) {
     this.targetPositions.set(playerId, { ...position })
     this.movementData.delete(playerId)
     this.players.set(playerId, {
@@ -264,7 +264,7 @@ class PlayerStateManager {
   }
 
   handleInteraction(
-    playerId: string,
+    playerId: number,
     anim: string,
     offsetY: number,
     position?: Position,
@@ -291,7 +291,7 @@ class PlayerStateManager {
     this.players.set(playerId, newState)
   }
 
-  handleStopInteraction(playerId: string) {
+  handleStopInteraction(playerId: number) {
     const player = this.players.get(playerId)
     if (!player || player.state !== 'interact') return
 
@@ -303,7 +303,7 @@ class PlayerStateManager {
     })
   }
 
-  handleAttack(playerId: string) {
+  handleAttack(playerId: number) {
     const player = this.players.get(playerId)
     if (!player) return
 
@@ -323,7 +323,7 @@ class PlayerStateManager {
   }
 
   setTargetPosition(
-    playerId: string,
+    playerId: number,
     targetPosition: Position,
     rotation: number
   ) {
@@ -342,7 +342,7 @@ class PlayerStateManager {
     this.targetRotations.set(playerId, rotation)
   }
 
-  private executeAttack(playerId: string) {
+  private executeAttack(playerId: number) {
     const player = this.players.get(playerId)
     if (!player) return
 

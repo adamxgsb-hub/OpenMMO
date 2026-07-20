@@ -4,9 +4,9 @@ export interface MonsterData {
   position: { x: number; y: number; z: number }
   rotation: number
   state: 'idle' | 'walk' | 'run' | 'attack' | 'hit' | 'dead'
-  ownerId?: string
+  ownerId?: number
   targetPosition?: { x: number; y: number; z: number }
-  targetPlayerId?: string // Who the monster is attacking
+  targetPlayerId?: number // Who the monster is attacking
   moveSpeed: number
   stateTimer: number
   attackCounter?: number

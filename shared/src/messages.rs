@@ -112,7 +112,7 @@ pub enum ClientMessage {
     },
     MonsterAttack {
         monster_id: String,
-        target_player_id: String,
+        target_player_id: PlayerId,
     },
     RequestRespawn,
     /// Open the treasure chest on a dungeon's final floor. The server
@@ -211,29 +211,29 @@ pub enum ClientMessage {
     },
     /// Ask a merchant NPC to open its shop.
     OpenShop {
-        merchant_player_id: String,
+        merchant_player_id: PlayerId,
     },
     /// Tell the server the player closed a merchant's trade window. The
     /// server tracks open windows so a trading NPC can be held in place (its
     /// LLM movement is suppressed) while a customer is shopping with it.
     CloseShop {
-        merchant_player_id: String,
+        merchant_player_id: PlayerId,
     },
     /// Buy one unit of an item from a merchant's catalog at base price.
     BuyItem {
-        merchant_player_id: String,
+        merchant_player_id: PlayerId,
         item_def_id: String,
     },
     /// Sell one unit of a bag item to a merchant at its sell rate.
     SellItem {
-        merchant_player_id: String,
+        merchant_player_id: PlayerId,
         instance_id: u64,
     },
     /// NPC-only (LLM haggling): offer a price modifier on one item to a
     /// nearby player. The server clamps the modifier to the player's price
     /// band and enforces budgets/cooldowns; see `doc/ECONOMY.md`.
     OfferDeal {
-        target_player_id: String,
+        target_player_id: PlayerId,
         item_def_id: String,
         kind: DealKind,
         /// Requested percentage points off/on the normal price
@@ -246,7 +246,7 @@ pub enum ClientMessage {
     /// player's client — the conversational entry point for trading
     /// ("LLM opens the trade window", doc/ECONOMY.md).
     OpenTrade {
-        target_player_id: String,
+        target_player_id: PlayerId,
     },
 }
 
@@ -293,23 +293,23 @@ pub enum ServerMessage {
         player: Player,
     },
     PlayerLeft {
-        player_id: String,
+        player_id: PlayerId,
     },
     PlayerAppeared {
         player: Player,
     },
     PlayerDisappeared {
-        player_id: String,
+        player_id: PlayerId,
     },
     PlayerMoved {
-        player_id: String,
+        player_id: PlayerId,
         position: Position,
         rotation: f32,
         #[serde(default)]
         floor_level: i8,
     },
     PlayerTeleported {
-        player_id: String,
+        player_id: PlayerId,
         position: Position,
         rotation: f32,
         #[serde(default)]
@@ -319,7 +319,7 @@ pub enum ServerMessage {
     /// opener's inventory/wallet; broadcast nearby for the celebration).
     DungeonChestOpened {
         entrance_id: String,
-        player_id: String,
+        player_id: PlayerId,
         item_def_ids: Vec<String>,
         gold: i64,
     },
@@ -367,11 +367,15 @@ pub enum ServerMessage {
         doors: Vec<(u8, u32)>,
     },
     ChatMessage {
-        player_id: String,
+        player_id: PlayerId,
         message: String,
     },
     GameState {
-        players: HashMap<String, Player>,
+        /// A list, not a map keyed by id: `PlayerId` is numeric and
+        /// `wasm_api`'s `serialize_maps_as_objects` refuses non-string keys,
+        /// which would fail the whole frame. Each `Player` carries its own id
+        /// anyway, so the key was redundant.
+        players: Vec<Player>,
         monsters: HashMap<String, Monster>,
         #[serde(default)]
         ground_items: Vec<inventory::GroundItem>,
@@ -399,7 +403,7 @@ pub enum ServerMessage {
         rotation: f32,
         state: MonsterState,
         target_position: Position,
-        owner_id: Option<String>,
+        owner_id: Option<PlayerId>,
     },
     MonsterRemoved {
         monster_id: String,
@@ -409,7 +413,7 @@ pub enum ServerMessage {
         dropped_weapon_item_def_id: Option<String>,
     },
     PlayerAttacked {
-        player_id: String,
+        player_id: PlayerId,
         monster_id: String,
         hit: bool,
         roll: u8,
@@ -418,30 +422,30 @@ pub enum ServerMessage {
     /// A valid attack attempt made outside melee range. No attack roll or
     /// damage is applied, but the managed monster should acquire the player.
     MonsterProvoked {
-        player_id: String,
+        player_id: PlayerId,
         monster_id: String,
     },
     MonsterAttackedPlayer {
         monster_id: String,
-        player_id: String,
+        player_id: PlayerId,
         hit: bool,
         roll: u8,
         damage: u32,
         current_health: u32,
     },
     PlayerDead {
-        player_id: String,
+        player_id: PlayerId,
     },
     PlayerRespawned {
         player: Player,
     },
     PlayerHealthUpdate {
-        player_id: String,
+        player_id: PlayerId,
         health: u32,
         max_health: u32,
     },
     XpGained {
-        player_id: String,
+        player_id: PlayerId,
         xp_amount: u32,
         xp_lost: u64,
         total_xp: u64,
@@ -451,15 +455,15 @@ pub enum ServerMessage {
         current_hp: u32,
     },
     Kicked {
-        player_id: String,
+        player_id: PlayerId,
         reason: String,
     },
     PlayerTorchToggled {
-        player_id: String,
+        player_id: PlayerId,
         enabled: bool,
     },
     PlayerInteractionChanged {
-        player_id: String,
+        player_id: PlayerId,
         object_type: Option<String>,
     },
     InteractionRejected {
@@ -524,7 +528,7 @@ pub enum ServerMessage {
     /// goods. Display prices come from item definitions; the server
     /// re-validates them on Buy/Sell.
     ShopState {
-        merchant_player_id: String,
+        merchant_player_id: PlayerId,
         merchant_name: String,
         /// Merchant catalog (unlimited stock). Empty for non-merchants.
         catalog: Vec<String>,
@@ -567,7 +571,7 @@ pub enum ServerMessage {
     /// Direct to a player: a haggled price modifier changed on one item.
     /// `modifier_pct == 0` means the deal was consumed or cleared.
     DealUpdated {
-        merchant_player_id: String,
+        merchant_player_id: PlayerId,
         item_def_id: String,
         kind: DealKind,
         modifier_pct: i32,
@@ -594,7 +598,7 @@ pub enum ServerMessage {
     },
     /// Direct to the offering NPC: the server's verdict on its `OfferDeal`.
     DealResult {
-        target_player_id: String,
+        target_player_id: PlayerId,
         target_player_name: String,
         item_def_id: String,
         kind: DealKind,
@@ -606,7 +610,7 @@ pub enum ServerMessage {
     },
 }
 
-pub type PlayerId = String;
+pub use crate::entity::PlayerId;
 
 // Serialization helpers (used by both server and wasm). `#[inline]` so the
 // rmp_serde call lands directly at the call site even though the protocol

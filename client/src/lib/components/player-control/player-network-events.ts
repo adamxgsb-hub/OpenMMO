@@ -3,7 +3,7 @@ import { networkManager } from '../../network/socket'
 export interface PlayerNetworkEventActions {
   /** True if the local player exists, is currently dead, and the id matches. */
   isCurrentPlayerEligibleForRespawn: () => boolean
-  isCurrentPlayer: (playerId: string) => boolean
+  isCurrentPlayer: (playerId: number) => boolean
   isInteracting: () => boolean
   onRespawned: () => void
   onInteractionRejected: () => void

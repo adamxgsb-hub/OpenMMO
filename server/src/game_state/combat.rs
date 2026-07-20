@@ -13,10 +13,28 @@ const PLAYER_MELEE_ATTACK_RANGE_METERS: f32 = 2.0;
 // Out-of-range swings may still pull aggro when the monster is plausibly
 // nearby, but farther requests are ignored to prevent remote provocation.
 pub(super) const PLAYER_ATTACK_PROVOKE_RANGE_METERS: f32 = 10.0;
+// Slack added to a monster's own attack_range when validating an owner-reported
+// hit. Monster movement is simulated by the owning client, so its position and
+// the target's can both lag the server's view by a round-trip; this absorbs that
+// drift without leaving the reach unbounded.
+const MONSTER_ATTACK_RANGE_TOLERANCE_METERS: f32 = 4.0;
 
 fn dropped_weapon_position(monster_position: Position) -> Position {
     let angle = rand::thread_rng().gen_range(0.0..TAU);
     offset_position_at_angle(monster_position, angle, WEAPON_DROP_OFFSET_METERS)
+}
+
+/// Squared XZ distance between attacker and target, or `None` when they sit on
+/// different floors or a position is non-finite. Both attack directions gate on
+/// this before applying their own reach: floors are stacked (a dungeon depth
+/// runs directly under the overworld), so a same-XZ neighbour one floor away
+/// must never read as reachable.
+fn reachable_dist_sq(a: Position, a_floor: i8, b: Position, b_floor: i8) -> Option<f32> {
+    if a_floor != b_floor {
+        return None;
+    }
+    let dist_sq = a.dist_xz_sq(&b);
+    dist_sq.is_finite().then_some(dist_sq)
 }
 
 pub(super) fn offset_position_at_angle(origin: Position, angle: f32, distance: f32) -> Position {
@@ -43,7 +61,7 @@ impl super::GameState {
     /// This is exactly the target number an attacker must beat to land a hit,
     /// and the value reported to the client so it never has to recompute the
     /// formula itself.
-    pub async fn effective_guard(&self, player_id: &str) -> i32 {
+    pub async fn effective_guard(&self, player_id: &PlayerId) -> i32 {
         let base = {
             let chars = self.player_characters.read().await;
             chars
@@ -80,7 +98,7 @@ impl super::GameState {
                 monster.position,
                 monster.floor_level,
                 monster.level_override,
-                monster.owner_id.clone(),
+                monster.owner_id,
             )
         };
 
@@ -92,26 +110,25 @@ impl super::GameState {
         };
 
         if let Some((player_name, player_level, player_floor, player_position)) = player_snapshot {
-            // Attacker and target must share a floor. Delivery filtering keeps
-            // a player from ever learning about monsters on another floor, but
-            // reject here too so a stale monster id can't drive a cross-floor
-            // hit (e.g. the original bug: a surface guard striking a monster on
-            // the dungeon floor directly beneath it).
-            if player_floor != monster_floor_level {
+            // Delivery filtering keeps a player from ever learning about
+            // monsters on another floor, but gate here too so a stale monster
+            // id can't drive a cross-floor hit (the original bug: a surface
+            // guard striking a monster on the dungeon floor beneath it).
+            let Some(distance_sq) = reachable_dist_sq(
+                player_position,
+                player_floor,
+                monster_position,
+                monster_floor_level,
+            ) else {
                 return;
-            }
-
-            let distance_sq = player_position.dist_xz_sq(&monster_position);
-            if !distance_sq.is_finite() {
-                return;
-            }
+            };
             if distance_sq > PLAYER_MELEE_ATTACK_RANGE_METERS.powi(2) {
                 if distance_sq <= PLAYER_ATTACK_PROVOKE_RANGE_METERS.powi(2) {
                     if let Some(owner_id) = monster_owner_id {
                         self.send_direct_message(
                             &owner_id,
                             ServerMessage::MonsterProvoked {
-                                player_id: player_id.clone(),
+                                player_id: *player_id,
                                 monster_id,
                             },
                         )
@@ -179,7 +196,7 @@ impl super::GameState {
                 monster_floor_level,
                 super::EVENT_DELIVERY_RADIUS,
                 ServerMessage::PlayerAttacked {
-                    player_id: player_id.clone(),
+                    player_id: *player_id,
                     monster_id: monster_id.clone(),
                     hit: result_hit,
                     roll: result_roll,
@@ -362,7 +379,7 @@ impl super::GameState {
                             self.send_direct_message(
                                 player_id,
                                 ServerMessage::XpGained {
-                                    player_id: player_id.clone(),
+                                    player_id: *player_id,
                                     xp_amount,
                                     xp_lost: 0,
                                     total_xp: new_xp,
@@ -423,7 +440,7 @@ impl super::GameState {
         &self,
         attacker_player_id: &PlayerId,
         monster_id: &str,
-        target_player_id: &str,
+        target_player_id: &PlayerId,
     ) {
         // 1. Check if monster exists, is alive, and is owned by the requester.
         // Also check server-side cooldown guard.
@@ -458,31 +475,67 @@ impl super::GameState {
                             ),
                         };
                         monster_data = Some((
-                            monster.monster_type.clone(),
                             attack_bonus,
                             damage_roll,
                             weapon_damage_roll,
+                            monster.position,
+                            monster.floor_level,
+                            def.map(|d| d.attack_range)
+                                .unwrap_or(onlinerpg_shared::monster_ai::DEFAULT_ATTACK_RANGE),
                         ));
                     }
                 }
             }
         }
 
-        let (_monster_type, attack_bonus, damage_roll, weapon_damage_roll) = match monster_data {
+        let (
+            attack_bonus,
+            damage_roll,
+            weapon_damage_roll,
+            monster_position,
+            monster_floor_level,
+            monster_attack_range,
+        ) = match monster_data {
             Some(data) => data,
             None => return,
         };
 
         // 2. Check if target player exists and is alive
-        let target_player_name;
+        let (target_player_name, target_position, target_floor_level);
         {
             let players = self.players.read().await;
             match players.get(target_player_id) {
                 Some(player) if player.health > 0 => {
                     target_player_name = player.name.clone();
+                    target_position = player.position;
+                    target_floor_level = player.floor_level;
                 }
                 _ => return,
             }
+        }
+
+        // 3. The monster must actually be able to reach the target. Ownership
+        // alone is not enough: any player can spawn a monster next to themselves
+        // and become its owner, so without this the pair (monster_id, arbitrary
+        // target_player_id) would deal real damage at unlimited range to anyone
+        // whose id the attacker can name.
+        let Some(distance_sq) = reachable_dist_sq(
+            monster_position,
+            monster_floor_level,
+            target_position,
+            target_floor_level,
+        ) else {
+            return;
+        };
+        let max_range = monster_attack_range + MONSTER_ATTACK_RANGE_TOLERANCE_METERS;
+        if distance_sq > max_range.powi(2) {
+            warn!(
+                "Rejected monster attack {:.0}m away: monster {} -> player {}",
+                distance_sq.sqrt(),
+                monster_id,
+                target_player_name
+            );
+            return;
         }
         let target_guard = self.effective_guard(target_player_id).await;
 
@@ -525,13 +578,13 @@ impl super::GameState {
         }
 
         if result.hit {
-            self.mark_dirty(&target_player_id.to_string()).await;
+            self.mark_dirty(target_player_id).await;
         }
 
         // Send attack result after server-side HP update.
         let attack_msg = ServerMessage::MonsterAttackedPlayer {
             monster_id: monster_id.to_string(),
-            player_id: target_player_id.to_string(),
+            player_id: *target_player_id,
             hit: result.hit,
             roll: result.roll,
             damage: result.damage,
@@ -547,12 +600,11 @@ impl super::GameState {
             )
             .await;
         } else {
-            self.send_direct_message(&target_player_id.to_string(), attack_msg)
-                .await;
+            self.send_direct_message(target_player_id, attack_msg).await;
         }
 
         if did_die {
-            let dead_player_id = target_player_id.to_string();
+            let dead_player_id = *target_player_id;
             self.movement_intents.write().await.remove(&dead_player_id);
             self.apply_player_death_penalty(&dead_player_id).await;
             if let Some((target_position, target_floor)) = target_loc {
@@ -594,7 +646,7 @@ impl super::GameState {
                     let con_mod = (i16::from(con) - 10) / 2;
                     let amount = (1 + (player.level as i32 / 5) + con_mod as i32).max(1) as u32;
 
-                    updates.push((player_id.clone(), amount));
+                    updates.push((*player_id, amount));
                 }
             }
         }
@@ -614,14 +666,14 @@ impl super::GameState {
                         player.health = (player.health + amount).min(player.max_health);
 
                         if player.health != old_health {
-                            regen_dirty.push(player_id.clone());
+                            regen_dirty.push(player_id);
                             let position = player.position;
                             let floor_level = player.floor_level;
                             regen_messages.push((
                                 position,
                                 floor_level,
                                 ServerMessage::PlayerHealthUpdate {
-                                    player_id: player_id.clone(),
+                                    player_id,
                                     health: player.health,
                                     max_health: player.max_health,
                                 },
@@ -655,13 +707,7 @@ impl super::GameState {
             }
         };
 
-        let player_name = {
-            let players = self.players.read().await;
-            players
-                .get(player_id)
-                .map(|p| p.name.clone())
-                .unwrap_or_else(|| player_id.clone())
-        };
+        let player_name = self.player_name_of(player_id).await;
 
         let penalty = xp::apply_death_penalty(old_xp);
         let progression_changed =
@@ -739,7 +785,7 @@ impl super::GameState {
         self.send_direct_message(
             player_id,
             ServerMessage::XpGained {
-                player_id: player_id.clone(),
+                player_id: *player_id,
                 xp_amount: 0,
                 xp_lost: penalty.old_xp.saturating_sub(penalty.new_xp),
                 total_xp: penalty.new_xp,

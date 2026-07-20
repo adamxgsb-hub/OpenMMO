@@ -1,7 +1,7 @@
 //! Behavior input/output types: the internal [`AiState`], the [`NearbyPlayer`]
 //! projection fed into each tick, and the [`AiCommand`]/[`TickResult`] outputs.
 
-use crate::{MonsterState, Position};
+use crate::{MonsterState, PlayerId, Position};
 use serde::{Deserialize, Serialize};
 
 /// Internal behavior state (superset of network [`MonsterState`]).
@@ -37,7 +37,7 @@ impl AiState {
 /// Minimal player projection for behavior input.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NearbyPlayer {
-    pub id: String,
+    pub id: PlayerId,
     pub position: Position,
     pub health: u32,
 }
@@ -55,7 +55,7 @@ pub enum AiCommand {
     },
     Attack {
         monster_id: String,
-        target_player_id: String,
+        target_player_id: PlayerId,
     },
 }
 

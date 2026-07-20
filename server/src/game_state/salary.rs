@@ -35,14 +35,9 @@ impl super::GameState {
                 .values()
                 .filter(|p| p.is_npc)
                 .filter_map(|p| {
-                    npc_defs().get_trader_by_npc_name(&p.name).map(|def| {
-                        (
-                            p.id.clone(),
-                            p.name.clone(),
-                            def.salary_per_day,
-                            def.wallet_cap,
-                        )
-                    })
+                    npc_defs()
+                        .get_trader_by_npc_name(&p.name)
+                        .map(|def| (p.id, p.name.clone(), def.salary_per_day, def.wallet_cap))
                 })
                 .collect()
         };
@@ -50,7 +45,7 @@ impl super::GameState {
         for (player_id, name, salary, cap) in recipients {
             let paid = {
                 let mut gold_map = self.player_gold.write().await;
-                let gold = gold_map.entry(player_id.clone()).or_insert(0);
+                let gold = gold_map.entry(player_id).or_insert(0);
                 let before = *gold;
                 // Cap accumulation, but never confiscate an above-cap wallet
                 // (trade proceeds may legitimately exceed the cap).

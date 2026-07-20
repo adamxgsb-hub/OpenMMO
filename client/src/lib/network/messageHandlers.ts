@@ -68,7 +68,7 @@ function toRemotePlayer(sp: ServerPlayer): RemotePlayer {
 }
 
 function emitCurrentPlayerDamageInfo(
-  playerId: string,
+  playerId: number,
   damage: number,
   hit: boolean,
   currentHealth: number,
@@ -97,7 +97,7 @@ function emitCurrentPlayerDamageInfo(
 
 /** Resolve object interaction for a remote player: find nearest placement, snap position/rotation. */
 async function applyObjectInteraction(
-  playerId: string,
+  playerId: number,
   objectType: string,
   wx: number,
   wz: number
@@ -128,7 +128,7 @@ function addRemotePlayerToState(state: GameState, sp: ServerPlayer) {
 }
 
 /** Remove a remote player's visual and store entry. */
-function removeRemotePlayerFromState(state: GameState, playerId: string) {
+function removeRemotePlayerFromState(state: GameState, playerId: number) {
   remotePlayerManager.removePlayer(playerId)
   state.otherPlayers.delete(playerId)
 }
@@ -142,7 +142,7 @@ export type MessageEvents = {
   characterDeleted: NetworkEvent<(characterId: number) => void>
   characterError: NetworkEvent<(message: string) => void>
   kicked: NetworkEvent<(reason: string) => void>
-  playerRespawned: NetworkEvent<(playerId: string) => void>
+  playerRespawned: NetworkEvent<(playerId: number) => void>
   interactionRejected: NetworkEvent<(reason: string) => void>
 }
 
@@ -351,27 +351,28 @@ export function handleServerMessage(
       gameStore.update((state) => {
         state.otherPlayers.clear()
         remotePlayerManager.reset()
-        Object.values(data.players as Record<string, ServerPlayer>).forEach(
-          (serverPlayer) => {
-            if (serverPlayer.id !== state.currentPlayer?.id) {
-              const player = toRemotePlayer(serverPlayer)
-              remotePlayerManager.initPlayer(
+        // A list, not a map: player ids are numeric and the wasm serializer
+        // rejects non-string map keys (see ServerMessage::GameState).
+        const serverPlayers = data.players as ServerPlayer[]
+        serverPlayers.forEach((serverPlayer) => {
+          if (serverPlayer.id !== state.currentPlayer?.id) {
+            const player = toRemotePlayer(serverPlayer)
+            remotePlayerManager.initPlayer(
+              serverPlayer.id,
+              serverPlayer.position,
+              serverPlayer.rotation
+            )
+            if (serverPlayer.object_type) {
+              applyObjectInteraction(
                 serverPlayer.id,
-                serverPlayer.position,
-                serverPlayer.rotation
+                serverPlayer.object_type,
+                serverPlayer.position.x,
+                serverPlayer.position.z
               )
-              if (serverPlayer.object_type) {
-                applyObjectInteraction(
-                  serverPlayer.id,
-                  serverPlayer.object_type,
-                  serverPlayer.position.x,
-                  serverPlayer.position.z
-                )
-              }
-              state.otherPlayers.set(serverPlayer.id, player)
             }
+            state.otherPlayers.set(serverPlayer.id, player)
           }
-        )
+        })
         return state
       })
 

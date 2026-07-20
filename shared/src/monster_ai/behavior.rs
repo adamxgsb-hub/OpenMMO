@@ -286,7 +286,7 @@ impl MonsterBrain {
             return BehaviorStatus::Failure;
         }
 
-        let target_id = target.id.clone();
+        let target_id = target.id;
         self.rotation = dx.atan2(dz);
         if self.state != AiState::Attack {
             self.state = AiState::Attack;
@@ -371,7 +371,7 @@ impl MonsterBrain {
                 (p.health > 0 && dist_sq <= range_sq).then_some((dist_sq, p))
             })
             .min_by(|a, b| a.0.total_cmp(&b.0))
-            .map(|(_, p)| p.id.clone());
+            .map(|(_, p)| p.id);
 
         if let Some(id) = selected {
             self.target_player_id = Some(id);

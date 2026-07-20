@@ -264,7 +264,7 @@ impl GameState {
                 {
                     Some("The chest is empty (come back later)")
                 } else {
-                    rt.chest_opened_at.insert(player_id.clone(), now);
+                    rt.chest_opened_at.insert(*player_id, now);
                     None
                 }
             }
@@ -309,7 +309,7 @@ impl GameState {
         }
         let new_gold = {
             let mut gold_map = self.player_gold.write().await;
-            let wallet = gold_map.entry(player_id.clone()).or_insert(0);
+            let wallet = gold_map.entry(*player_id).or_insert(0);
             *wallet += gold;
             *wallet
         };
@@ -319,7 +319,10 @@ impl GameState {
 
         info!(
             "Player {} opened dungeon chest '{}': {:?} + {} gold",
-            player_id, entrance_id, item_def_ids, gold
+            self.player_name_of(player_id).await,
+            entrance_id,
+            item_def_ids,
+            gold
         );
         self.send_direct_message_to_players_within_position(
             &player_pos,
@@ -327,7 +330,7 @@ impl GameState {
             super::EVENT_DELIVERY_RADIUS,
             ServerMessage::DungeonChestOpened {
                 entrance_id: entrance_id.to_string(),
-                player_id: player_id.clone(),
+                player_id: *player_id,
                 item_def_ids,
                 gold,
             },
@@ -668,7 +671,7 @@ impl GameState {
                     players: HashSet::new(),
                 })
                 .players
-                .insert(player_id.clone());
+                .insert(*player_id);
             let broken = rt
                 .broken_props
                 .get(&depth)
@@ -767,7 +770,7 @@ impl GameState {
                     monster_type,
                     pos,
                     0.0,
-                    Some(owner.clone()),
+                    Some(*owner),
                     -(depth as i8),
                     Some(level),
                     aggressive,
@@ -842,8 +845,8 @@ impl GameState {
                     let mut out = Vec::new();
                     for id in &alive_ids {
                         if let Some(m) = monsters.get_mut(id) {
-                            if m.owner_id.as_deref() == Some(player_id.as_str()) {
-                                m.owner_id = Some(new_owner.clone());
+                            if m.owner_id.as_ref() == Some(player_id) {
+                                m.owner_id = Some(new_owner);
                                 out.push(m.clone());
                             }
                         }
@@ -900,10 +903,7 @@ impl GameState {
                 .iter()
                 .flat_map(|(id, rt)| {
                     rt.floors.iter().filter_map(|(depth, fr)| {
-                        fr.players
-                            .iter()
-                            .next()
-                            .map(|p| (id.clone(), *depth, p.clone()))
+                        fr.players.iter().next().map(|p| (id.clone(), *depth, *p))
                     })
                 })
                 .collect()
@@ -996,7 +996,8 @@ impl GameState {
         else {
             warn!(
                 "Player {} reported dungeon floor {} outside any dungeon footprint",
-                player_id, requested_floor
+                self.player_name_of(player_id).await,
+                requested_floor
             );
             return current_floor.max(0);
         };
@@ -1022,7 +1023,10 @@ impl GameState {
         if (position.y - expected_y).abs() > FLOOR_Y_TOLERANCE {
             warn!(
                 "Player {} floor {} Y mismatch: reported {:.1}, expected {:.1}",
-                player_id, requested_floor, position.y, expected_y
+                self.player_name_of(player_id).await,
+                requested_floor,
+                position.y,
+                expected_y
             );
             return current_floor;
         }
@@ -1090,7 +1094,9 @@ impl GameState {
         if valid {
             info!(
                 "Player {} rehydrated in dungeon '{}' at depth {}",
-                player_id, entrance.id, depth
+                self.player_name_of(player_id).await,
+                entrance.id,
+                depth
             );
         }
         valid

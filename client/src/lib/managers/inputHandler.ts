@@ -79,7 +79,7 @@ export type ClickIntent =
     }
   | {
       type: 'interact_npc'
-      playerId: string
+      playerId: number
       position: Position
       distance: number
     }
@@ -252,7 +252,7 @@ class InputHandler {
           const dz = npcPosition.z - context.playerPosition.z
           return {
             type: 'interact_npc',
-            playerId: owner.userData.npcPlayerId as string,
+            playerId: owner.userData.npcPlayerId as number,
             position: {
               x: npcPosition.x,
               y: npcPosition.y,

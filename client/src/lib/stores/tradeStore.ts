@@ -12,7 +12,7 @@ export interface StockEntry {
  *  `wishlist`/`stock` instead and pay out of a finite wallet the server
  *  keeps hidden (like another player's gold). */
 export interface ShopSession {
-  merchantPlayerId: string
+  merchantPlayerId: number
   merchantName: string
   catalog: string[]
   sellRatePercent: number
@@ -26,15 +26,15 @@ export const shopSession = writable<ShopSession | null>(null)
 
 /** Merchant id the player explicitly asked to trade with (sendOpenShop),
  *  so unsolicited NPC-pushed ShopStates can be told apart from replies. */
-let requestedShop: { merchantPlayerId: string; at: number } | null = null
+let requestedShop: { merchantPlayerId: number; at: number } | null = null
 const SHOP_REQUEST_TTL_MS = 5_000
 
-export function markShopRequested(merchantPlayerId: string) {
+export function markShopRequested(merchantPlayerId: number) {
   requestedShop = { merchantPlayerId, at: Date.now() }
 }
 
 /** True if the player recently requested this merchant's shop themselves. */
-export function wasShopRequested(merchantPlayerId: string): boolean {
+export function wasShopRequested(merchantPlayerId: number): boolean {
   return (
     requestedShop !== null &&
     requestedShop.merchantPlayerId === merchantPlayerId &&
@@ -78,7 +78,7 @@ export interface ShopDeal {
 export const shopDeals = writable<Record<string, ShopDeal>>({})
 
 export function dealKey(
-  merchantPlayerId: string,
+  merchantPlayerId: number,
   itemDefId: string,
   kind: DealKind
 ): string {
@@ -87,7 +87,7 @@ export function dealKey(
 
 /** Apply a DealUpdated message; a modifier of 0 clears the deal. */
 export function applyDealUpdate(
-  merchantPlayerId: string,
+  merchantPlayerId: number,
   itemDefId: string,
   kind: DealKind,
   modifierPct: number,
@@ -107,7 +107,7 @@ export function applyDealUpdate(
 
 /** Replace all deals for one merchant (from ShopState.active_deals). */
 export function setMerchantDeals(
-  merchantPlayerId: string,
+  merchantPlayerId: number,
   deals: {
     item_def_id: string
     kind: DealKind

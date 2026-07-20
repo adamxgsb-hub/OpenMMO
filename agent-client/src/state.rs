@@ -4,7 +4,7 @@ use crate::monster_ai::MonsterAiManager;
 use onlinerpg_shared::furniture::{self, FurniturePlacement};
 use onlinerpg_shared::housing::{HouseData, WallDirection};
 use onlinerpg_shared::pathfinding::{self, PassabilityCache, PathResult};
-use onlinerpg_shared::{Character, ClientMessage, Monster, Player, ServerMessage};
+use onlinerpg_shared::{Character, ClientMessage, Monster, Player, PlayerId, ServerMessage};
 use onlinerpg_shared::{NoSpawnZone, Position};
 use onlinerpg_terrain::height::HeightSampler;
 use rand::Rng;
@@ -108,7 +108,7 @@ pub struct SharedState {
     pub characters: Vec<Character>,
     pub in_game: bool,
     /// Our own player ID (set on JoinSuccess)
-    pub self_player_id: Option<String>,
+    pub self_player_id: Option<PlayerId>,
     /// Our own player state (updated from JoinSuccess, GameState, health updates, etc.)
     pub self_player: Option<Player>,
     /// Our own gold in the smallest unit (from GoldUpdate). NPC traders'
@@ -126,18 +126,18 @@ pub struct SharedState {
     /// actions are suppressed — until the trade ends.
     pub trade_busy: bool,
     /// Known nearby players
-    pub nearby_players: HashMap<String, Player>,
+    pub nearby_players: HashMap<PlayerId, Player>,
     /// Known nearby monsters
     pub nearby_monsters: HashMap<String, Monster>,
     events: Vec<ServerMessage>,
     /// Latest position per monster -- deduplicates high-frequency MonsterMoved events
     latest_monster_moves: HashMap<String, ServerMessage>,
     /// Latest position per player -- deduplicates high-frequency PlayerMoved events
-    latest_player_moves: HashMap<String, ServerMessage>,
+    latest_player_moves: HashMap<PlayerId, ServerMessage>,
     /// Latest game time -- only the most recent matters
     latest_time: Option<ServerMessage>,
     /// Players we've already seen within NEARBY_PLAYER_RADIUS -- prevents duplicate events
-    seen_nearby_players: HashSet<String>,
+    seen_nearby_players: HashSet<PlayerId>,
     /// Synthetic agent-side events (e.g. "player appeared nearby")
     agent_events: Vec<String>,
     /// Terrain height sampler (shared across NPC connections)
@@ -206,11 +206,11 @@ impl SharedState {
         let Some(self_player) = self.self_player.as_ref() else {
             return false;
         };
-        let self_id = self.self_player_id.as_deref();
+        let self_id = self.self_player_id.as_ref();
         let radius_sq = NPC_SIGHT_RADIUS * NPC_SIGHT_RADIUS;
 
         self.nearby_players.iter().any(|(id, p)| {
-            if self_id == Some(id.as_str()) || p.is_npc {
+            if self_id == Some(id) || p.is_npc {
                 return false;
             }
             p.position.dist_xz_sq(&self_player.position) <= radius_sq
@@ -224,13 +224,13 @@ impl SharedState {
             Some(p) => &p.position,
             None => return,
         };
-        let self_id = match self.self_player_id.as_deref() {
+        let self_id = match self.self_player_id.as_ref() {
             Some(id) => id,
             None => return,
         };
 
         for (pid, player) in &self.nearby_players {
-            if pid.as_str() == self_id {
+            if pid == self_id {
                 continue;
             }
             if self.seen_nearby_players.contains(pid) {
@@ -240,7 +240,7 @@ impl SharedState {
             let dz = player.position.z - self_pos.z;
             let dist = (dx * dx + dz * dz).sqrt();
             if dist <= NEARBY_PLAYER_RADIUS {
-                self.seen_nearby_players.insert(pid.clone());
+                self.seen_nearby_players.insert(*pid);
                 self.agent_events.push(format!(
                     "[PlayerNearby] {} Lv.{} appeared {:.1}m away at ({:.1}, {:.1}, {:.1})",
                     player.name,
@@ -362,18 +362,18 @@ impl SharedState {
 
     /// Classify how urgent a server event is for LLM processing.
     pub fn classify_event(&self, msg: &ServerMessage) -> EventUrgency {
-        let self_id = self.self_player_id.as_deref();
+        let self_id = self.self_player_id.as_ref();
         match msg {
             // Urgent: we are being attacked or we died
             ServerMessage::MonsterAttackedPlayer { player_id, .. } => {
-                if self_id == Some(player_id.as_str()) {
+                if self_id == Some(player_id) {
                     EventUrgency::Urgent
                 } else {
                     EventUrgency::Routine
                 }
             }
             ServerMessage::PlayerDead { player_id } => {
-                if self_id == Some(player_id.as_str()) {
+                if self_id == Some(player_id) {
                     EventUrgency::Urgent
                 } else {
                     EventUrgency::Routine
@@ -384,7 +384,7 @@ impl SharedState {
             // into an endless conversation loop (and an LLM-cost leak), so
             // NPC replies wait for the next batched prompt instead.
             ServerMessage::ChatMessage { player_id, .. } => {
-                if self_id == Some(player_id.as_str()) {
+                if self_id == Some(player_id) {
                     EventUrgency::Noise
                 } else if self.nearby_players.get(player_id).is_some_and(|p| p.is_npc) {
                     EventUrgency::Routine
@@ -414,7 +414,7 @@ impl SharedState {
 
             // Urgent: another player attacks a monster (so we can join in)
             ServerMessage::PlayerAttacked { player_id, .. } => {
-                if self_id != Some(player_id.as_str()) {
+                if self_id != Some(player_id) {
                     EventUrgency::Urgent
                 } else {
                     EventUrgency::Routine
@@ -459,7 +459,7 @@ impl SharedState {
     fn handle_managed_monster_hit(
         &mut self,
         monster_id: &str,
-        player_id: &str,
+        player_id: &PlayerId,
         hit: bool,
         damage: u32,
     ) {
@@ -485,18 +485,18 @@ impl SharedState {
         match &msg {
             ServerMessage::JoinSuccess { player, .. } => {
                 self.in_game = true;
-                self.self_player_id = Some(player.id.clone());
+                self.self_player_id = Some(player.id);
                 self.self_player = Some(player.clone());
             }
             ServerMessage::GameState {
                 players, monsters, ..
             } => {
-                self.nearby_players = players.clone();
+                self.nearby_players = players.iter().map(|p| (p.id, p.clone())).collect();
                 self.nearby_monsters = monsters.clone();
                 // Update self_player from game state
-                if let Some(ref self_id) = self.self_player_id {
-                    if let Some(p) = players.get(self_id) {
-                        self.self_player = Some(p.clone());
+                if let Some(self_id) = self.self_player_id {
+                    if let Some(p) = self.nearby_players.get(&self_id).cloned() {
+                        self.self_player = Some(p);
                     }
                 }
             }
@@ -505,7 +505,7 @@ impl SharedState {
                 health,
                 max_health,
             } => {
-                if self.self_player_id.as_deref() == Some(player_id.as_str()) {
+                if self.self_player_id.as_ref() == Some(player_id) {
                     if let Some(ref mut p) = self.self_player {
                         p.health = *health;
                         p.max_health = *max_health;
@@ -513,8 +513,7 @@ impl SharedState {
                 }
             }
             ServerMessage::PlayerJoined { player } | ServerMessage::PlayerAppeared { player } => {
-                self.nearby_players
-                    .insert(player.id.clone(), player.clone());
+                self.nearby_players.insert(player.id, player.clone());
             }
             ServerMessage::PlayerLeft { player_id }
             | ServerMessage::PlayerDisappeared { player_id } => {
@@ -582,7 +581,7 @@ impl SharedState {
                 ..
             } => {
                 // Update tracked position for self and nearby players
-                if self.self_player_id.as_deref() == Some(player_id.as_str()) {
+                if self.self_player_id.as_ref() == Some(player_id) {
                     if let Some(ref mut p) = self.self_player {
                         p.position = *position;
                     }
@@ -679,7 +678,7 @@ impl SharedState {
                 return urgency;
             }
             ServerMessage::PlayerMoved { player_id, .. } => {
-                self.latest_player_moves.insert(player_id.clone(), msg);
+                self.latest_player_moves.insert(*player_id, msg);
                 return urgency;
             }
             // A pure state flag; it changes movement gating but is not an LLM
@@ -785,7 +784,7 @@ impl SharedState {
     /// Like `face_monster_command`, but toward another player or NPC — a
     /// position-sync that rotates us to face them, e.g. after walking up
     /// to someone for a conversation.
-    pub fn face_player_command(&self, player_id: &str) -> Option<ClientMessage> {
+    pub fn face_player_command(&self, player_id: &PlayerId) -> Option<ClientMessage> {
         let target_pos = self.nearby_players.get(player_id)?.position;
         self.face_position_command(target_pos)
     }
@@ -854,11 +853,16 @@ impl SharedState {
 
     /// Resolve a player name (or raw id) among nearby players, as used by
     /// player-targeting LLM actions. Returns `(player_id, is_npc)`.
-    pub fn resolve_nearby_player(&self, name_or_id: &str) -> Option<(String, bool)> {
+    /// `name_or_id` stays `&str` because it comes straight from LLM output and
+    /// may be either form; the resolved handle is what gets typed.
+    pub fn resolve_nearby_player(&self, name_or_id: &str) -> Option<(PlayerId, bool)> {
         self.nearby_players
             .iter()
-            .find(|(id, p)| p.name.eq_ignore_ascii_case(name_or_id) || *id == name_or_id)
-            .map(|(id, p)| (id.clone(), p.is_npc))
+            .find(|(id, p)| {
+                p.name.eq_ignore_ascii_case(name_or_id)
+                    || name_or_id.parse::<u64>().is_ok_and(|n| id.get() == n)
+            })
+            .map(|(id, p)| (*id, p.is_npc))
     }
 
     /// Current game time snapshot for schedule resolution.
@@ -908,7 +912,7 @@ impl SharedState {
         let sp = self.self_player.as_ref();
         let sight_sq = NPC_SIGHT_RADIUS * NPC_SIGHT_RADIUS;
         for p in self.nearby_players.values() {
-            if self.self_player_id.as_deref() == Some(p.id.as_str()) {
+            if self.self_player_id.as_ref() == Some(&p.id) {
                 continue;
             }
             if let Some(sp) = sp {

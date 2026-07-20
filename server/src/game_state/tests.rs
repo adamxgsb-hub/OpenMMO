@@ -2,16 +2,37 @@ use super::*;
 use crate::housing::HousingIO;
 use crate::item_defs::ItemDefs;
 use crate::monster_defs::MonsterDefs;
-use crate::types::{CharacterClass, Gender, MonsterState, Position, ServerMessage};
+use crate::types::{CharacterClass, Gender, MonsterState, PlayerId, Position, ServerMessage};
 use crate::world_config::world_config;
 use onlinerpg_shared::inventory::{EquipSlot, GroundItem, ItemInstance, PlayerInventory};
 use onlinerpg_shared::messages::DealKind;
 use tokio::sync::broadcast::error::TryRecvError;
 use tokio::sync::mpsc::error::TryRecvError as MpscTryRecvError;
 
+/// Stable numeric id derived from a fixture's name, so tests keep naming
+/// players ("owner", "buyer") instead of carrying opaque integers. Only needs
+/// to be consistent within one process; a collision between two names in the
+/// same test would surface as an immediate failure, never as a silent pass.
+fn pid(name: &str) -> PlayerId {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    name.hash(&mut hasher);
+    // Mask to 32 bits and avoid 0, which is the "no player" sentinel.
+    PlayerId::from((hasher.finish() & 0xFFFF_FFFF).max(1))
+}
+
+/// `GameState.players` is a list (numeric ids can't key a wasm-serialized
+/// map), so snapshot assertions look their player up by id.
+fn find_player(players: &[Player], id: PlayerId) -> &Player {
+    players
+        .iter()
+        .find(|p| p.id == id)
+        .expect("player missing from snapshot")
+}
+
 fn make_player(id: &str, x: f32, z: f32) -> Player {
     Player {
-        id: id.to_string(),
+        id: pid(id),
         name: id.to_string(),
         position: Position { x, y: 0.0, z },
         rotation: 0.0,
@@ -68,13 +89,13 @@ fn make_test_game_state(test_name: &str) -> GameState {
 #[tokio::test]
 async fn equipped_torch_syncs_live_and_late_join_player_state() {
     let game_state = make_test_game_state("late_join_torch_snapshot");
-    let torch_holder_id = "torch_holder".to_string();
+    let torch_holder_id = pid("torch_holder");
 
     game_state
-        .add_player(make_player(&torch_holder_id, 0.0, 0.0))
+        .add_player(make_player("torch_holder", 0.0, 0.0))
         .await;
     game_state.inventories.write().await.insert(
-        torch_holder_id.clone(),
+        torch_holder_id,
         PlayerInventory {
             bag: vec![bag_item(1, "torch", 1)],
             equipped: Default::default(),
@@ -90,7 +111,7 @@ async fn equipped_torch_syncs_live_and_late_join_player_state() {
         .expect("nearby existing player should produce a GameState snapshot");
     match snapshot {
         ServerMessage::GameState { players, .. } => {
-            assert!(players[&torch_holder_id].torch_on);
+            assert!(find_player(&players, torch_holder_id).torch_on);
         }
         other => panic!("expected GameState, got {other:?}"),
     }
@@ -107,7 +128,7 @@ async fn respawn_player_revives_dead_player_only() {
     let game_state = make_test_game_state("respawn_dead");
 
     let player = Player {
-        id: "player_dead".to_string(),
+        id: pid("player_dead"),
         name: "DeadPlayer".to_string(),
         position: Position {
             x: 12.0,
@@ -127,7 +148,7 @@ async fn respawn_player_revives_dead_player_only() {
         object_id: None,
         last_combat_at: 0,
     };
-    let player_id = player.id.clone();
+    let player_id = player.id;
     game_state.add_player(player).await;
 
     let mut direct_rx = game_state.register_direct_channel(&player_id).await;
@@ -169,7 +190,7 @@ async fn respawn_player_ignores_alive_player() {
     let game_state = make_test_game_state("respawn_alive");
 
     let player = Player {
-        id: "player_alive".to_string(),
+        id: pid("player_alive"),
         name: "AlivePlayer".to_string(),
         position: Position {
             x: 5.0,
@@ -189,7 +210,7 @@ async fn respawn_player_ignores_alive_player() {
         object_id: None,
         last_combat_at: 0,
     };
-    let player_id = player.id.clone();
+    let player_id = player.id;
     game_state.add_player(player).await;
 
     let mut rx = game_state.subscribe();
@@ -222,9 +243,9 @@ async fn respawn_player_ignores_alive_player() {
 #[tokio::test]
 async fn chat_uses_direct_spatial_fanout_instead_of_global_broadcast() {
     let game_state = make_test_game_state("chat_spatial_fanout");
-    let speaker_id = "speaker".to_string();
-    let near_listener_id = "near_listener".to_string();
-    let far_listener_id = "far_listener".to_string();
+    let speaker_id = pid("speaker");
+    let near_listener_id = pid("near_listener");
+    let far_listener_id = pid("far_listener");
 
     game_state
         .add_player(make_player("speaker", 0.0, 0.0))
@@ -247,7 +268,7 @@ async fn chat_uses_direct_spatial_fanout_instead_of_global_broadcast() {
 
     match speaker_rx.try_recv() {
         Ok(ServerMessage::ChatMessage { player_id, message }) => {
-            assert_eq!(player_id, "speaker");
+            assert_eq!(player_id, pid("speaker"));
             assert_eq!(message, "hello");
         }
         other => panic!("Expected direct chat for speaker, got {:?}", other),
@@ -255,7 +276,7 @@ async fn chat_uses_direct_spatial_fanout_instead_of_global_broadcast() {
 
     match near_rx.try_recv() {
         Ok(ServerMessage::ChatMessage { player_id, message }) => {
-            assert_eq!(player_id, "speaker");
+            assert_eq!(player_id, pid("speaker"));
             assert_eq!(message, "hello");
         }
         other => panic!("Expected direct chat for nearby listener, got {:?}", other),
@@ -280,19 +301,19 @@ async fn chat_uses_direct_spatial_fanout_instead_of_global_broadcast() {
 #[tokio::test]
 async fn player_aoi_crosses_world_x_seam() {
     let game_state = make_test_game_state("player_aoi_x_wrap");
-    let east_id = "east_player".to_string();
-    let west_id = "west_player".to_string();
+    let east_id = pid("east_player");
+    let west_id = pid("west_player");
 
     game_state
         .add_player(make_player(
-            &east_id,
+            "east_player",
             onlinerpg_shared::WORLD_MAX_X - 1.0,
             0.0,
         ))
         .await;
     game_state
         .add_player(make_player(
-            &west_id,
+            "west_player",
             onlinerpg_shared::WORLD_MIN_X + 1.0,
             0.0,
         ))
@@ -308,16 +329,14 @@ async fn player_aoi_crosses_world_x_seam() {
 #[tokio::test]
 async fn movement_into_aoi_sends_existing_monsters_and_ground_items() {
     let game_state = make_test_game_state("movement_world_entity_aoi");
-    let player_id = "walker".to_string();
+    let player_id = pid("walker");
     let entity_position = Position {
         x: 50.0,
         y: 0.0,
         z: 0.0,
     };
 
-    game_state
-        .add_player(make_player(&player_id, 0.0, 0.0))
-        .await;
+    game_state.add_player(make_player("walker", 0.0, 0.0)).await;
     let mut direct_rx = game_state.register_direct_channel(&player_id).await;
 
     {
@@ -384,10 +403,10 @@ async fn movement_into_aoi_sends_existing_monsters_and_ground_items() {
 #[tokio::test]
 async fn player_movement_wraps_across_east_world_edge() {
     let game_state = make_test_game_state("movement_x_wrap");
-    let player_id = "world_wrap_walker".to_string();
+    let player_id = pid("world_wrap_walker");
     game_state
         .add_player(make_player(
-            &player_id,
+            "world_wrap_walker",
             onlinerpg_shared::WORLD_MAX_X - 0.25,
             0.0,
         ))
@@ -428,10 +447,10 @@ async fn player_movement_wraps_across_east_world_edge() {
 #[tokio::test]
 async fn seam_crossing_movement_checks_destination_edge_collision() {
     let game_state = make_test_game_state("movement_seam_collision");
-    let player_id = "seam_walker".to_string();
+    let player_id = pid("seam_walker");
     game_state
         .add_player(make_player(
-            &player_id,
+            "seam_walker",
             onlinerpg_shared::WORLD_MAX_X - 0.5,
             5.5,
         ))
@@ -465,7 +484,7 @@ async fn seam_crossing_movement_checks_destination_edge_collision() {
     );
 }
 
-async fn player_x(game_state: &GameState, player_id: &str) -> f32 {
+async fn player_x(game_state: &GameState, player_id: &PlayerId) -> f32 {
     game_state.get_all_players().await[player_id].position.x
 }
 
@@ -485,10 +504,8 @@ fn move_cmd(position: Position, append: bool) -> MoveCommand {
 #[tokio::test]
 async fn server_caps_player_movement_speed() {
     let game_state = make_test_game_state("movement_speed_cap");
-    let player_id = "runner".to_string();
-    game_state
-        .add_player(make_player(&player_id, 0.0, 0.0))
-        .await;
+    let player_id = pid("runner");
+    game_state.add_player(make_player("runner", 0.0, 0.0)).await;
 
     game_state
         .update_player_position(&player_id, move_cmd(pos(50.0), false), false, false)
@@ -507,9 +524,9 @@ async fn server_caps_player_movement_speed() {
 #[tokio::test]
 async fn one_tick_budget_spans_queued_legs() {
     let game_state = make_test_game_state("movement_queue_budget");
-    let player_id = "pathwalker".to_string();
+    let player_id = pid("pathwalker");
     game_state
-        .add_player(make_player(&player_id, 0.0, 0.0))
+        .add_player(make_player("pathwalker", 0.0, 0.0))
         .await;
 
     game_state
@@ -534,9 +551,9 @@ async fn one_tick_budget_spans_queued_legs() {
 #[tokio::test]
 async fn append_distance_guard_measures_from_queue_tail() {
     let game_state = make_test_game_state("movement_queue_tail_guard");
-    let player_id = "longhauler".to_string();
+    let player_id = pid("longhauler");
     game_state
-        .add_player(make_player(&player_id, 0.0, 0.0))
+        .add_player(make_player("longhauler", 0.0, 0.0))
         .await;
 
     game_state
@@ -558,9 +575,9 @@ async fn append_distance_guard_measures_from_queue_tail() {
 #[tokio::test]
 async fn replace_drops_queued_waypoints() {
     let game_state = make_test_game_state("movement_queue_replace");
-    let player_id = "rerouter".to_string();
+    let player_id = pid("rerouter");
     game_state
-        .add_player(make_player(&player_id, 0.0, 0.0))
+        .add_player(make_player("rerouter", 0.0, 0.0))
         .await;
 
     game_state
@@ -580,9 +597,9 @@ async fn replace_drops_queued_waypoints() {
 #[tokio::test]
 async fn full_waypoint_queue_drops_oldest_leg() {
     let game_state = make_test_game_state("movement_queue_cap");
-    let player_id = "spammer".to_string();
+    let player_id = pid("spammer");
     game_state
-        .add_player(make_player(&player_id, 0.0, 0.0))
+        .add_player(make_player("spammer", 0.0, 0.0))
         .await;
 
     game_state
@@ -604,9 +621,9 @@ async fn full_waypoint_queue_drops_oldest_leg() {
 #[tokio::test]
 async fn non_finite_move_is_rejected() {
     let game_state = make_test_game_state("movement_nan_reject");
-    let player_id = "glitcher".to_string();
+    let player_id = pid("glitcher");
     game_state
-        .add_player(make_player(&player_id, 1.0, 1.0))
+        .add_player(make_player("glitcher", 1.0, 1.0))
         .await;
 
     for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
@@ -621,10 +638,8 @@ async fn non_finite_move_is_rejected() {
 #[tokio::test]
 async fn far_move_target_is_rejected() {
     let game_state = make_test_game_state("movement_far_reject");
-    let player_id = "warper".to_string();
-    game_state
-        .add_player(make_player(&player_id, 0.0, 0.0))
-        .await;
+    let player_id = pid("warper");
+    game_state.add_player(make_player("warper", 0.0, 0.0)).await;
 
     game_state
         .update_player_position(&player_id, move_cmd(pos(100.0), false), false, false)
@@ -636,10 +651,8 @@ async fn far_move_target_is_rejected() {
 #[tokio::test]
 async fn admin_move_applies_immediately() {
     let game_state = make_test_game_state("movement_admin_bypass");
-    let player_id = "gm".to_string();
-    game_state
-        .add_player(make_player(&player_id, 0.0, 0.0))
-        .await;
+    let player_id = pid("gm");
+    game_state.add_player(make_player("gm", 0.0, 0.0)).await;
 
     game_state
         .update_player_position(&player_id, move_cmd(pos(100.0), false), true, false)
@@ -650,9 +663,9 @@ async fn admin_move_applies_immediately() {
 #[tokio::test]
 async fn teleport_clears_pending_move_intent() {
     let game_state = make_test_game_state("movement_teleport_clears");
-    let player_id = "traveler".to_string();
+    let player_id = pid("traveler");
     game_state
-        .add_player(make_player(&player_id, 0.0, 0.0))
+        .add_player(make_player("traveler", 0.0, 0.0))
         .await;
 
     game_state
@@ -688,12 +701,8 @@ async fn monster_events_do_not_cross_floors() {
     game_state.add_player(delver).await;
 
     // Channels registered after join so the AOI snapshots don't pollute them.
-    let mut guard_rx = game_state
-        .register_direct_channel(&"guard".to_string())
-        .await;
-    let mut delver_rx = game_state
-        .register_direct_channel(&"delver".to_string())
-        .await;
+    let mut guard_rx = game_state.register_direct_channel(&pid("guard")).await;
+    let mut delver_rx = game_state.register_direct_channel(&pid("delver")).await;
 
     let monster_pos = Position {
         x: 0.0,
@@ -703,13 +712,13 @@ async fn monster_events_do_not_cross_floors() {
     {
         let mut monsters = game_state.monsters.write().await;
         let mut monster = make_monster("dungeon_monster", monster_pos, -1);
-        monster.owner_id = Some("keeper".to_string());
+        monster.owner_id = Some(pid("keeper"));
         monsters.insert("dungeon_monster".to_string(), monster);
     }
 
     game_state
         .update_monster_position(
-            "keeper",
+            &pid("keeper"),
             "dungeon_monster".to_string(),
             monster_pos,
             0.0,
@@ -740,21 +749,19 @@ async fn monster_events_do_not_cross_floors() {
 #[tokio::test]
 async fn monster_move_requires_ownership() {
     let game_state = make_test_game_state("monster_move_ownership");
-    let owner_id = "owner".to_string();
-    let hijacker_id = "hijacker".to_string();
+    let owner_id = pid("owner");
+    let hijacker_id = pid("hijacker");
 
+    game_state.add_player(make_player("owner", 0.0, 0.0)).await;
     game_state
-        .add_player(make_player(&owner_id, 0.0, 0.0))
-        .await;
-    game_state
-        .add_player(make_player(&hijacker_id, 0.0, 0.0))
+        .add_player(make_player("hijacker", 0.0, 0.0))
         .await;
     let mut hijacker_rx = game_state.register_direct_channel(&hijacker_id).await;
 
     {
         let mut monsters = game_state.monsters.write().await;
         let mut monster = make_monster("victim_monster", pos(1.0), 0);
-        monster.owner_id = Some(owner_id.clone());
+        monster.owner_id = Some(owner_id);
         monsters.insert("victim_monster".to_string(), monster);
     }
 
@@ -801,6 +808,94 @@ async fn monster_move_requires_ownership() {
     );
 }
 
+/// Owning a monster must not let a player damage arbitrary targets at range.
+/// Anyone can spawn a monster beside themselves and become its owner, so the
+/// ownership check alone would leave `target_player_id` as a world-wide damage
+/// primitive against any id the attacker can name.
+#[tokio::test]
+async fn monster_attack_requires_proximity_to_target() {
+    let game_state = make_test_game_state("monster_attack_range");
+    let owner_id = pid("owner");
+    let victim_id = pid("victim");
+
+    game_state.add_player(make_player("owner", 0.0, 0.0)).await;
+    // Far out of any monster's reach, but well within the attacker's ability to
+    // name: an id is all the exploit needed.
+    game_state
+        .add_player(make_player("victim", 500.0, 0.0))
+        .await;
+
+    // Each half uses its own monster: a rejected attack still consumes the
+    // cooldown, so reusing one would block the in-range case for 1.5s.
+    {
+        let mut monsters = game_state.monsters.write().await;
+        for (id, x) in [("far_monster", 0.0), ("near_monster", 499.0)] {
+            let mut monster = make_monster(id, pos(x), 0);
+            monster.owner_id = Some(owner_id);
+            monsters.insert(id.to_string(), monster);
+        }
+    }
+
+    game_state
+        .broadcast_monster_attack(&owner_id, "far_monster", &victim_id)
+        .await;
+
+    // `last_combat_at` is stamped for any in-range attack, hit or miss, so it
+    // records that the swing was processed without depending on a damage roll.
+    assert_eq!(
+        game_state.players.read().await[&victim_id].last_combat_at,
+        0,
+        "a monster 500m from its target must not reach it"
+    );
+    assert_eq!(
+        game_state.players.read().await[&victim_id].health,
+        10,
+        "an out-of-range monster attack must not deal damage"
+    );
+
+    game_state
+        .broadcast_monster_attack(&owner_id, "near_monster", &victim_id)
+        .await;
+
+    assert_ne!(
+        game_state.players.read().await[&victim_id].last_combat_at,
+        0,
+        "a monster standing next to its target must still land its attack"
+    );
+}
+
+/// A monster and its target must share a floor, so a surface monster cannot
+/// strike a player on the dungeon floor directly beneath it.
+#[tokio::test]
+async fn cross_floor_monster_attack_is_rejected() {
+    let game_state = make_test_game_state("cross_floor_monster_attack");
+    let owner_id = pid("owner");
+    let delver_id = pid("delver");
+
+    game_state.add_player(make_player("owner", 0.0, 0.0)).await;
+    let mut delver = make_player("delver", 0.0, 0.0);
+    delver.floor_level = -1;
+    delver.position.y = -40.0;
+    game_state.add_player(delver).await;
+
+    {
+        let mut monsters = game_state.monsters.write().await;
+        let mut monster = make_monster("surface_monster", pos(0.0), 0);
+        monster.owner_id = Some(owner_id);
+        monsters.insert("surface_monster".to_string(), monster);
+    }
+
+    game_state
+        .broadcast_monster_attack(&owner_id, "surface_monster", &delver_id)
+        .await;
+
+    assert_eq!(
+        game_state.players.read().await[&delver_id].last_combat_at,
+        0,
+        "a surface monster must not reach a player one floor below it"
+    );
+}
+
 #[tokio::test]
 async fn cross_floor_player_attack_is_rejected() {
     let game_state = make_test_game_state("cross_floor_attack");
@@ -808,9 +903,7 @@ async fn cross_floor_player_attack_is_rejected() {
     let mut guard = make_player("guard", 0.0, 0.0);
     guard.floor_level = 0;
     game_state.add_player(guard).await;
-    let mut guard_rx = game_state
-        .register_direct_channel(&"guard".to_string())
-        .await;
+    let mut guard_rx = game_state.register_direct_channel(&pid("guard")).await;
 
     {
         let mut monsters = game_state.monsters.write().await;
@@ -829,7 +922,7 @@ async fn cross_floor_player_attack_is_rejected() {
     }
 
     game_state
-        .broadcast_player_attack(&"guard".to_string(), "dungeon_monster".to_string())
+        .broadcast_player_attack(&pid("guard"), "dungeon_monster".to_string())
         .await;
 
     // The attack is dropped server-side: the monster keeps full HP and the
@@ -851,11 +944,11 @@ async fn cross_floor_player_attack_is_rejected() {
 #[tokio::test]
 async fn out_of_range_player_attack_only_provokes_monster() {
     let game_state = make_test_game_state("out_of_range_attack");
-    let player_id = "attacker".to_string();
-    let controller_id = "monster_controller".to_string();
+    let player_id = pid("attacker");
+    let controller_id = pid("monster_controller");
 
     game_state
-        .add_player(make_player(&player_id, 0.0, 0.0))
+        .add_player(make_player("attacker", 0.0, 0.0))
         .await;
     let mut attacker_rx = game_state.register_direct_channel(&player_id).await;
     let mut controller_rx = game_state.register_direct_channel(&controller_id).await;
@@ -901,11 +994,11 @@ async fn out_of_range_player_attack_only_provokes_monster() {
 #[tokio::test]
 async fn player_attack_beyond_provoke_range_is_fully_rejected() {
     let game_state = make_test_game_state("beyond_provoke_range_attack");
-    let player_id = "attacker".to_string();
-    let controller_id = "monster_controller".to_string();
+    let player_id = pid("attacker");
+    let controller_id = pid("monster_controller");
 
     game_state
-        .add_player(make_player(&player_id, 0.0, 0.0))
+        .add_player(make_player("attacker", 0.0, 0.0))
         .await;
     let mut attacker_rx = game_state.register_direct_channel(&player_id).await;
     let mut controller_rx = game_state.register_direct_channel(&controller_id).await;
@@ -949,10 +1042,10 @@ async fn player_attack_beyond_provoke_range_is_fully_rejected() {
 #[tokio::test]
 async fn player_attack_at_melee_range_is_allowed() {
     let game_state = make_test_game_state("melee_range_attack");
-    let player_id = "attacker".to_string();
+    let player_id = pid("attacker");
 
     game_state
-        .add_player(make_player(&player_id, 0.0, 0.0))
+        .add_player(make_player("attacker", 0.0, 0.0))
         .await;
     let mut attacker_rx = game_state.register_direct_channel(&player_id).await;
 
@@ -1022,14 +1115,10 @@ async fn setup_haggle(
         .await;
     game_state.add_player(make_player("buyer", 1.0, 0.0)).await;
     game_state
-        .register_player_character(&"buyer".to_string(), 1, 0, attrs_with_cha(cha), gold)
+        .register_player_character(&pid("buyer"), 1, 0, attrs_with_cha(cha), gold)
         .await;
-    let buyer_rx = game_state
-        .register_direct_channel(&"buyer".to_string())
-        .await;
-    let npc_rx = game_state
-        .register_direct_channel(&"npc_rica".to_string())
-        .await;
+    let buyer_rx = game_state.register_direct_channel(&pid("buyer")).await;
+    let npc_rx = game_state.register_direct_channel(&pid("npc_rica")).await;
     (buyer_rx, npc_rx)
 }
 
@@ -1058,8 +1147,8 @@ async fn offer_deal_clamps_modifier_to_cha_band() {
 
     game_state
         .offer_deal(
-            &"npc_rica".to_string(),
-            "buyer",
+            &pid("npc_rica"),
+            &pid("buyer"),
             "iron_sword",
             DealKind::Buy,
             -50,
@@ -1101,8 +1190,8 @@ async fn offer_deal_enforces_cooldown_and_player_budget() {
     // First offer: accepted (CHA 18 → band ±25, cost 2500 on iron_sword).
     game_state
         .offer_deal(
-            &"npc_rica".to_string(),
-            "buyer",
+            &pid("npc_rica"),
+            &pid("buyer"),
             "iron_sword",
             DealKind::Buy,
             -25,
@@ -1117,8 +1206,8 @@ async fn offer_deal_enforces_cooldown_and_player_budget() {
     // Immediate second offer: rejected by the cooldown.
     game_state
         .offer_deal(
-            &"npc_rica".to_string(),
-            "buyer",
+            &pid("npc_rica"),
+            &pid("buyer"),
             "dagger",
             DealKind::Buy,
             -5,
@@ -1140,8 +1229,8 @@ async fn offer_deal_enforces_cooldown_and_player_budget() {
     game_state.clear_deal_cooldowns_for_test().await;
     game_state
         .offer_deal(
-            &"npc_rica".to_string(),
-            "buyer",
+            &pid("npc_rica"),
+            &pid("buyer"),
             "iron_sword",
             DealKind::Buy,
             -25,
@@ -1165,13 +1254,13 @@ async fn buy_item_applies_deal_once() {
     let (_buyer_rx, _npc_rx) = setup_haggle(&game_state, 10, 30_000).await;
     {
         let mut inventories = game_state.inventories.write().await;
-        inventories.insert("buyer".to_string(), Default::default());
+        inventories.insert(pid("buyer"), Default::default());
     }
 
     game_state
         .offer_deal(
-            &"npc_rica".to_string(),
-            "buyer",
+            &pid("npc_rica"),
+            &pid("buyer"),
             "iron_sword",
             DealKind::Buy,
             -10,
@@ -1181,21 +1270,15 @@ async fn buy_item_applies_deal_once() {
 
     // First buy uses the -10% deal: 10000 → 9000.
     game_state
-        .buy_item(&"buyer".to_string(), "npc_rica", "iron_sword")
+        .buy_item(&pid("buyer"), &pid("npc_rica"), "iron_sword")
         .await;
-    assert_eq!(
-        game_state.get_player_gold(&"buyer".to_string()).await,
-        21_000
-    );
+    assert_eq!(game_state.get_player_gold(&pid("buyer")).await, 21_000);
 
     // The deal is single-use: the second buy pays full price.
     game_state
-        .buy_item(&"buyer".to_string(), "npc_rica", "iron_sword")
+        .buy_item(&pid("buyer"), &pid("npc_rica"), "iron_sword")
         .await;
-    assert_eq!(
-        game_state.get_player_gold(&"buyer".to_string()).await,
-        11_000
-    );
+    assert_eq!(game_state.get_player_gold(&pid("buyer")).await, 11_000);
 }
 
 #[tokio::test]
@@ -1211,13 +1294,13 @@ async fn sell_item_applies_deal_bonus() {
             quantity: 1,
             enchant: 0,
         });
-        inventories.insert("buyer".to_string(), inv);
+        inventories.insert(pid("buyer"), inv);
     }
 
     game_state
         .offer_deal(
-            &"npc_rica".to_string(),
-            "buyer",
+            &pid("npc_rica"),
+            &pid("buyer"),
             "iron_sword",
             DealKind::Sell,
             25,
@@ -1227,12 +1310,9 @@ async fn sell_item_applies_deal_bonus() {
 
     // Sell rate 40% with a +25% bonus: 10000 * 0.4 * 1.25 = 5000.
     game_state
-        .sell_item(&"buyer".to_string(), "npc_rica", 7)
+        .sell_item(&pid("buyer"), &pid("npc_rica"), 7)
         .await;
-    assert_eq!(
-        game_state.get_player_gold(&"buyer".to_string()).await,
-        5_000
-    );
+    assert_eq!(game_state.get_player_gold(&pid("buyer")).await, 5_000);
 }
 
 // --- Resident (non-merchant) trading (economy phase 3) ---
@@ -1267,21 +1347,21 @@ async fn setup_resident_trade(
         .await;
     game_state.add_player(make_player("seller", 1.0, 0.0)).await;
     game_state
-        .register_player_character(&"seller".to_string(), 1, 0, attrs_with_cha(10), 0)
+        .register_player_character(&pid("seller"), 1, 0, attrs_with_cha(10), 0)
         .await;
     game_state
-        .register_player_character(&"npc_karl".to_string(), 2, 0, attrs_with_cha(10), npc_gold)
+        .register_player_character(&pid("npc_karl"), 2, 0, attrs_with_cha(10), npc_gold)
         .await;
     let mut inventories = game_state.inventories.write().await;
     inventories.insert(
-        "npc_karl".to_string(),
+        pid("npc_karl"),
         onlinerpg_shared::inventory::PlayerInventory {
             bag: npc_bag,
             ..Default::default()
         },
     );
     inventories.insert(
-        "seller".to_string(),
+        pid("seller"),
         onlinerpg_shared::inventory::PlayerInventory {
             bag: seller_bag,
             ..Default::default()
@@ -1296,19 +1376,19 @@ async fn resident_buys_wishlist_item_at_premium_from_wallet() {
 
     // Torch base 50 at Karl's 120% wishlist rate → 60.
     game_state
-        .sell_item(&"seller".to_string(), "npc_karl", 7)
+        .sell_item(&pid("seller"), &pid("npc_karl"), 7)
         .await;
-    assert_eq!(game_state.get_player_gold(&"seller".to_string()).await, 60);
+    assert_eq!(game_state.get_player_gold(&pid("seller")).await, 60);
     assert_eq!(
-        game_state.get_player_gold(&"npc_karl".to_string()).await,
+        game_state.get_player_gold(&pid("npc_karl")).await,
         10_000 - 60
     );
 
     // The torch landed in Karl's real inventory; the seller's bag is empty.
     let inventories = game_state.inventories.read().await;
-    assert_eq!(inventories["npc_karl"].bag.len(), 1);
-    assert_eq!(inventories["npc_karl"].bag[0].item_def_id, "torch");
-    assert!(inventories["seller"].bag.is_empty());
+    assert_eq!(inventories[&pid("npc_karl")].bag.len(), 1);
+    assert_eq!(inventories[&pid("npc_karl")].bag[0].item_def_id, "torch");
+    assert!(inventories[&pid("seller")].bag.is_empty());
 }
 
 #[tokio::test]
@@ -1321,15 +1401,13 @@ async fn resident_rejects_items_off_the_wishlist() {
         vec![bag_item(7, "iron_sword", 1)],
     )
     .await;
-    let mut seller_rx = game_state
-        .register_direct_channel(&"seller".to_string())
-        .await;
+    let mut seller_rx = game_state.register_direct_channel(&pid("seller")).await;
 
     game_state
-        .sell_item(&"seller".to_string(), "npc_karl", 7)
+        .sell_item(&pid("seller"), &pid("npc_karl"), 7)
         .await;
 
-    assert_eq!(game_state.get_player_gold(&"seller".to_string()).await, 0);
+    assert_eq!(game_state.get_player_gold(&pid("seller")).await, 0);
     match seller_rx.try_recv() {
         Ok(ServerMessage::TradeError { message }) => {
             assert!(message.contains("no use"), "got: {message}")
@@ -1337,7 +1415,11 @@ async fn resident_rejects_items_off_the_wishlist() {
         other => panic!("Expected TradeError, got {:?}", other),
     }
     let inventories = game_state.inventories.read().await;
-    assert_eq!(inventories["seller"].bag.len(), 1, "item must be retained");
+    assert_eq!(
+        inventories[&pid("seller")].bag.len(),
+        1,
+        "item must be retained"
+    );
 }
 
 #[tokio::test]
@@ -1345,19 +1427,14 @@ async fn resident_wallet_caps_purchases() {
     let game_state = make_test_game_state("resident_wallet_cap");
     // Karl has 59 gold units; the torch costs him 60.
     setup_resident_trade(&game_state, 59, vec![], vec![bag_item(7, "torch", 1)]).await;
-    let mut seller_rx = game_state
-        .register_direct_channel(&"seller".to_string())
-        .await;
+    let mut seller_rx = game_state.register_direct_channel(&pid("seller")).await;
 
     game_state
-        .sell_item(&"seller".to_string(), "npc_karl", 7)
+        .sell_item(&pid("seller"), &pid("npc_karl"), 7)
         .await;
 
-    assert_eq!(game_state.get_player_gold(&"seller".to_string()).await, 0);
-    assert_eq!(
-        game_state.get_player_gold(&"npc_karl".to_string()).await,
-        59
-    );
+    assert_eq!(game_state.get_player_gold(&pid("seller")).await, 0);
+    assert_eq!(game_state.get_player_gold(&pid("npc_karl")).await, 59);
     match seller_rx.try_recv() {
         Ok(ServerMessage::TradeError { message }) => {
             assert!(message.contains("afford"), "got: {message}")
@@ -1379,41 +1456,30 @@ async fn resident_sells_stock_but_keeps_wishlist_items() {
     .await;
     {
         let mut gold = game_state.player_gold.write().await;
-        gold.insert("seller".to_string(), 10_000);
+        gold.insert(pid("seller"), 10_000);
     }
-    let mut seller_rx = game_state
-        .register_direct_channel(&"seller".to_string())
-        .await;
+    let mut seller_rx = game_state.register_direct_channel(&pid("seller")).await;
 
     // Spear base 3500 — instance moves to the buyer, gold to Karl.
     game_state
-        .buy_item(&"seller".to_string(), "npc_karl", "spear")
+        .buy_item(&pid("seller"), &pid("npc_karl"), "spear")
         .await;
-    assert_eq!(
-        game_state.get_player_gold(&"seller".to_string()).await,
-        6_500
-    );
-    assert_eq!(
-        game_state.get_player_gold(&"npc_karl".to_string()).await,
-        3_500
-    );
+    assert_eq!(game_state.get_player_gold(&pid("seller")).await, 6_500);
+    assert_eq!(game_state.get_player_gold(&pid("npc_karl")).await, 3_500);
     {
         let inventories = game_state.inventories.read().await;
-        assert_eq!(inventories["seller"].bag.len(), 1);
-        assert_eq!(inventories["seller"].bag[0].item_def_id, "spear");
-        assert_eq!(inventories["npc_karl"].bag.len(), 1);
-        assert_eq!(inventories["npc_karl"].bag[0].item_def_id, "torch");
+        assert_eq!(inventories[&pid("seller")].bag.len(), 1);
+        assert_eq!(inventories[&pid("seller")].bag[0].item_def_id, "spear");
+        assert_eq!(inventories[&pid("npc_karl")].bag.len(), 1);
+        assert_eq!(inventories[&pid("npc_karl")].bag[0].item_def_id, "torch");
     }
     while seller_rx.try_recv().is_ok() {}
 
     // The torch is on Karl's wishlist: he keeps it (no buy-back pump).
     game_state
-        .buy_item(&"seller".to_string(), "npc_karl", "torch")
+        .buy_item(&pid("seller"), &pid("npc_karl"), "torch")
         .await;
-    assert_eq!(
-        game_state.get_player_gold(&"seller".to_string()).await,
-        6_500
-    );
+    assert_eq!(game_state.get_player_gold(&pid("seller")).await, 6_500);
     match seller_rx.try_recv() {
         Ok(ServerMessage::TradeError { message }) => {
             assert!(message.contains("part with"), "got: {message}")
@@ -1436,12 +1502,10 @@ async fn resident_shop_state_reports_wishlist_and_stock() {
         vec![],
     )
     .await;
-    let mut seller_rx = game_state
-        .register_direct_channel(&"seller".to_string())
-        .await;
+    let mut seller_rx = game_state.register_direct_channel(&pid("seller")).await;
 
     game_state
-        .open_shop(&"seller".to_string(), "npc_karl", true)
+        .open_shop(&pid("seller"), &pid("npc_karl"), true)
         .await;
 
     match seller_rx.try_recv() {
@@ -1470,15 +1534,13 @@ async fn resident_shop_state_reports_wishlist_and_stock() {
 async fn resident_deal_band_is_wider_and_wishlist_scoped() {
     let game_state = make_test_game_state("resident_deal_band");
     setup_resident_trade(&game_state, 10_000, vec![], vec![]).await;
-    let mut npc_rx = game_state
-        .register_direct_channel(&"npc_karl".to_string())
-        .await;
+    let mut npc_rx = game_state.register_direct_channel(&pid("npc_karl")).await;
 
     // CHA 10 resident band is ±20 (twice the merchant ±10).
     game_state
         .offer_deal(
-            &"npc_karl".to_string(),
-            "seller",
+            &pid("npc_karl"),
+            &pid("seller"),
             "torch",
             DealKind::Sell,
             40,
@@ -1501,8 +1563,8 @@ async fn resident_deal_band_is_wider_and_wishlist_scoped() {
     game_state.clear_deal_cooldowns_for_test().await;
     game_state
         .offer_deal(
-            &"npc_karl".to_string(),
-            "seller",
+            &pid("npc_karl"),
+            &pid("seller"),
             "iron_sword",
             DealKind::Sell,
             10,
@@ -1524,15 +1586,11 @@ async fn resident_deal_band_is_wider_and_wishlist_scoped() {
 async fn open_trade_pushes_shop_state_to_the_player() {
     let game_state = make_test_game_state("open_trade");
     setup_resident_trade(&game_state, 1_000, vec![], vec![]).await;
-    let mut seller_rx = game_state
-        .register_direct_channel(&"seller".to_string())
-        .await;
-    let npc_rx = game_state
-        .register_direct_channel(&"npc_karl".to_string())
-        .await;
+    let mut seller_rx = game_state.register_direct_channel(&pid("seller")).await;
+    let npc_rx = game_state.register_direct_channel(&pid("npc_karl")).await;
 
     game_state
-        .open_trade(&"npc_karl".to_string(), "seller")
+        .open_trade(&pid("npc_karl"), &pid("seller"))
         .await;
     match seller_rx.try_recv() {
         Ok(ServerMessage::ShopState { merchant_name, .. }) => assert_eq!(merchant_name, "Karl"),
@@ -1548,11 +1606,9 @@ async fn open_trade_pushes_shop_state_to_the_player() {
             p
         })
         .await;
-    let mut nobody_rx = game_state
-        .register_direct_channel(&"npc_nobody".to_string())
-        .await;
+    let mut nobody_rx = game_state.register_direct_channel(&pid("npc_nobody")).await;
     game_state
-        .open_trade(&"npc_nobody".to_string(), "seller")
+        .open_trade(&pid("npc_nobody"), &pid("seller"))
         .await;
     match nobody_rx.try_recv() {
         Ok(ServerMessage::TradeError { message }) => {
@@ -1570,10 +1626,7 @@ async fn salary_pays_once_per_day_rollover_up_to_cap() {
 
     // First tick after boot only records the day.
     game_state.tick_npc_salaries().await;
-    assert_eq!(
-        game_state.get_player_gold(&"npc_karl".to_string()).await,
-        27_000
-    );
+    assert_eq!(game_state.get_player_gold(&pid("npc_karl")).await, 27_000);
 
     // Roll the ledger back a day: the next tick pays one salary, capped at
     // the 30_000 wallet cap (27_000 + 5_000 → 30_000).
@@ -1582,17 +1635,11 @@ async fn salary_pays_once_per_day_rollover_up_to_cap() {
         *last = last.map(|d| d - 1);
     }
     game_state.tick_npc_salaries().await;
-    assert_eq!(
-        game_state.get_player_gold(&"npc_karl".to_string()).await,
-        30_000
-    );
+    assert_eq!(game_state.get_player_gold(&pid("npc_karl")).await, 30_000);
 
     // Same day again: no double payment.
     game_state.tick_npc_salaries().await;
-    assert_eq!(
-        game_state.get_player_gold(&"npc_karl".to_string()).await,
-        30_000
-    );
+    assert_eq!(game_state.get_player_gold(&pid("npc_karl")).await, 30_000);
 }
 
 // --- Enchant weapon scrolls ---
@@ -1605,9 +1652,7 @@ async fn setup_enchant_reader(
     scrolls: u32,
 ) -> tokio::sync::mpsc::UnboundedReceiver<ServerMessage> {
     game_state.add_player(make_player("reader", 0.0, 0.0)).await;
-    let rx = game_state
-        .register_direct_channel(&"reader".to_string())
-        .await;
+    let rx = game_state.register_direct_channel(&pid("reader")).await;
 
     let mut inv: onlinerpg_shared::inventory::PlayerInventory = Default::default();
     if let Some((weapon_def_id, enchant)) = weapon {
@@ -1627,7 +1672,7 @@ async fn setup_enchant_reader(
         .inventories
         .write()
         .await
-        .insert("reader".to_string(), inv);
+        .insert(pid("reader"), inv);
     rx
 }
 
@@ -1636,10 +1681,10 @@ async fn enchant_scroll_enchants_wielded_weapon() {
     let game_state = make_test_game_state("enchant_ok");
     let _rx = setup_enchant_reader(&game_state, Some(("iron_sword", 0)), 1).await;
 
-    game_state.use_item(&"reader".to_string(), 2).await;
+    game_state.use_item(&pid("reader"), 2).await;
 
     let inv = game_state
-        .get_player_inventory(&"reader".to_string())
+        .get_player_inventory(&pid("reader"))
         .await
         .unwrap();
     let weapon = inv.equipped.get(&EquipSlot::MainHand).unwrap();
@@ -1652,10 +1697,10 @@ async fn enchant_scroll_requires_wielded_weapon() {
     let game_state = make_test_game_state("enchant_no_weapon");
     let mut rx = setup_enchant_reader(&game_state, None, 1).await;
 
-    game_state.use_item(&"reader".to_string(), 2).await;
+    game_state.use_item(&pid("reader"), 2).await;
 
     let inv = game_state
-        .get_player_inventory(&"reader".to_string())
+        .get_player_inventory(&pid("reader"))
         .await
         .unwrap();
     assert_eq!(inv.bag.len(), 1, "the scroll should be kept");
@@ -1678,7 +1723,7 @@ async fn enchant_scroll_destroys_over_enchanted_weapon() {
     // deterministic for all practical purposes.
     let _rx = setup_enchant_reader(&game_state, Some(("iron_sword", 12)), 100).await;
 
-    let reader = "reader".to_string();
+    let reader = pid("reader");
     for _ in 0..100 {
         game_state.use_item(&reader, 2).await;
         let inv = game_state.get_player_inventory(&reader).await.unwrap();
@@ -1700,7 +1745,7 @@ fn table_placement(x: f32, z: f32) -> onlinerpg_shared::furniture::FurniturePlac
     }
 }
 
-async fn player_xz(game_state: &GameState, player_id: &str) -> (f32, f32) {
+async fn player_xz(game_state: &GameState, player_id: &PlayerId) -> (f32, f32) {
     let p = &game_state.get_all_players().await[player_id];
     (p.position.x, p.position.z)
 }
@@ -1708,9 +1753,9 @@ async fn player_xz(game_state: &GameState, player_id: &str) -> (f32, f32) {
 #[tokio::test]
 async fn simulated_movement_is_blocked_by_solid_furniture() {
     let game_state = make_test_game_state("movement_furniture_block");
-    let player_id = "wallwalker".to_string();
+    let player_id = pid("wallwalker");
     game_state
-        .add_player(make_player(&player_id, 0.5, 4.5))
+        .add_player(make_player("wallwalker", 0.5, 4.5))
         .await;
     // A table centred on cell (0, 5) seals it (EDGE_ALL).
     game_state.sync_region_furniture(0, 0, &[table_placement(0.5, 5.5)]);
@@ -1757,9 +1802,9 @@ async fn simulated_movement_is_blocked_by_solid_furniture() {
 #[tokio::test]
 async fn queued_waypoints_route_around_furniture() {
     let game_state = make_test_game_state("movement_queue_around");
-    let player_id = "detourist".to_string();
+    let player_id = pid("detourist");
     game_state
-        .add_player(make_player(&player_id, 0.5, 4.5))
+        .add_player(make_player("detourist", 0.5, 4.5))
         .await;
     game_state.sync_region_furniture(0, 0, &[table_placement(0.5, 5.5)]);
 
@@ -1785,9 +1830,9 @@ async fn queued_waypoints_route_around_furniture() {
 #[tokio::test]
 async fn blocked_leg_drops_remaining_queue() {
     let game_state = make_test_game_state("movement_queue_blocked_drop");
-    let player_id = "stopper".to_string();
+    let player_id = pid("stopper");
     game_state
-        .add_player(make_player(&player_id, 0.5, 4.5))
+        .add_player(make_player("stopper", 0.5, 4.5))
         .await;
     game_state.sync_region_furniture(0, 0, &[table_placement(0.5, 5.5)]);
 
@@ -1814,9 +1859,9 @@ async fn blocked_leg_drops_remaining_queue() {
 #[tokio::test]
 async fn npc_movement_is_exempt_from_collision() {
     let game_state = make_test_game_state("movement_npc_exempt");
-    let player_id = "npc_bot".to_string();
+    let player_id = pid("npc_bot");
     game_state
-        .add_player(make_player(&player_id, 0.5, 4.5))
+        .add_player(make_player("npc_bot", 0.5, 4.5))
         .await;
     game_state.sync_region_furniture(0, 0, &[table_placement(0.5, 5.5)]);
 
@@ -1873,20 +1918,20 @@ async fn dungeon_door_toggle_delivery_gates_radius_and_floor() {
         .expect("a dungeon def")
         .clone();
     let ep = entrance.position();
-    let toggler = "door_toggler".to_string();
-    let near_surface = "near_surface".to_string();
-    let far_surface = "far_surface".to_string();
-    let near_underground = "near_underground".to_string();
+    let toggler = pid("door_toggler");
+    let near_surface = pid("near_surface");
+    let far_surface = pid("far_surface");
+    let near_underground = pid("near_underground");
     game_state
-        .add_player(make_player(&toggler, ep.x, ep.z))
+        .add_player(make_player("door_toggler", ep.x, ep.z))
         .await;
     game_state
-        .add_player(make_player(&near_surface, ep.x + 30.0, ep.z))
+        .add_player(make_player("near_surface", ep.x + 30.0, ep.z))
         .await;
     game_state
-        .add_player(make_player(&far_surface, ep.x + 100.0, ep.z))
+        .add_player(make_player("far_surface", ep.x + 100.0, ep.z))
         .await;
-    let mut delver = make_player(&near_underground, ep.x + 10.0, ep.z);
+    let mut delver = make_player("near_underground", ep.x + 10.0, ep.z);
     delver.floor_level = -1;
     game_state.add_player(delver).await;
 
@@ -1978,8 +2023,8 @@ async fn dungeon_door_blocks_movement_until_opened() {
     let from = cell_center(&entrance.position(), depth, outside);
     let to = cell_center(&entrance.position(), depth, inside);
 
-    let player_id = "delver".to_string();
-    let mut player = make_player(&player_id, from.x, from.z);
+    let player_id = pid("delver");
+    let mut player = make_player("delver", from.x, from.z);
     player.position.y = from.y;
     game_state.add_player(player).await;
     let go = |p: Position| move_cmd(p, false);
@@ -2035,9 +2080,9 @@ async fn floor_entry_pushes_open_door_snapshot() {
         Some(true)
     );
 
-    let player_id = "latecomer".to_string();
+    let player_id = pid("latecomer");
     game_state
-        .add_player(make_player(&player_id, entrance.x, entrance.z))
+        .add_player(make_player("latecomer", entrance.x, entrance.z))
         .await;
     let mut direct_rx = game_state.register_direct_channel(&player_id).await;
 
@@ -2067,9 +2112,9 @@ async fn floor_entry_pushes_open_door_snapshot() {
 #[tokio::test]
 async fn furniture_removal_reopens_blocked_cells() {
     let game_state = make_test_game_state("movement_furniture_removed");
-    let player_id = "returner".to_string();
+    let player_id = pid("returner");
     game_state
-        .add_player(make_player(&player_id, 0.5, 4.5))
+        .add_player(make_player("returner", 0.5, 4.5))
         .await;
     game_state.sync_region_furniture(0, 0, &[table_placement(0.5, 5.5)]);
     // The map editor clearing the region must unblock movement again.
@@ -2139,8 +2184,8 @@ async fn kick_flushes_dropped_inventory_before_replacement_load() {
     let game_state = make_test_game_state("f015_kick_flush");
 
     // Session A enters: player registered and inventory loaded from the DB.
-    let a = "session_a".to_string();
-    let mut player = make_player(&a, 0.0, 0.0);
+    let a = pid("session_a");
+    let mut player = make_player("session_a", 0.0, 0.0);
     player.name = record.name.clone();
     game_state.add_player(player).await;
     game_state
@@ -2183,9 +2228,9 @@ async fn open_door_state_is_stamped_onto_served_house_data() {
     game_state.housing_io.write_house(&house).await.unwrap();
 
     // Door world position: origin + (segment 0 center, north edge) = (10.5, 10)
-    let toggler = "toggler".to_string();
+    let toggler = pid("toggler");
     game_state
-        .add_player(make_player(&toggler, 10.5, 10.5))
+        .add_player(make_player("toggler", 10.5, 10.5))
         .await;
 
     let toggled = game_state
