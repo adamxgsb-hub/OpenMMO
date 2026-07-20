@@ -2,7 +2,20 @@ pub use onlinerpg_shared::{
     Character, CharacterAttributes, CharacterClass, ClientMessage, GameDateTime, Gender, Monster,
     MonsterState, Player, PlayerId, Position, ServerMessage,
 };
-use uuid::Uuid;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Session handles are minted from a counter rather than randomly. They are
+/// never persisted and never authorize anything on their own — the acting
+/// player always comes from the authenticated connection — so they only need
+/// to be unique for the lifetime of the process. A small integer also costs
+/// 1-3 wire bytes against a UUID string's 38, and every broadcast carries one.
+///
+/// Starts at 1; see `PlayerId` for why 0 is reserved.
+static NEXT_PLAYER_ID: AtomicU64 = AtomicU64::new(1);
+
+fn next_player_id() -> PlayerId {
+    PlayerId::from(NEXT_PLAYER_ID.fetch_add(1, Ordering::Relaxed))
+}
 
 #[allow(clippy::too_many_arguments)]
 pub fn new_player(
@@ -16,7 +29,7 @@ pub fn new_player(
     is_npc: bool,
 ) -> Player {
     Player {
-        id: Uuid::new_v4().to_string(),
+        id: next_player_id(),
         name,
         position,
         rotation,

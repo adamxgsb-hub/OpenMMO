@@ -147,8 +147,8 @@
   }: Props = $props()
 
   let currentPlayer = $state<LocalPlayer | null>(null)
-  let otherPlayers = $state<Map<string, RemotePlayer>>(new Map())
-  let chatBubbles = $state<Map<string, ChatBubble>>(new Map())
+  let otherPlayers = $state<Map<number, RemotePlayer>>(new Map())
+  let chatBubbles = $state<Map<number, ChatBubble>>(new Map())
   let camera = $state<THREE.OrthographicCamera | undefined>(undefined)
   let directionalLight = $state<THREE.DirectionalLight | undefined>(undefined)
   let ambientLight = $state<THREE.AmbientLight | undefined>(undefined)

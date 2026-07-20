@@ -21,7 +21,7 @@ export type CharacterClass =
 export type Gender = 'male' | 'female'
 
 export type ServerPlayer = {
-  id: string
+  id: number
   name: string
   position: Position
   rotation: number
@@ -42,7 +42,7 @@ export type ServerMonster = {
   position: Position
   rotation: number
   state: MonsterData['state']
-  owner_id?: string
+  owner_id?: number
   health: number
   max_health: number
   /** 0 = overworld, 1..3 housing floors, negative = dungeon depth. Always
@@ -135,7 +135,7 @@ export type ClientMessage =
       }
     }
   | { PlayerAttack: { monster_id: string } }
-  | { MonsterAttack: { monster_id: string; target_player_id: string } }
+  | { MonsterAttack: { monster_id: string; target_player_id: number } }
   | 'RequestRespawn'
   | { OpenDungeonChest: { entrance_id: string } }
   | {
@@ -173,10 +173,10 @@ export type ClientMessage =
   | { DropItem: { instance_id: number } }
   | { PickupItem: { instance_id: number } }
   | { UseItem: { instance_id: number } }
-  | { OpenShop: { merchant_player_id: string } }
-  | { CloseShop: { merchant_player_id: string } }
-  | { BuyItem: { merchant_player_id: string; item_def_id: string } }
-  | { SellItem: { merchant_player_id: string; instance_id: number } }
+  | { OpenShop: { merchant_player_id: number } }
+  | { CloseShop: { merchant_player_id: number } }
+  | { BuyItem: { merchant_player_id: number; item_def_id: string } }
+  | { SellItem: { merchant_player_id: number; instance_id: number } }
 
 export type EquipSlot =
   | 'head'

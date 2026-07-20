@@ -130,7 +130,7 @@ impl super::GameState {
     pub async fn offer_deal(
         &self,
         npc_player_id: &PlayerId,
-        target_player_id: &str,
+        target_player_id: &PlayerId,
         item_def_id: &str,
         kind: DealKind,
         modifier_pct: i32,
@@ -286,7 +286,7 @@ impl super::GameState {
             deals.retain(|_, entry| entry.expires_at_ms > now_ms);
             deals.insert(
                 DealKey {
-                    player_id: target_player_id.to_string(),
+                    player_id: *target_player_id,
                     merchant_name: merchant_name.clone(),
                     item_def_id: item_def_id.to_string(),
                     kind,
@@ -305,9 +305,9 @@ impl super::GameState {
         );
 
         self.send_direct_message(
-            &target_player_id.to_string(),
+            target_player_id,
             ServerMessage::DealUpdated {
-                merchant_player_id: npc_player_id.clone(),
+                merchant_player_id: *npc_player_id,
                 item_def_id: item_def_id.to_string(),
                 kind,
                 modifier_pct: applied,
@@ -318,7 +318,7 @@ impl super::GameState {
         self.send_direct_message(
             npc_player_id,
             ServerMessage::DealResult {
-                target_player_id: target_player_id.to_string(),
+                target_player_id: *target_player_id,
                 target_player_name: target_name,
                 item_def_id: item_def_id.to_string(),
                 kind,
@@ -339,7 +339,7 @@ impl super::GameState {
         &self,
         npc_player_id: &PlayerId,
         merchant_name: &str,
-        target_player_id: &str,
+        target_player_id: &PlayerId,
         target_name: &str,
         item_def_id: &str,
         kind: DealKind,
@@ -355,7 +355,7 @@ impl super::GameState {
         self.send_direct_message(
             npc_player_id,
             ServerMessage::DealResult {
-                target_player_id: target_player_id.to_string(),
+                target_player_id: *target_player_id,
                 target_player_name: target_name.to_string(),
                 item_def_id: item_def_id.to_string(),
                 kind,
@@ -377,7 +377,7 @@ impl super::GameState {
         kind: DealKind,
     ) -> Option<DealEntry> {
         let key = DealKey {
-            player_id: player_id.clone(),
+            player_id: *player_id,
             merchant_name: merchant_name.to_string(),
             item_def_id: item_def_id.to_string(),
             kind,
@@ -398,7 +398,7 @@ impl super::GameState {
     ) {
         let Some(entry) = entry else { return };
         let key = DealKey {
-            player_id: player_id.clone(),
+            player_id: *player_id,
             merchant_name: merchant_name.to_string(),
             item_def_id: item_def_id.to_string(),
             kind,
@@ -410,14 +410,14 @@ impl super::GameState {
     pub(crate) async fn send_deal_cleared(
         &self,
         player_id: &PlayerId,
-        merchant_player_id: &str,
+        merchant_player_id: &PlayerId,
         item_def_id: &str,
         kind: DealKind,
     ) {
         self.send_direct_message(
             player_id,
             ServerMessage::DealUpdated {
-                merchant_player_id: merchant_player_id.to_string(),
+                merchant_player_id: *merchant_player_id,
                 item_def_id: item_def_id.to_string(),
                 kind,
                 modifier_pct: 0,

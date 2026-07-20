@@ -10,9 +10,49 @@ use serde::{Deserialize, Serialize};
 use crate::character::{CharacterClass, Gender};
 use crate::world::Position;
 
+/// A live player's session handle. Minted fresh on every login and dropped on
+/// disconnect — it is never persisted, so it is not a durable identity (the
+/// unique character name is). It is a newtype rather than a bare `String` so
+/// the compiler can keep it apart from the other id-shaped strings it travels
+/// with, above all monster ids: `Monster::is_controllable_by` is an
+/// authorization gate, and before this the two were the same type there.
+///
+/// `#[serde(transparent)]` puts a bare integer on the wire. Two invariants
+/// follow from that, and this is the one place they are stated:
+///
+/// 1. Ids are minted from a counter starting at 1 (the server's
+///    `next_player_id`), so they stay far below 2^53 and survive the JS number
+///    boundary exactly. `0` is therefore free to mean "no player".
+/// 2. Never use this as a map key in a type that crosses `wasm_api::to_js`.
+///    `serialize_maps_as_objects` rejects non-string keys outright and the
+///    client swallows the resulting error, so the whole frame silently
+///    disappears. `ServerMessage::GameState` carries a `Vec<Player>` for this
+///    reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PlayerId(u64);
+
+impl PlayerId {
+    pub fn get(self) -> u64 {
+        self.0
+    }
+}
+
+impl From<u64> for PlayerId {
+    fn from(n: u64) -> Self {
+        Self(n)
+    }
+}
+
+impl fmt::Display for PlayerId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Player {
-    pub id: String,
+    pub id: PlayerId,
     pub name: String,
     pub position: Position,
     pub rotation: f32,
@@ -75,7 +115,7 @@ pub struct Monster {
     pub position: Position,
     pub rotation: f32,
     pub state: MonsterState,
-    pub owner_id: Option<String>,
+    pub owner_id: Option<PlayerId>,
     pub health: u32,
     pub max_health: u32,
     /// 0 = overworld, 1..3 housing floors, negative = dungeon depth.
@@ -99,8 +139,8 @@ pub struct Monster {
 
 impl Monster {
     /// Gate for client-driven mutations (move/attack): alive and owned by the requester.
-    pub fn is_controllable_by(&self, player_id: &str) -> bool {
-        self.state != MonsterState::Dead && self.owner_id.as_deref() == Some(player_id)
+    pub fn is_controllable_by(&self, player_id: &PlayerId) -> bool {
+        self.state != MonsterState::Dead && self.owner_id.as_ref() == Some(player_id)
     }
 }
 
@@ -139,10 +179,49 @@ mod tests {
         assert!(decoded.aggressive);
     }
 
+    /// `PlayerId` must reach the client as a bare integer, not as a nested
+    /// one-element array (what a newtype encodes to without
+    /// `#[serde(transparent)]`) and not as a string. The client decodes this
+    /// through wasm and reports neither mistake as an error — a wrong shape
+    /// just makes players silently fail to match.
+    #[test]
+    fn player_id_is_a_bare_integer_on_the_wire() {
+        let player = Player {
+            id: 42.into(),
+            name: "jake".into(),
+            position: Position {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            rotation: 0.0,
+            level: 1,
+            health: 5,
+            max_health: 5,
+            class: CharacterClass::Knight,
+            gender: Gender::default(),
+            is_npc: false,
+            torch_on: false,
+            floor_level: 0,
+            object_type: None,
+            object_id: None,
+            last_combat_at: 0,
+        };
+        // rmp_serde writes the struct as a positional array, so `id` is the
+        // first element — and 42 fits msgpack's single-byte positive fixint.
+        let bytes = rmp_serde::to_vec(&player).unwrap();
+        assert_eq!(bytes[1], 42, "id must encode as a bare msgpack integer");
+
+        // Standalone too, so bare id fields are covered.
+        let id_bytes = rmp_serde::to_vec(&PlayerId::from(7)).unwrap();
+        assert_eq!(id_bytes, vec![7]);
+        assert_eq!(rmp_serde::from_slice::<u64>(&id_bytes).unwrap(), 7);
+    }
+
     #[test]
     fn player_roundtrips_with_none_object_type() {
         let player = Player {
-            id: "p1".into(),
+            id: 1.into(),
             name: "jake".into(),
             position: Position {
                 x: 0.0,

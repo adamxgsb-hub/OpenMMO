@@ -75,6 +75,9 @@ const UNAUTH_MAX_MESSAGES: u32 = 30;
 struct ConnectionState {
     account_name: Option<String>,
     player_id: Option<PlayerId>,
+    /// Entered character's name, kept here so disconnect-path logs can name the
+    /// player after `GameState` has already dropped the record.
+    character_name: Option<String>,
     direct_rx: Option<mpsc::UnboundedReceiver<ServerMessage>>,
     pending_character_attributes: Option<CharacterAttributes>,
     connected_at: std::time::Instant,
@@ -91,6 +94,7 @@ impl ConnectionState {
         Self {
             account_name: None,
             player_id: None,
+            character_name: None,
             direct_rx: None,
             pending_character_attributes: None,
             connected_at: std::time::Instant::now(),
@@ -165,7 +169,7 @@ pub async fn handle_connection(
                 if state.player_id.is_some()
                     && state.last_heartbeat.elapsed().as_secs() > HEARTBEAT_TIMEOUT_SECS
                 {
-                    warn!("Heartbeat timeout for player {:?}", state.player_id);
+                    warn!("Heartbeat timeout for player {:?}", state.character_name);
                     break;
                 }
                 continue;
@@ -274,7 +278,7 @@ pub async fn handle_connection(
                         Err(e) => error!("Serialization failed: {}", e),
                     }
                     if is_kicked {
-                        info!("Player {:?} kicked", state.player_id);
+                        info!("Player {:?} kicked", state.character_name);
                         break;
                     }
                 }
@@ -379,7 +383,7 @@ async fn handle_client_message(
         );
         return Ok(match &state.player_id {
             Some(id) => vec![ServerMessage::ChatMessage {
-                player_id: id.clone(),
+                player_id: *id,
                 message: "Admin only".to_string(),
             }],
             None => vec![],
@@ -622,7 +626,7 @@ async fn handle_client_message(
                     player.floor_level = 0;
                 }
             }
-            let id = player.id.clone();
+            let id = player.id;
 
             state.direct_rx = Some(game_state.register_direct_channel(&id).await);
             game_state
@@ -687,6 +691,7 @@ async fn handle_client_message(
             }
 
             state.player_id = Some(id);
+            state.character_name = Some(selected_character.name.clone());
 
             info!(
                 "Account '{}' entered game as character '{}' with player ID {:?}",
@@ -752,15 +757,7 @@ async fn handle_client_message(
                         position.x, position.z, monster_type
                     );
                 } else if let Some(monster) = game_state
-                    .spawn_monster(
-                        monster_type,
-                        position,
-                        rotation,
-                        Some(id.clone()),
-                        0,
-                        None,
-                        false,
-                    )
+                    .spawn_monster(monster_type, position, rotation, Some(*id), 0, None, false)
                     .await
                 {
                     game_state

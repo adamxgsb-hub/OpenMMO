@@ -608,13 +608,17 @@ pub fn ai_tick_brain(
     }
 }
 
+/// `attacker_id` is `f64`, not `u64`: wasm-bindgen maps `u64` to a JS BigInt,
+/// and the client holds player ids as plain numbers. Exact by `PlayerId`'s
+/// below-2^53 invariant.
 #[wasm_bindgen]
 pub fn ai_handle_hit(
     monster_id: &str,
-    attacker_id: &str,
+    attacker_id: f64,
     hit: bool,
     damage: u32,
 ) -> Result<JsValue, JsError> {
+    let attacker_id = crate::PlayerId::from(attacker_id as u64);
     let commands = MONSTER_BRAINS.with(|brains| {
         let mut brains = brains.borrow_mut();
         let brain = match brains.get_mut(monster_id) {
@@ -622,7 +626,7 @@ pub fn ai_handle_hit(
             None => return vec![],
         };
 
-        brain.handle_hit_with_behavior_tree(attacker_id, hit, damage)
+        brain.handle_hit_with_behavior_tree(&attacker_id, hit, damage)
     });
 
     to_js(&commands)

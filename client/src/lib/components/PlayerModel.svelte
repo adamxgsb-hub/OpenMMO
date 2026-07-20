@@ -87,7 +87,7 @@
     torchEffectsDisabled?: boolean
     /** Set for NPC remote players so canvas clicks can resolve this model
      *  back to its player id (read from userData by the input raycast). */
-    npcPlayerId?: string
+    npcPlayerId?: number
   }
 
   let {

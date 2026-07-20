@@ -18,7 +18,7 @@ export interface PlayerGoldInfo {
 }
 
 interface PlayerBase {
-  id: string
+  id: number
   name: string
   level: number
   totalXp?: number
@@ -43,7 +43,7 @@ export interface RemotePlayer extends PlayerBase {
 }
 
 export interface ChatBubble {
-  playerId: string
+  playerId: number
   message: string
   timestamp: number
   duration: number
@@ -61,10 +61,10 @@ export interface ChatEntry {
 export interface GameState {
   isConnected: boolean
   currentPlayer: LocalPlayer | null
-  otherPlayers: Map<string, RemotePlayer>
+  otherPlayers: Map<number, RemotePlayer>
   chatMessages: ChatEntry[]
   combatMessages: ChatEntry[]
-  chatBubbles: Map<string, ChatBubble> // playerId -> ChatBubble
+  chatBubbles: Map<number, ChatBubble> // playerId -> ChatBubble
 }
 
 const initialGameState: GameState = {
@@ -105,7 +105,7 @@ export const resetGameStore = () => {
 const MAX_MESSAGES = 100
 
 export const updatePlayer = (
-  playerId: string,
+  playerId: number,
   playerData: Partial<LocalPlayer> | Partial<RemotePlayer>
 ) => {
   gameStore.update((state) => {
@@ -149,7 +149,7 @@ export const addCombatMessage = (entry: ChatEntry) =>
 const MIN_BUBBLE_DURATION = 5000
 const MAX_BUBBLE_DURATION = 10000
 
-export const addChatBubble = (playerId: string, message: string) => {
+export const addChatBubble = (playerId: number, message: string) => {
   gameStore.update((state) => {
     const newChatBubbles = new Map(state.chatBubbles)
     const duration = Math.min(
@@ -166,7 +166,7 @@ export const addChatBubble = (playerId: string, message: string) => {
   })
 }
 
-export const removeChatBubble = (playerId: string) => {
+export const removeChatBubble = (playerId: number) => {
   gameStore.update((state) => {
     const newChatBubbles = new Map(state.chatBubbles)
     newChatBubbles.delete(playerId)

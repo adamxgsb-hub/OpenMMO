@@ -4,7 +4,7 @@ import {
   type ChatBubble,
 } from '../stores/gameStore'
 
-let chatBubbles: Map<string, ChatBubble> = new Map()
+let chatBubbles: Map<number, ChatBubble> = new Map()
 let checkInterval: ReturnType<typeof setInterval> | null = null
 
 // Subscribe to gameStore to keep chatBubbles in sync

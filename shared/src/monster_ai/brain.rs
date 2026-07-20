@@ -9,7 +9,7 @@ use super::{
     DEFAULT_CHASE_RANGE, DEFAULT_HIT_STAGGER_MS, DEFAULT_MAX_MOVE_DIST, DEFAULT_MIN_MOVE_DIST,
 };
 use crate::pathfinding::PathWaypoint;
-use crate::{MonsterState, Position};
+use crate::{MonsterState, PlayerId, Position};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
@@ -24,7 +24,7 @@ pub struct MonsterBrain {
     pub max_health: u32,
     pub(super) state: AiState,
     pub(super) state_timer_ms: f32,
-    pub(super) target_player_id: Option<String>,
+    pub(super) target_player_id: Option<PlayerId>,
     pub(super) walk_speed: f32,
     pub(super) run_speed: f32,
     pub(super) attack_range: f32,
@@ -170,13 +170,13 @@ impl MonsterBrain {
     /// Apply incoming damage and acquire `attacker_id` as the target. Returns
     /// `false` if the brain is already dead or the hit was lethal (in which
     /// case no further reaction should be produced).
-    fn apply_hit(&mut self, attacker_id: &str, hit: bool, damage: u32) -> bool {
+    fn apply_hit(&mut self, attacker_id: &PlayerId, hit: bool, damage: u32) -> bool {
         if self.state == AiState::Dead {
             return false;
         }
 
         self.health = self.health.saturating_sub(if hit { damage } else { 0 });
-        self.target_player_id = Some(attacker_id.to_string());
+        self.target_player_id = Some(*attacker_id);
         self.move_speed = self.run_speed;
 
         if self.health == 0 {
@@ -189,7 +189,7 @@ impl MonsterBrain {
 
     pub fn handle_hit_with_behavior_tree(
         &mut self,
-        attacker_id: &str,
+        attacker_id: &PlayerId,
         hit: bool,
         damage: u32,
     ) -> Vec<AiCommand> {

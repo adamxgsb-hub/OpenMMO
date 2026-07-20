@@ -6,7 +6,7 @@ use onlinerpg_shared::monster_ai::{
     DEFAULT_CHASE_RANGE, DEFAULT_RUN_SPEED, DEFAULT_WALK_SPEED,
 };
 use onlinerpg_shared::pathfinding::PassabilityCache;
-use onlinerpg_shared::{ClientMessage, Monster, Player};
+use onlinerpg_shared::{ClientMessage, Monster, Player, PlayerId};
 use std::collections::HashMap;
 use tracing::info;
 
@@ -178,7 +178,7 @@ impl MonsterAiManager {
     pub fn handle_monster_hit(
         &mut self,
         monster_id: &str,
-        attacker_id: &str,
+        attacker_id: &PlayerId,
         hit: bool,
         damage: u32,
         _passability_cache: &PassabilityCache,
@@ -201,13 +201,13 @@ impl MonsterAiManager {
     pub fn tick_all(
         &mut self,
         delta_ms: f32,
-        nearby_players: &HashMap<String, Player>,
+        nearby_players: &HashMap<PlayerId, Player>,
         passability_cache: &PassabilityCache,
     ) -> Vec<ClientMessage> {
         let players: Vec<NearbyPlayer> = nearby_players
             .values()
             .map(|p| NearbyPlayer {
-                id: p.id.clone(),
+                id: p.id,
                 position: p.position,
                 health: p.health,
             })

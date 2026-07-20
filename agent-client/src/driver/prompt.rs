@@ -3,7 +3,7 @@
 //! string suitable for sending to an LLM. Also resolves which schedule
 //! entry should currently be active based on game time.
 
-use onlinerpg_shared::ServerMessage;
+use onlinerpg_shared::{PlayerId, ServerMessage};
 
 use crate::orchestrator::ScheduleEntry;
 use crate::state::{SharedState, NPC_SIGHT_RADIUS};
@@ -16,8 +16,8 @@ fn within_event_range(state: &SharedState, x: f32, z: f32) -> bool {
         <= NPC_SIGHT_RADIUS
 }
 
-fn player_within_event_range(state: &SharedState, player_id: &str) -> bool {
-    if state.self_player_id.as_deref() == Some(player_id) {
+fn player_within_event_range(state: &SharedState, player_id: &PlayerId) -> bool {
+    if state.self_player_id.as_ref() == Some(player_id) {
         return true;
     }
     let Some(p) = state.nearby_players.get(player_id) else {
@@ -118,7 +118,7 @@ fn format_event(state: &SharedState, msg: &ServerMessage) -> Option<String> {
                 players.len(),
                 monsters.len()
             )];
-            for p in players.values() {
+            for p in players.iter() {
                 lines.push(format!(
                     "  Player: {} Lv.{} HP {}/{}",
                     p.name, p.level, p.health, p.max_health
@@ -212,7 +212,7 @@ fn format_event(state: &SharedState, msg: &ServerMessage) -> Option<String> {
             damage,
             ..
         } => {
-            let is_self = state.self_player_id.as_deref() == Some(player_id);
+            let is_self = state.self_player_id.as_ref() == Some(player_id);
             if !is_self && !monster_within_event_range(state, monster_id) {
                 return None;
             }
@@ -229,7 +229,7 @@ fn format_event(state: &SharedState, msg: &ServerMessage) -> Option<String> {
             current_health,
             ..
         } => {
-            let is_self = state.self_player_id.as_deref() == Some(player_id);
+            let is_self = state.self_player_id.as_ref() == Some(player_id);
             if !is_self && !monster_within_event_range(state, monster_id) {
                 return None;
             }
@@ -245,7 +245,7 @@ fn format_event(state: &SharedState, msg: &ServerMessage) -> Option<String> {
             Some(format!("[PlayerDead] {}", player_name(state, player_id)))
         }
         ServerMessage::PlayerRespawned { player } => {
-            let is_self = state.self_player_id.as_deref() == Some(&player.id);
+            let is_self = state.self_player_id.as_ref() == Some(&player.id);
             if !is_self && !within_event_range(state, player.position.x, player.position.z) {
                 return None;
             }
@@ -334,8 +334,8 @@ fn format_event(state: &SharedState, msg: &ServerMessage) -> Option<String> {
 
 /// Resolve a player_id to a display name using SharedState.
 /// Falls back to the raw ID if the player is not found.
-fn player_name(state: &SharedState, player_id: &str) -> String {
-    if state.self_player_id.as_deref() == Some(player_id) {
+fn player_name(state: &SharedState, player_id: &PlayerId) -> String {
+    if state.self_player_id.as_ref() == Some(player_id) {
         if let Some(ref p) = state.self_player {
             return p.name.clone();
         }

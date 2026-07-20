@@ -10,7 +10,7 @@ impl super::GameState {
                 self.send_direct_message(
                     player_id,
                     ServerMessage::ChatMessage {
-                        player_id: player_id.clone(),
+                        player_id: *player_id,
                         message: format!("Gave item: {}", item_id),
                     },
                 )
@@ -41,7 +41,7 @@ impl super::GameState {
             self.send_direct_message_to_players(
                 &recipients,
                 ServerMessage::ChatMessage {
-                    player_id: player_id.clone(),
+                    player_id: *player_id,
                     message,
                 },
             )

@@ -42,7 +42,7 @@
   // opens, or the window closes) — NOT on every ShopState refresh for the same
   // merchant. An NPC can push a refresh via its own dialogue/actions/deals, and
   // that must not wipe the items the player has staged to sell.
-  let lastMerchantId: string | null = null
+  let lastMerchantId: number | null = null
   $effect(() => {
     const id = session?.merchantPlayerId ?? null
     if (id !== lastMerchantId) {

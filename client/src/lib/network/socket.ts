@@ -56,7 +56,7 @@ class NetworkManager {
 
   // Events
   readonly respawnRequested = createEvent<() => void>()
-  readonly playerRespawned = createEvent<(playerId: string) => void>()
+  readonly playerRespawned = createEvent<(playerId: number) => void>()
   readonly authSuccess =
     createEvent<
       (payload: { accountName: string; characters: AccountCharacter[] }) => void
@@ -301,7 +301,7 @@ class NetworkManager {
     this.sendMessage({ PlayerAttack: { monster_id: monsterId } })
   }
 
-  sendMonsterAttack(monsterId: string, targetPlayerId: string) {
+  sendMonsterAttack(monsterId: string, targetPlayerId: number) {
     this.sendMessage({
       MonsterAttack: {
         monster_id: monsterId,
@@ -497,24 +497,24 @@ class NetworkManager {
     this.sendMessage({ UseItem: { instance_id: instanceId } })
   }
 
-  sendOpenShop(merchantPlayerId: string) {
+  sendOpenShop(merchantPlayerId: number) {
     markShopRequested(merchantPlayerId)
     this.sendMessage({ OpenShop: { merchant_player_id: merchantPlayerId } })
   }
 
   /** Tell the server the trade window for this merchant closed, so the NPC is
    *  released from its in-place hold (see ServerMessage::TradeBusy). */
-  sendCloseShop(merchantPlayerId: string) {
+  sendCloseShop(merchantPlayerId: number) {
     this.sendMessage({ CloseShop: { merchant_player_id: merchantPlayerId } })
   }
 
-  sendBuyItem(merchantPlayerId: string, itemDefId: string) {
+  sendBuyItem(merchantPlayerId: number, itemDefId: string) {
     this.sendMessage({
       BuyItem: { merchant_player_id: merchantPlayerId, item_def_id: itemDefId },
     })
   }
 
-  sendSellItem(merchantPlayerId: string, instanceId: number) {
+  sendSellItem(merchantPlayerId: number, instanceId: number) {
     if (!this.isNetworkableInstanceId(instanceId, 'sell')) return
     this.sendMessage({
       SellItem: {
@@ -874,7 +874,7 @@ export const networkManager = hmrSingleton(
 // Notify the server whenever a trade window closes (or switches merchants), so
 // the NPC it was trading with is released from its in-place hold. The window
 // is opened via an explicit OpenShop; this mirrors it with a CloseShop.
-let lastOpenMerchantId: string | null = null
+let lastOpenMerchantId: number | null = null
 shopSession.subscribe((session) => {
   const merchantId = session?.merchantPlayerId ?? null
   if (merchantId === lastOpenMerchantId) return

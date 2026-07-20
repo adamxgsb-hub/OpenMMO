@@ -1,4 +1,4 @@
-use crate::types::{MonsterState, Position, ServerMessage};
+use crate::types::{MonsterState, PlayerId, Position, ServerMessage};
 use std::collections::HashSet;
 use tracing::{info, warn};
 
@@ -26,7 +26,7 @@ impl super::GameState {
         monster_type: String,
         position: Position,
         rotation: f32,
-        owner_id: Option<String>,
+        owner_id: Option<PlayerId>,
         floor_level: i8,
         level_override: Option<u8>,
         aggressive: bool,
@@ -47,9 +47,7 @@ impl super::GameState {
                 if m.state != MonsterState::Dead {
                     alive_count += 1;
                     if let Some(ref owner) = owner_id {
-                        if m.owner_id.as_deref() == Some(owner.as_str())
-                            && m.monster_type == monster_type
-                        {
+                        if m.owner_id.as_ref() == Some(owner) && m.monster_type == monster_type {
                             owned_alive += 1;
                         }
                     }
@@ -70,7 +68,7 @@ impl super::GameState {
             }
         }
 
-        let owner_number = match owner_id.as_deref() {
+        let owner_number = match owner_id.as_ref() {
             Some(owner_id) => self.get_or_assign_player_number(owner_id).await,
             None => 0,
         };
@@ -134,7 +132,7 @@ impl super::GameState {
 
     pub async fn update_monster_position(
         &self,
-        mover_id: &str,
+        mover_id: &PlayerId,
         monster_id: String,
         new_position: Position,
         rotation: f32,
@@ -154,7 +152,7 @@ impl super::GameState {
             monster.position = new_position;
             monster.rotation = rotation;
             monster.state = state;
-            (old_position, monster.owner_id.clone(), monster.clone())
+            (old_position, monster.owner_id, monster.clone())
         };
 
         self.fanout_monster_position_update(
@@ -166,7 +164,7 @@ impl super::GameState {
                 rotation,
                 state,
                 target_position,
-                owner_id: owner_id.clone(),
+                owner_id,
             },
             owner_id.as_ref(),
         )
@@ -178,7 +176,7 @@ impl super::GameState {
         monster: &crate::types::Monster,
         old_position: Position,
         update_msg: ServerMessage,
-        skip_player_id: Option<&String>,
+        skip_player_id: Option<&PlayerId>,
     ) {
         // Monsters never change floor mid-life (dungeon monsters are confined
         // to their floor), so both the old and new visibility sets gate on the
@@ -226,12 +224,12 @@ impl super::GameState {
             .await;
     }
 
-    pub async fn remove_monsters_by_owner(&self, owner_id: &str) {
+    pub async fn remove_monsters_by_owner(&self, owner_id: &PlayerId) {
         let removed_monsters = {
             let mut monsters = self.monsters.write().await;
             let owned_ids: Vec<String> = monsters
                 .iter()
-                .filter(|(_, m)| m.owner_id.as_deref() == Some(owner_id))
+                .filter(|(_, m)| m.owner_id.as_ref() == Some(owner_id))
                 .map(|(id, _)| id.clone())
                 .collect();
 
@@ -274,7 +272,7 @@ impl super::GameState {
         // qualify when a human is within sight range (no point spawning monsters
         // around an agent nobody is watching); humans always qualify. Computed
         // once under a single read lock so the per-rule loop below needs none.
-        let player_ids: Vec<String> = {
+        let player_ids: Vec<PlayerId> = {
             let players = self.players.read().await;
             let radius_sq = super::EVENT_DELIVERY_RADIUS * super::EVENT_DELIVERY_RADIUS;
             let human_positions: Vec<_> = players
@@ -294,7 +292,7 @@ impl super::GameState {
                                 .iter()
                                 .any(|hp| player.position.dist_xz_sq(hp) <= radius_sq))
                 })
-                .map(|(id, _)| id.clone())
+                .map(|(id, _)| *id)
                 .collect()
         };
         if player_ids.is_empty() {
@@ -310,9 +308,7 @@ impl super::GameState {
                 if m.state != MonsterState::Dead {
                     alive += 1;
                     if let Some(ref owner) = m.owner_id {
-                        *counts
-                            .entry((owner.clone(), m.monster_type.clone()))
-                            .or_insert(0) += 1;
+                        *counts.entry((*owner, m.monster_type.clone())).or_insert(0) += 1;
                     }
                 }
             }
@@ -328,7 +324,7 @@ impl super::GameState {
                 }
 
                 let owned = owner_type_counts
-                    .get(&(player_id.clone(), rule.monster_type.clone()))
+                    .get(&(*player_id, rule.monster_type.clone()))
                     .copied()
                     .unwrap_or(0);
 
@@ -356,7 +352,7 @@ impl super::GameState {
     /// server has no terrain data.
     pub async fn validate_spawn_position(
         &self,
-        player_id: &str,
+        player_id: &PlayerId,
         monster_type: &str,
         position: &Position,
     ) -> bool {

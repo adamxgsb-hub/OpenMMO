@@ -53,7 +53,7 @@ interface AiCommand {
   rotation?: number
   state?: MonsterState
   target_position?: { x: number; y: number; z: number }
-  target_player_id?: string
+  target_player_id?: number
 }
 
 interface TickResult {
@@ -193,7 +193,7 @@ class MonsterManager {
     id: string,
     type: MonsterData['type'],
     position: { x: number; y: number; z: number },
-    ownerId?: string,
+    ownerId?: number,
     health?: number,
     maxHealth?: number,
     floorLevel?: number,
@@ -249,7 +249,7 @@ class MonsterManager {
     id: string,
     type: MonsterData['type'],
     position: { x: number; y: number; z: number },
-    ownerId?: string,
+    ownerId?: number,
     health?: number,
     maxHealth?: number,
     floorLevel?: number,
@@ -371,7 +371,7 @@ class MonsterManager {
 
   handleMonsterAttacked(
     monsterId: string,
-    playerId: string,
+    playerId: number,
     hit: boolean,
     damage: number
   ) {
@@ -418,7 +418,7 @@ class MonsterManager {
     this.monsters.set(monsterId, { ...monster })
   }
 
-  handleMonsterProvoked(monsterId: string, playerId: string) {
+  handleMonsterProvoked(monsterId: string, playerId: number) {
     const monster = this.monsters.get(monsterId)
     if (!monster || monster.state === 'dead') return
 
@@ -545,7 +545,9 @@ class MonsterManager {
             const hitCommands: AiCommand[] =
               ai_handle_hit(
                 monster.id,
-                monster.targetPlayerId ?? '',
+                // 0 is never a real id (the server's counter starts at 1), so
+                // it is the "no attacker" sentinel.
+                monster.targetPlayerId ?? 0,
                 !!monster.isLastHitSuccess,
                 monster.pendingDamage ?? 0
               ) ?? []
@@ -635,12 +637,12 @@ class MonsterManager {
   }
 
   private buildNearbyPlayers(gameState: GameState): Array<{
-    id: string
+    id: number
     position: { x: number; y: number; z: number }
     health: number
   }> {
     const players: Array<{
-      id: string
+      id: number
       position: { x: number; y: number; z: number }
       health: number
     }> = []
