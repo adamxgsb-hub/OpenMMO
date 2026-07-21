@@ -1604,6 +1604,54 @@ async fn buyback_survives_a_reconnect() {
     assert_eq!(inventories[&pid("buyer2")].bag[0].item_def_id, "iron_sword");
 }
 
+/// The entry is consumed inside the gold/inventory critical section, so two
+/// requests racing for one entry_id must restore one unit, not duplicate it.
+#[tokio::test]
+async fn concurrent_buybacks_of_one_entry_restore_a_single_unit() {
+    let game_state = make_test_game_state("buyback_race");
+    let (_buyer_rx, _npc_rx) = setup_haggle(&game_state, 10, 0).await;
+    {
+        let mut inventories = game_state.inventories.write().await;
+        let mut inv: onlinerpg_shared::inventory::PlayerInventory = Default::default();
+        inv.bag.push(bag_item(7, "iron_sword", 1));
+        inventories.insert(pid("buyer"), inv);
+    }
+    game_state
+        .sell_item(&pid("buyer"), &pid("npc_rica"), 7)
+        .await;
+    let entry_id = {
+        let buybacks = game_state.buybacks.read().await;
+        buybacks[&(1, "Rica".to_string())][0].entry.entry_id
+    };
+    // Fund a second purchase, so only the entry consumption — not the gold
+    // check — can stop a duplicate.
+    assert_eq!(game_state.get_player_gold(&pid("buyer")).await, 4_000);
+    game_state
+        .player_gold
+        .write()
+        .await
+        .insert(pid("buyer"), 8_000);
+
+    let (buyer, npc) = (pid("buyer"), pid("npc_rica"));
+    tokio::join!(
+        game_state.buyback_item(&buyer, &npc, entry_id),
+        game_state.buyback_item(&buyer, &npc, entry_id),
+    );
+
+    // One unit back, paid for once — the loser is rejected, not served.
+    let inventories = game_state.inventories.read().await;
+    assert_eq!(inventories[&pid("buyer")].bag.len(), 1);
+    drop(inventories);
+    assert_eq!(game_state.get_player_gold(&pid("buyer")).await, 4_000);
+    // The loser's sweep drops the pair once its last entry is consumed.
+    assert!(game_state
+        .buybacks
+        .read()
+        .await
+        .get(&(1, "Rica".to_string()))
+        .is_none_or(|list| list.is_empty()));
+}
+
 #[tokio::test]
 async fn buyback_after_haggled_sell_is_gold_neutral() {
     let game_state = make_test_game_state("buyback_deal_neutral");

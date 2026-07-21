@@ -656,9 +656,8 @@ impl super::GameState {
 
         let item_weight = self.item_defs.weight(&item_def_id);
         let npc_max_weight = self.max_carry_weight(npc_player_id).await;
-        // Resident path: the transferred unit's new instance id. Merchant
-        // path: the buyback entry id (and the restored instance id if the
-        // player repurchases the unit).
+        // Resident: the transferred unit's instance id. Merchant: the buyback
+        // entry id, reused as the instance id on repurchase.
         let npc_instance_id = self.next_instance_id().await;
 
         let (snapshot, npc_snapshot, sold_enchant) = {
@@ -844,9 +843,7 @@ impl super::GameState {
         .await;
     }
 
-    /// The character behind a live player session, if any. Buyback state is
-    /// keyed by character so it survives reconnects (player ids are
-    /// per-session).
+    /// The character behind a live player session, if any.
     async fn character_id_of(&self, player_id: &PlayerId) -> Option<i64> {
         let characters = self.player_characters.read().await;
         characters.get(player_id).map(|(char_id, _, _)| *char_id)
