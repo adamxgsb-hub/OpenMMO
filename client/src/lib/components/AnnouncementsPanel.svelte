@@ -24,10 +24,9 @@
 
   // Every locale present across all announcements, in display order.
   const languages = $derived.by(() => {
-    const present = new Set<string>()
-    for (const a of announcements) {
-      for (const code of Object.keys(a.translations)) present.add(code)
-    }
+    const present = new Set(
+      announcements.flatMap((a) => Object.keys(a.translations))
+    )
     return [...present].sort((a, b) => {
       const ia = LANG_ORDER.indexOf(a)
       const ib = LANG_ORDER.indexOf(b)
