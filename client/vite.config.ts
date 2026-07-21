@@ -51,9 +51,8 @@ export default defineConfig(({ mode }) => {
       // export errors, split store singletons. Vite's default ETag/304
       // revalidation is the right policy for dev.
       proxy: {
-        '/api/terrain': { target: apiTarget, changeOrigin: true },
-        '/api/housing': { target: apiTarget, changeOrigin: true },
-        '/api/npcs': { target: apiTarget, changeOrigin: true },
+        // All REST endpoints share one backend, so a single prefix covers them.
+        '/api': { target: apiTarget, changeOrigin: true },
         '/ws': { target: wsTarget, ws: true, changeOrigin: true },
       },
     },

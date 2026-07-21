@@ -68,6 +68,10 @@ data/terrain/
 data/housing/
 server/data/game_data.db
 
+# User announcements: operator-authored content; only the format doc is tracked
+data/announcements/*.md
+!data/announcements/_README.md
+
 # Terrain generator preview output
 preview_out/
 preview_out*/

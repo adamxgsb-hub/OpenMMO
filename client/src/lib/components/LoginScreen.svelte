@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { getDefaultServerUrl } from '../utils/networkUtils'
+  import AnnouncementsPanel from './AnnouncementsPanel.svelte'
 
   const GSI_SRC = 'https://accounts.google.com/gsi/client'
 
@@ -156,6 +157,8 @@
         {/if}
       </div>
     </div>
+
+    <AnnouncementsPanel />
   </div>
 </div>
 

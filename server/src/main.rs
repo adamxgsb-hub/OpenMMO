@@ -1,3 +1,4 @@
+mod announcements;
 mod api_auth;
 mod auth;
 mod celestial;
@@ -17,6 +18,7 @@ mod types;
 mod world_config;
 mod world_drop_defs;
 
+use announcements::{announcements_router, AnnouncementStore};
 use auth::AuthService;
 use clap::Parser;
 use connection::{handle_connection, AuthContext};
@@ -257,6 +259,10 @@ async fn main() {
         "./agent-client/data/npcs",
     )));
     let terrain_io = Arc::new(TerrainIO::new(std::path::PathBuf::from(&args.terrain_dir)));
+    let announcement_store = Arc::new(AnnouncementStore::new(std::path::PathBuf::from(
+        "./data/announcements",
+    )));
+    announcement_store.warm().await;
 
     // Load no-spawn zones (towns) from per-region zone files. Monster spawn
     // areas come from world.json `ambientSpawns`, not per-region rectangles.
@@ -370,6 +376,7 @@ async fn main() {
             Arc::clone(&game_state),
         ))
         .merge(npc_router(npc_io))
+        .merge(announcements_router(announcement_store))
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(&auth_ctx),
             api_auth::require_admin_for_writes,

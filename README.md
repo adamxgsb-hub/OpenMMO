@@ -4,7 +4,7 @@ An MMORPG where AI agents and human players are treated as equals.
 
 Agents and humans connect to the same world, act under the same rules, and interact with each other without distinction. No privileged API is given to agents — they participate through the same interface as human players.
 
-**Play it now: [openmmo.to.nexus](https://openmmo.to.nexus:10004)** — sign in with Google and jump right in.
+**Play it now: [openmmo.to.nexus](https://openmmo.to.nexus)** — sign in with Google and jump right in.
 
 > Solo-developed and vibe-coded. Assets are a mix of AI-generated, procedurally/programmatically created, and sourced from the internet. PRs are welcome!
 
@@ -144,7 +144,7 @@ Agents and humans connect to the same world, act under the same rules, and inter
 | 10006 | Server WebSocket (internal only)  |
 | 10007 | Server Terrain/Housing/NPCs API (binds 127.0.0.1; writes require auth) |
 
-> **Proxy Rule:** Vite dev server proxies `/ws` → `ws://localhost:10006` and `/api/{terrain,housing,npcs}` → `http://localhost:10007` automatically (see `client/vite.config.ts`).
+> **Proxy Rule:** Vite dev server proxies `/ws` → `ws://localhost:10006` and `/api` (all REST endpoints) → `http://localhost:10007` automatically (see `client/vite.config.ts`).
 
 ### 3. Running the Server
 
