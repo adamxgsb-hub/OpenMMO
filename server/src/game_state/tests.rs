@@ -1148,6 +1148,59 @@ async fn player_attack_at_melee_range_is_allowed() {
     );
 }
 
+#[tokio::test]
+async fn pickup_broadcasts_the_pickup_animation() {
+    let game_state = make_test_game_state("pickup_anim_broadcast");
+    game_state.add_player(make_player("picker", 0.0, 0.0)).await;
+    game_state
+        .add_player(make_player("watcher", 2.0, 0.0))
+        .await;
+    {
+        let mut inventories = game_state.inventories.write().await;
+        inventories.insert(pid("picker"), Default::default());
+    }
+    {
+        let mut ground_items = game_state.ground_items.write().await;
+        ground_items.insert(
+            42,
+            ServerGroundItem {
+                item: GroundItem {
+                    instance_id: 42,
+                    item_def_id: "test_item".to_string(),
+                    position: Position {
+                        x: 0.5,
+                        y: 0.0,
+                        z: 0.0,
+                    },
+                    floor_level: 0,
+                    enchant: 0,
+                },
+                dropped_at_ms: 0,
+            },
+        );
+    }
+    let mut watcher_rx = game_state.register_direct_channel(&pid("watcher")).await;
+
+    game_state.pickup_item(&pid("picker"), 42).await;
+
+    let mut saw_animation = false;
+    while let Ok(msg) = watcher_rx.try_recv() {
+        if let ServerMessage::PlayerInteractionChanged {
+            player_id,
+            object_type,
+        } = msg
+        {
+            assert_eq!(player_id, pid("picker"));
+            assert_eq!(object_type.as_deref(), Some("pickup"));
+            saw_animation = true;
+        }
+    }
+    assert!(
+        saw_animation,
+        "nearby players must see the pickup animation"
+    );
+}
+
 // --- Haggling (economy phase 2) ---
 
 fn make_merchant_npc(id: &str, x: f32, z: f32) -> Player {

@@ -828,7 +828,15 @@
     if (playerState !== 'interact') {
       interactionFinishedNotified = false
       pickupGrabNotified = false
-    } else if (isCurrentPlayer && currentAction && interactionAnim) {
+    } else if (
+      currentAction &&
+      interactionAnim &&
+      // Pickup is the one interaction remote players end on their own: the
+      // server broadcast is transient (no StopInteraction follows), so the
+      // finish callback must fire for remotes too. Held poses (bench, forge)
+      // keep waiting for their StopInteraction.
+      (isCurrentPlayer || interactionAnim === 'pickup')
+    ) {
       const clip = currentAction.getClip()
       if (clip.name === interactionAnim) {
         if (

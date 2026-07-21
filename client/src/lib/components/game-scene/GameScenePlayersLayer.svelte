@@ -456,6 +456,8 @@
         torchOn={player.torchOn}
         {torchEffectsDisabled}
         npcPlayerId={player.isNpc ? player.id : undefined}
+        onInteractionFinished={() =>
+          remotePlayerManager.handleStopInteraction(player.id)}
       />
     {/if}
   {/each}
