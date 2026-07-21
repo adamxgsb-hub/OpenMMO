@@ -58,12 +58,18 @@ export interface ChatEntry {
   hit?: boolean
 }
 
+/** ChatEntry as stored: `id` is a stable key so the transcript's `{#each}`
+ *  moves rows instead of rewriting every one when the buffer shifts. */
+export interface StoredChatEntry extends ChatEntry {
+  id: number
+}
+
 export interface GameState {
   isConnected: boolean
   currentPlayer: LocalPlayer | null
   otherPlayers: Map<number, RemotePlayer>
-  chatMessages: ChatEntry[]
-  combatMessages: ChatEntry[]
+  chatMessages: StoredChatEntry[]
+  combatMessages: StoredChatEntry[]
   chatBubbles: Map<number, ChatBubble> // playerId -> ChatBubble
 }
 
@@ -124,12 +130,14 @@ export const updatePlayer = (
   })
 }
 
+let nextMessageId = 0
+
 const addMessageTo = (
   field: 'chatMessages' | 'combatMessages',
   entry: ChatEntry
 ) => {
   gameStore.update((state) => {
-    const newMessages = [...state[field], entry]
+    const newMessages = [...state[field], { ...entry, id: nextMessageId++ }]
     return {
       ...state,
       [field]:

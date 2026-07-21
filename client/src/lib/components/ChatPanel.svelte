@@ -18,12 +18,22 @@
   let hovering = $state(false)
   let fadeTimer: number | undefined
 
+  let scrollFrame: number | undefined
+
+  // Reading scrollHeight forces a layout flush, so defer it to the next frame
+  // and coalesce bursts: a run of combat messages costs one flush, not one each.
   $effect(() => {
     const len =
       activeTab === 'say' ? chatMessages.length : combatMessages.length
-    if (chatContainer && len) {
-      chatContainer.scrollTop = chatContainer.scrollHeight
-    }
+    if (!chatContainer || !len || scrollFrame !== undefined) return
+    scrollFrame = requestAnimationFrame(() => {
+      scrollFrame = undefined
+      if (chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight
+    })
+  })
+
+  $effect(() => () => {
+    if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame)
   })
 
   // Focus and hover hold the transcript open; leaving either restarts the countdown.
@@ -148,7 +158,7 @@
 
   <div class="chat-messages" bind:this={chatContainer} role="log">
     {#if activeTab === 'say'}
-      {#each chatMessages as entry, index (index)}
+      {#each chatMessages as entry (entry.id)}
         <div class="message">
           {#if entry.name}
             <span
@@ -163,7 +173,7 @@
         </div>
       {/each}
     {:else}
-      {#each combatMessages as entry, index (index)}
+      {#each combatMessages as entry (entry.id)}
         <div class="message combat">
           {#if entry.name}
             <span
