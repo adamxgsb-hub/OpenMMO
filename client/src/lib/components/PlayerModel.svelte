@@ -928,6 +928,7 @@
       <!-- Foreground (red) -->
       <T.Mesh
         position.x={-HEALTH_BAR_WIDTH / 2}
+        position.z={0.001}
         scale.x={Math.max(0.001, displayedHealthRatio)}
       >
         <T is={healthBarFillGeometry} />
