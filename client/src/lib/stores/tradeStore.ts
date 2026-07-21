@@ -6,6 +6,16 @@ export interface StockEntry {
   quantity: number
 }
 
+/** One unit the player recently sold to a merchant, repurchasable at the
+ *  exact payout received (sold units otherwise vanish — merchants keep no
+ *  stock). */
+export interface BuybackEntry {
+  entryId: number
+  itemDefId: string
+  enchant: number
+  price: number
+}
+
 /** An open shop session with a trading NPC, driven by ServerMessage::ShopState.
  *  Set to a session to open the trade window, to null to close it.
  *  Merchants fill `catalog` (unlimited stock); resident traders fill
@@ -20,6 +30,9 @@ export interface ShopSession {
   wishlist: string[]
   /** Non-merchant real-inventory stock; merchants use `catalog`. */
   stock: StockEntry[]
+  /** Units this player recently sold to this merchant; empty for
+   *  non-merchants, whose bought units stay visible in `stock`. */
+  buyback: BuybackEntry[]
 }
 
 export const shopSession = writable<ShopSession | null>(null)

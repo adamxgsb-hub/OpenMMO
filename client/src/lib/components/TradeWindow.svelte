@@ -4,6 +4,7 @@
     shopSession,
     shopDeals,
     dealKey,
+    type BuybackEntry,
     type DealKind,
   } from '../stores/tradeStore'
   import { gameStore } from '../stores/gameStore'
@@ -20,10 +21,12 @@
   const session = $derived($shopSession)
 
   interface CartEntry {
-    kind: 'buy' | 'sell'
+    kind: 'buy' | 'sell' | 'buyback'
     itemDefId: string
     /** Bag instance backing a sell entry; absent for buy entries. */
     instanceId?: number
+    /** Buyback entry backing a buyback entry; absent otherwise. */
+    entryId?: number
     qty: number
     /** Per-unit price, fixed when the entry is added (prices cannot change
      *  within a shop session). */
@@ -129,7 +132,7 @@
 
   const buyTotal = $derived(
     cart.reduce(
-      (sum, e) => (e.kind === 'buy' ? sum + e.unitPrice * e.qty : sum),
+      (sum, e) => (e.kind !== 'sell' ? sum + e.unitPrice * e.qty : sum),
       0
     )
   )
@@ -209,6 +212,22 @@
     }
   }
 
+  function addBuyback(entry: BuybackEntry) {
+    if (inCartBuyback(entry.entryId)) return
+    cart.push({
+      kind: 'buyback',
+      itemDefId: entry.itemDefId,
+      entryId: entry.entryId,
+      qty: 1,
+      unitPrice: entry.price,
+    })
+  }
+
+  /** Each buyback entry is one unit; it can only be staged once. */
+  function inCartBuyback(entryId: number): boolean {
+    return cart.some((e) => e.kind === 'buyback' && e.entryId === entryId)
+  }
+
   function removeOne(entry: CartEntry) {
     entry.qty -= 1
     if (entry.qty <= 0) {
@@ -249,9 +268,12 @@
       }
     }
     for (const entry of ordered) {
-      if (entry.kind !== 'buy') continue
-      for (let i = 0; i < entry.qty; i++) {
-        networkManager.sendBuyItem(session.merchantPlayerId, entry.itemDefId)
+      if (entry.kind === 'buy') {
+        for (let i = 0; i < entry.qty; i++) {
+          networkManager.sendBuyItem(session.merchantPlayerId, entry.itemDefId)
+        }
+      } else if (entry.kind === 'buyback' && entry.entryId !== undefined) {
+        networkManager.sendBuybackItem(session.merchantPlayerId, entry.entryId)
       }
     }
     cart = []
@@ -345,6 +367,33 @@
               <div class="empty-note">Nothing for sale</div>
             {/if}
           {/each}
+          {#if session.buyback.length > 0}
+            <div class="column-title buyback-title">Buy back</div>
+            {#each session.buyback as entry (entry.entryId)}
+              {@const def = getItemDef(entry.itemDefId)}
+              {#if def}
+                <button
+                  class="item-row"
+                  disabled={inCartBuyback(entry.entryId)}
+                  onclick={() => addBuyback(entry)}
+                  use:itemTooltip={{ def, side: 'left' }}
+                >
+                  <img
+                    class="item-icon"
+                    src="/items/{def.icon}"
+                    alt=""
+                    draggable="false"
+                  />
+                  <span class="item-name">
+                    {entry.enchant > 0 ? `+${entry.enchant} ` : ''}{def.name}
+                  </span>
+                  <span class="item-price"
+                    ><GoldAmount copper={entry.price} /></span
+                  >
+                </button>
+              {/if}
+            {/each}
+          {/if}
         </div>
       </div>
 
@@ -355,7 +404,7 @@
         </div>
         <div class="column-title">Cart</div>
         <div class="item-list">
-          {#each cart as entry (entry.kind + ':' + (entry.instanceId ?? entry.itemDefId) + (entry.dealPct ? ':deal' : ''))}
+          {#each cart as entry (entry.kind + ':' + (entry.instanceId ?? entry.entryId ?? entry.itemDefId) + (entry.dealPct ? ':deal' : ''))}
             {@const def = getItemDef(entry.itemDefId)}
             {#if def}
               <button
@@ -364,7 +413,7 @@
                 use:itemTooltip={{ def, side: 'left' }}
               >
                 <span class="cart-kind {entry.kind}">
-                  {entry.kind === 'buy' ? 'B' : 'S'}
+                  {entry.kind === 'sell' ? 'S' : 'B'}
                 </span>
                 <img
                   class="item-icon"
@@ -378,13 +427,16 @@
                 {#if entry.dealPct}
                   <span
                     class="deal-badge"
-                    class:markup={isMarkup(entry.kind, entry.dealPct)}
+                    class:markup={isMarkup(
+                      entry.kind === 'sell' ? 'sell' : 'buy',
+                      entry.dealPct
+                    )}
                   >
                     {entry.dealPct > 0 ? '+' : ''}{entry.dealPct}%
                   </span>
                 {/if}
                 <span class="item-price {entry.kind}">
-                  {entry.kind === 'buy' ? '−' : '+'}<GoldAmount
+                  {entry.kind === 'sell' ? '+' : '−'}<GoldAmount
                     copper={entry.unitPrice * entry.qty}
                   />
                 </span>
@@ -545,6 +597,12 @@
     padding-bottom: 4px;
   }
 
+  .buyback-title {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 255, 0.15);
+  }
+
   .item-list {
     overflow-y: auto;
     overscroll-behavior: contain;
@@ -607,7 +665,8 @@
     flex-shrink: 0;
   }
 
-  .item-price.buy {
+  .item-price.buy,
+  .item-price.buyback {
     color: #ff9a8a;
   }
 
@@ -622,7 +681,8 @@
     text-align: center;
   }
 
-  .cart-kind.buy {
+  .cart-kind.buy,
+  .cart-kind.buyback {
     color: #ff9a8a;
   }
 

@@ -45,6 +45,21 @@ pub struct StockEntry {
     pub quantity: u32,
 }
 
+/// One unit the player recently sold to a merchant, repurchasable at the
+/// exact payout the player received. Sold units normally vanish (merchants
+/// keep no stock), so this is the only way to undo a mis-sell.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuybackEntry {
+    /// Server-issued id the client references in `BuybackItem`; becomes the
+    /// restored item's instance id on repurchase.
+    pub entry_id: u64,
+    pub item_def_id: String,
+    pub enchant: i32,
+    /// Gold the player was paid for the unit (smallest unit) — buying it
+    /// back costs exactly this, so the round trip is gold-neutral.
+    pub price: i64,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ClientMessage {
     /// Browser login: a Google ID token, verified server-side. The account is
@@ -228,6 +243,12 @@ pub enum ClientMessage {
     SellItem {
         merchant_player_id: PlayerId,
         instance_id: u64,
+    },
+    /// Repurchase a unit previously sold to this merchant, at the payout
+    /// price recorded in its `BuybackEntry`.
+    BuybackItem {
+        merchant_player_id: PlayerId,
+        entry_id: u64,
     },
     /// NPC-only (LLM haggling): offer a price modifier on one item to a
     /// nearby player. The server clamps the modifier to the player's price
@@ -547,6 +568,11 @@ pub enum ServerMessage {
         /// price). Empty for merchants, who use `catalog`.
         #[serde(default)]
         stock: Vec<StockEntry>,
+        /// Units this player recently sold to this merchant, repurchasable
+        /// at the recorded payout. Empty for non-merchants, whose bought
+        /// units stay visible in `stock`.
+        #[serde(default)]
+        buyback: Vec<BuybackEntry>,
     },
     /// Direct message: the receiving player's current gold (smallest unit).
     GoldUpdate {
@@ -576,6 +602,12 @@ pub enum ServerMessage {
         kind: DealKind,
         modifier_pct: i32,
         expires_in_secs: u32,
+    },
+    /// Direct to a player: its buyback list with one merchant changed (a
+    /// sell added an entry, or a buyback consumed one).
+    BuybackUpdated {
+        merchant_player_id: PlayerId,
+        buyback: Vec<BuybackEntry>,
     },
     /// Direct to a trading NPC: whether at least one player currently has its
     /// trade window open. While `busy` is true the NPC's LLM keeps its place

@@ -524,6 +524,12 @@ class NetworkManager {
     })
   }
 
+  sendBuybackItem(merchantPlayerId: number, entryId: number) {
+    this.sendMessage({
+      BuybackItem: { merchant_player_id: merchantPlayerId, entry_id: entryId },
+    })
+  }
+
   // --- Auth & character request methods ---
 
   private authenticateWithGoogle(googleIdToken: string): boolean {

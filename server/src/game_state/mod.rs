@@ -5,6 +5,7 @@ use crate::types::{CharacterAttributes, Player, PlayerId, ServerMessage};
 use bytes::Bytes;
 use onlinerpg_shared::housing::{HouseData, RoomData, WallDirection};
 use onlinerpg_shared::inventory::PlayerInventory;
+use onlinerpg_shared::messages::BuybackEntry;
 use onlinerpg_shared::serialize_server_msg;
 use onlinerpg_shared::NoSpawnZone;
 use onlinerpg_shared::Position;
@@ -151,6 +152,13 @@ pub struct GameState {
     /// counts down on `tick_shop_holds` so a player can't pin an NPC forever
     /// by keeping the window open. See `register_shop_open`/`close_shop`.
     open_shops: Arc<RwLock<HashMap<PlayerId, HashMap<PlayerId, u8>>>>,
+    /// (character_id, merchant npc name) → units that character sold to
+    /// that merchant, repurchasable at the recorded payout. Keyed by
+    /// character (not the per-session player id) so the list survives a
+    /// reconnect. Capped per pair (oldest dropped) and in-memory only,
+    /// like `deals`.
+    #[allow(clippy::type_complexity)]
+    buybacks: Arc<RwLock<HashMap<(i64, String), Vec<BuybackEntry>>>>,
 }
 
 impl GameState {
@@ -200,6 +208,7 @@ impl GameState {
             dungeons: Arc::new(RwLock::new(HashMap::new())),
             dungeon_monsters: Arc::new(RwLock::new(HashMap::new())),
             open_shops: Arc::new(RwLock::new(HashMap::new())),
+            buybacks: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 

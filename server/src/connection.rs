@@ -1076,6 +1076,17 @@ async fn handle_client_message(
             }
         }
 
+        ClientMessage::BuybackItem {
+            merchant_player_id,
+            entry_id,
+        } => {
+            if let Some(id) = &state.player_id {
+                game_state
+                    .buyback_item(id, &merchant_player_id, entry_id)
+                    .await;
+            }
+        }
+
         ClientMessage::OfferDeal {
             target_player_id,
             item_def_id,

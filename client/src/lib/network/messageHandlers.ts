@@ -25,6 +25,7 @@ import {
   setMerchantDeals,
   wasShopRequested,
   pendingTradeOffer,
+  type BuybackEntry,
 } from '../stores/tradeStore'
 import { editorTreeDataManager } from '../stores/editorStore'
 import type { MonsterData } from '../types/Monster'
@@ -40,6 +41,19 @@ import type {
   ServerMonster,
   ServerPlayer,
 } from './networkTypes'
+
+function mapBuyback(
+  entries:
+    | { entry_id: number; item_def_id: string; enchant: number; price: number }[]
+    | undefined
+): BuybackEntry[] {
+  return (entries ?? []).map((e) => ({
+    entryId: e.entry_id,
+    itemDefId: e.item_def_id,
+    enchant: e.enchant,
+    price: Number(e.price),
+  }))
+}
 
 function toLocalPlayer(sp: ServerPlayer): LocalPlayer {
   return {
@@ -799,6 +813,7 @@ export function handleServerMessage(
             quantity: entry.quantity,
           })
         ),
+        buyback: mapBuyback(data.buyback),
       }
       setMerchantDeals(data.merchant_player_id, data.active_deals ?? [])
       // Open directly only when the player asked for this shop (or it's a
@@ -850,6 +865,14 @@ export function handleServerMessage(
         data.kind,
         data.modifier_pct,
         data.expires_in_secs
+      )
+      break
+
+    case 'BuybackUpdated':
+      shopSession.update((session) =>
+        session && session.merchantPlayerId === data.merchant_player_id
+          ? { ...session, buyback: mapBuyback(data.buyback) }
+          : session
       )
       break
 
