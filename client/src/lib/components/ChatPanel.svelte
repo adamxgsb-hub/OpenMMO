@@ -101,6 +101,7 @@
   }
 
   function handleGlobalKeydown(event: KeyboardEvent) {
+    if (event.isComposing || event.keyCode === 229) return
     if (event.key === 'Enter' && document.activeElement !== chatInput) {
       event.preventDefault()
       activeTab = 'say'

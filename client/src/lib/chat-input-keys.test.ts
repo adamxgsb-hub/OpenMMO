@@ -27,17 +27,17 @@ describe('chatInputKeyIntent', () => {
     expect(chatInputKeyIntent(key('Enter', { keyCode: 229 }))).toBe('none')
   })
 
-  it('sends on the Enter that follows a committed composition', () => {
-    const composing = key('Enter', { isComposing: true, keyCode: 13 })
-    const committed = key('Enter', { keyCode: 13 })
-    expect(chatInputKeyIntent(composing)).toBe('none')
-    expect(chatInputKeyIntent(committed)).toBe('send')
-  })
-
   it('completes commands on Tab', () => {
     expect(chatInputKeyIntent(key('Tab', { keyCode: 9 }))).toBe(
       'complete-command'
     )
+  })
+
+  it('does not complete commands on Tab during IME composition', () => {
+    expect(
+      chatInputKeyIntent(key('Tab', { isComposing: true, keyCode: 9 }))
+    ).toBe('none')
+    expect(chatInputKeyIntent(key('Tab', { keyCode: 229 }))).toBe('none')
   })
 
   it('ignores other keys', () => {
