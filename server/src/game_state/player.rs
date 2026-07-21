@@ -17,6 +17,7 @@ const MAX_QUEUED_WAYPOINTS: usize = 32;
 /// Least time between `PositionCorrected` snaps for one player. Long enough
 /// that a client which cannot act on them is not yanked repeatedly, short
 /// enough that a real desync is pulled back before it skews AOI or attack range.
+/// Also paces the refused-move warn, which rides the same gate.
 const POSITION_CORRECTION_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Client-requested destination the server walks the player toward at capped
@@ -36,11 +37,8 @@ pub(super) struct MoveIntent {
 /// polyline instead of beelining (and corner-cutting) to the newest target.
 pub(super) type MoveQueue = VecDeque<MoveIntent>;
 
-/// A step the sim refused: where the server has the player (for the correction)
-/// plus the diagnostics for the warn. Both are emitted together in
-/// `correct_refused_positions`, once per correction actually sent rather than
-/// once per refused tick, so a player grinding a wall is one log line per
-/// cooldown window instead of one per tick.
+/// A refused step: where the server has the player (for the correction) plus the
+/// diagnostics for the warn, both emitted together in `correct_refused_positions`.
 struct RefusedMove {
     player_id: PlayerId,
     position: Position,
@@ -607,8 +605,7 @@ impl super::GameState {
                             super::passability::StepOutcome::Blocked(info) => {
                                 // A blocked step never moves the player, so the
                                 // position/rotation here are what the correction
-                                // sends. Logged later with the correction, once
-                                // per snap instead of once per refused tick.
+                                // sends.
                                 refused.push(RefusedMove {
                                     player_id: *player_id,
                                     position: player.position,
