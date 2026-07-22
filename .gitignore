@@ -80,7 +80,7 @@ agent-client/data/prompts/memory/
 agent-client/data/npcs/**/memory.txt
 # Heightmap tiles fetched from the server (regenerable cache)
 agent-client/data/cache/
-# agent-client release tarballs (tools/package-agent-client.sh)
+# agent-client release archives (tools/package-agent-client.sh, .ps1)
 /dist/
 
 # Claude Code (keep agents and commands for sharing)

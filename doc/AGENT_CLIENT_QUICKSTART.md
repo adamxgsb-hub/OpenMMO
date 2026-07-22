@@ -8,28 +8,42 @@ LLM이 당신의 캐릭터를 조종해 게임에 참여한다. 구글 계정으
 
 ## 0. 받기
 
-배포되는 tarball은 **Ubuntu 24.04 이상**(glibc 2.39+)에서 돕니다. 그보다 오래된
-배포판이거나 다른 아키텍처면 소스에서 빌드하십시오 — Rust 툴체인 말고는 준비물이
-없고, 게임 데이터는 빌드가 알아서 생성합니다.
+Linux tarball은 **Ubuntu 24.04 이상**(glibc 2.39+), Windows zip은 **64비트
+Windows 10/11**용이다. 압축을 풀고 그 디렉터리에서 실행한다.
 
-```bash
-git clone https://github.com/Julian-adv/OpenMMO.git
-cd OpenMMO && cargo build --release -p agent-client
-```
-
-빌드한 바이너리는 `target/release/agent-client`입니다. `agent-client/` 디렉터리에서
-실행하고, `data/config.toml`은 `data/config.toml.example`을 참고해 만듭니다.
-
-이때 **구글 로그인용 `client_secret`이 저장소에는 없습니다.** tarball을 하나 받아
-그 안의 `data/config.toml`에서 값을 복사해 오십시오.
+Linux:
 
 ```bash
 tar -xzf agent-client-*.tar.gz
-grep client_secret agent-client-*/data/config.toml
+cd agent-client-*/
 ```
 
-기밀이 아닙니다 — 설치형 앱은 비밀을 지킬 수 없고(RFC 8252 §8.5) 모든 배포본이
-같은 값을 씁니다. 저장소에 두지 않는 이유는 보안이 아니라 시크릿 스캐너 마찰입니다.
+Windows (PowerShell):
+
+```powershell
+Expand-Archive .\agent-client-*-x86_64-windows-msvc.zip
+cd .\agent-client-*-x86_64-windows-msvc
+```
+
+지원하지 않는 배포판이나 아키텍처에서는 소스에서 빌드한다. Rust 툴체인 말고는
+준비물이 없고, 게임 데이터는 빌드가 알아서 생성한다.
+
+```bash
+git clone https://github.com/Julian-adv/OpenMMO.git
+cd OpenMMO
+cargo build --release -p agent-client
+```
+
+빌드한 바이너리는 Linux에서 `target/release/agent-client`, Windows에서
+`target\release\agent-client.exe`다. `agent-client/` 디렉터리에서 실행하고,
+`data/config.toml`은 `data/config.toml.example`을 참고해 만든다.
+
+이때 **구글 로그인용 `client_secret`이 저장소에는 없다.** 위에서 푼 배포본의
+`data/config.toml`에서 값을 복사한다 — Linux는 `grep client_secret data/config.toml`,
+Windows는 `Select-String client_secret data\config.toml`.
+
+기밀이 아니다 — 설치형 앱은 비밀을 지킬 수 없고(RFC 8252 §8.5) 모든 배포본이
+같은 값을 쓴다. 저장소에 두지 않는 이유는 보안이 아니라 시크릿 스캐너 마찰이다.
 
 ## 1. LLM 준비
 
@@ -50,17 +64,31 @@ grep client_secret agent-client-*/data/config.toml
 ```toml
 [[npcs]]
 character_name = "당신의 캐릭터 이름"   # 서버 전체에서 유일해야 한다
-character_class = "ranger"
+character_class = "rogue"
+gender = "female"
 llm = "codex"
 ```
 
 고를 수 있는 클래스: `knight` `barbarian` `caveman` `valkyrie` `ranger`
 `rogue` `priest`. (`merchant`, `guard`는 운영자 NPC 전용이라 거절된다.)
+성별은 `male` 또는 `female`이다. 기존 캐릭터와 다른 성별을 지정하면 캐릭터를
+삭제하고 다시 만들므로 레벨과 아이템이 초기화된다. 클래스마다 있는 모델이 다르다
+— `ranger`는 남성만, `valkyrie`는 여성만 있고 나머지(`knight`, `barbarian`,
+`caveman`, `rogue`, `priest`)는 둘 다 있다. 없는 조합을 고르면 클라이언트가
+캐릭터를 그리지 못한다.
 
 ## 3. 실행
 
+Linux:
+
 ```bash
 ./agent-client
+```
+
+Windows (PowerShell):
+
+```powershell
+.\agent-client.exe
 ```
 
 처음 실행하면 구글 로그인 안내가 뜬다:
@@ -71,8 +99,9 @@ llm = "codex"
     2. enter code XXX-XXX-XXX
 ```
 
-브라우저(어느 기기든)에서 코드를 입력하면 접속이 이어진다. 자격증명은
-`~/.config/onlinerpg/google.json`에 저장되므로 다음부터는 묻지 않는다.
+브라우저(어느 기기든)에서 코드를 입력하면 접속이 이어진다. 자격증명은 Linux에서
+`~/.config/onlinerpg/google.json`, Windows에서
+`%APPDATA%\onlinerpg\google.json`에 저장되므로 다음부터는 묻지 않는다.
 
 로그아웃하려면 그 파일을 지운다.
 
@@ -87,7 +116,8 @@ llm = "codex"
 | `The merchant class is not available` | 플레이어가 고를 수 없는 클래스다 |
 | 지형 위를 걷지 못하거나 높이가 이상함 | 서버의 터레인 API에 접근이 안 되는 상태. `terrain` 값을 확인한다 |
 
-로그를 자세히 보려면 `RUST_LOG=debug ./agent-client`.
+로그를 자세히 보려면 Linux에서는 `RUST_LOG=debug ./agent-client`, PowerShell에서는
+`$env:RUST_LOG = "debug"; .\agent-client.exe`로 실행한다.
 
 ## 동작 방식
 

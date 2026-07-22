@@ -79,7 +79,8 @@ model = "gpt-5.4-mini"
 
 [[npcs]]
 character_name = "Jake's Agent"
-character_class = "ranger"
+character_class = "rogue"
+gender = "female"
 llm = "codex"
 ```
 
@@ -305,10 +306,10 @@ Online: 12 (9 web, 1 cli, 2 npc)
 
 ### Phase 2 — 구글 로그인 — **완료 2026-07-22**
 8. [x] 서버: `GoogleAuthVerifier`가 복수 audience 허용 + `--google-cli-client-id` / `GOOGLE_CLI_CLIENT_ID`
-9. [x] agent-client: device flow(`google_auth.rs`), refresh token 캐시(`~/.config/onlinerpg/google.json`, 0600), 접속마다 ID 토큰 재발급
+9. [x] agent-client: device flow(`google_auth.rs`), refresh token 캐시(Linux `~/.config/onlinerpg/google.json`, Windows `%APPDATA%\onlinerpg\google.json`), 접속마다 ID 토큰 재발급
 10. [x] google 모드 제약 집행 (레지스트리 id 금지, 클래스 화이트리스트, character_name 필수, account 무시)
 
-**운영 메모**: CLI용 OAuth 클라이언트는 "TV 및 입력 제한 기기" 타입이어야 하고, 구글이 토큰 교환 때 **client_secret을 요구한다** (없으면 `invalid_request: Missing required parameter: client_secret`). 기본 client_id는 `google_auth.rs`의 `DEFAULT_CLIENT_ID`에 박혀 있지만, **secret은 저장소에 두지 않는다** — 커밋하면 GitHub 푸시 보호가 막고, 시크릿 스캐너 경고가 계속 따라붙는다. 대신 배포물을 만들 때 `GOOGLE_CLI_CLIENT_SECRET` 환경변수에서 읽어 tarball의 `config.toml`에 써 넣는다 (`tools/package-agent-client.sh`). 사용자는 여전히 아무것도 입력하지 않는다.
+**운영 메모**: CLI용 OAuth 클라이언트는 "TV 및 입력 제한 기기" 타입이어야 하고, 구글이 토큰 교환 때 **client_secret을 요구한다** (없으면 `invalid_request: Missing required parameter: client_secret`). 기본 client_id는 `google_auth.rs`의 `DEFAULT_CLIENT_ID`에 박혀 있지만, **secret은 저장소에 두지 않는다** — 커밋하면 GitHub 푸시 보호가 막고, 시크릿 스캐너 경고가 계속 따라붙는다. 대신 배포물을 만들 때 `GOOGLE_CLI_CLIENT_SECRET` 환경변수에서 읽어 Linux tarball이나 Windows zip의 `config.toml`에 써 넣는다 (`tools/package-agent-client.sh`, `tools/package-agent-client.ps1`). 사용자는 여전히 아무것도 입력하지 않는다.
 
 값 자체는 기밀이 아니다 (설치형 앱은 비밀을 지킬 수 없다, RFC 8252 §8.5). 이걸로 얻을 수 있는 건 우리 앱 이름으로 동의 화면을 띄우는 것과 쿼터 소모 정도이고, 토큰을 받으려면 사람이 동의를 눌러야 하며 게임 서버는 ID 토큰의 `aud`/`sub`만 본다. 그럼에도 저장소 밖에 두는 이유는 보안이 아니라 **도구 마찰**이다.
 
@@ -316,7 +317,7 @@ Online: 12 (9 web, 1 cli, 2 npc)
 11. [x] `CharacterClass::is_player_selectable()` + `CreateCharacter`/`RollCharacterStats` 검증 (agent-client도 같은 함수로 조기 검사)
 12. [x] `is_npc` → `is_official_npc` 개명 (Rust 호출부 + 웹 클라이언트 `isOfficialNpc`). 와이어 포맷은 위치 기반이라 프로토콜 버전은 그대로
 13. [x] `/who`를 클라이언트 종류별 집계로 변경 (`ClientKind`, `Player`에 `#[serde(skip)]`으로 실려 브로드캐스트되지 않음)
-14. [x] 배포물: `tools/package-agent-client.sh` → 바이너리 + `data/` + 프로드용 config + [AGENT_CLIENT_QUICKSTART.md](AGENT_CLIENT_QUICKSTART.md) 를 3.8 MB tarball로
+14. [x] 배포물: `tools/package-agent-client.sh` / `.ps1` → 바이너리 + `data/` + 프로드용 config + [AGENT_CLIENT_QUICKSTART.md](AGENT_CLIENT_QUICKSTART.md)를 Linux tarball / Windows zip으로
 
 ## 운영·보안 고려사항
 

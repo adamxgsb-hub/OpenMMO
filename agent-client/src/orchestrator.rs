@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use onlinerpg_shared::monster_ai::BehaviorTree;
-use onlinerpg_shared::{ClientMessage, ServerMessage};
+use onlinerpg_shared::{ClientMessage, Gender, ServerMessage};
 use onlinerpg_terrain::height::HeightSampler;
 use serde::Deserialize;
 use tokio::sync::{mpsc, Mutex};
@@ -149,6 +149,8 @@ pub struct NpcConfig {
     pub character_name: Option<String>,
     /// Character class for auto-creation (e.g. "merchant"). Defaults to "knight".
     pub character_class: Option<String>,
+    /// Character gender for auto-creation. Defaults to male when omitted.
+    pub gender: Option<Gender>,
 
     // --- 3-tier prompt system ---
     /// Path to template prompt file (role-specific behavior rules).
@@ -298,16 +300,18 @@ async fn run_npc_session(
         })
         .transpose()?;
     let desired_name = npc.character_name.as_deref();
+    let desired_gender = npc.gender;
 
     let should_delete = |c: &onlinerpg_shared::Character| {
         desired_class.as_ref().is_some_and(|d| c.class != *d)
             || desired_name.is_some_and(|n| c.name != n)
+            || desired_gender.is_some_and(|gender| c.gender != gender)
     };
 
     for c in characters.iter().filter(|c| should_delete(c)) {
         info!(
-            "[{}] Deleting character '{}' (id={}, {:?}) — mismatch (want name={:?}, class={:?})",
-            label, c.name, c.id, c.class, desired_name, desired_class
+            "[{}] Deleting character '{}' (id={}, {:?}, {:?}) — mismatch (want name={:?}, class={:?}, gender={:?})",
+            label, c.name, c.id, c.class, c.gender, desired_name, desired_class, desired_gender
         );
         ws::send(
             &mut ws_tx,
@@ -328,10 +332,11 @@ async fn run_npc_session(
     if characters.is_empty() {
         if let Some(ref char_name) = npc.character_name {
             let class = desired_class.unwrap_or(onlinerpg_shared::CharacterClass::Knight);
+            let gender = desired_gender.unwrap_or_default();
 
             info!(
-                "[{}] No characters found. Creating '{}' ({:?})...",
-                label, char_name, class
+                "[{}] No characters found. Creating '{}' ({:?}, {:?})...",
+                label, char_name, class, gender
             );
 
             // Roll stats
@@ -339,7 +344,7 @@ async fn run_npc_session(
                 &mut ws_tx,
                 &ClientMessage::RollCharacterStats {
                     character_class: class.clone(),
-                    gender: onlinerpg_shared::Gender::default(),
+                    gender,
                 },
             )
             .await?;
@@ -354,7 +359,7 @@ async fn run_npc_session(
                 &ClientMessage::CreateCharacter {
                     character_name: char_name.clone(),
                     character_class: class,
-                    gender: onlinerpg_shared::Gender::default(),
+                    gender,
                 },
             )
             .await?;
@@ -368,8 +373,8 @@ async fn run_npc_session(
             match created {
                 ServerMessage::CharacterCreated { character } => {
                     info!(
-                        "[{}] Created character '{}' (id={}, {:?})",
-                        label, character.name, character.id, character.class
+                        "[{}] Created character '{}' (id={}, {:?}, {:?})",
+                        label, character.name, character.id, character.class, character.gender
                     );
                     characters.push(character);
                 }

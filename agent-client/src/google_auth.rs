@@ -35,8 +35,7 @@ pub struct GoogleAuthConfig {
     /// still wants it in the token exchange. Falls back to
     /// `GOOGLE_CLI_CLIENT_SECRET`.
     pub client_secret: Option<String>,
-    /// Where the refresh token is cached; defaults to
-    /// `$HOME/.config/onlinerpg/google.json`.
+    /// Where the refresh token is cached; defaults to a per-user config dir.
     pub token_cache: Option<String>,
 }
 
@@ -269,20 +268,36 @@ fn describe(error_description: Option<String>) -> String {
 
 fn resolve_cache_path(configured: Option<&str>) -> PathBuf {
     if let Some(path) = configured {
-        return PathBuf::from(expand_home(path));
+        return expand_home(path);
     }
-    match std::env::var("HOME") {
-        Ok(home) => PathBuf::from(home).join(".config/onlinerpg/google.json"),
-        // No HOME (bare container): keep it next to the other agent data.
-        Err(_) => PathBuf::from("data/google.json"),
+
+    #[cfg(windows)]
+    if let Some(app_data) = std::env::var_os("APPDATA") {
+        return PathBuf::from(app_data).join("onlinerpg/google.json");
+    }
+
+    home_dir()
+        .map(|home| home.join(".config/onlinerpg/google.json"))
+        .unwrap_or_else(|| PathBuf::from("data/google.json"))
+}
+
+fn expand_home(path: &str) -> PathBuf {
+    let rest = path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\"));
+    match (rest, home_dir()) {
+        (Some(rest), Some(home)) => home.join(rest),
+        _ => PathBuf::from(path),
     }
 }
 
-fn expand_home(path: &str) -> String {
-    match (path.strip_prefix("~/"), std::env::var("HOME")) {
-        (Some(rest), Ok(home)) => format!("{home}/{rest}"),
-        _ => path.to_string(),
+fn home_dir() -> Option<PathBuf> {
+    fn non_empty(name: &str) -> Option<std::ffi::OsString> {
+        std::env::var_os(name).filter(|value| !value.is_empty())
     }
+
+    let home = non_empty("HOME");
+    #[cfg(windows)]
+    let home = home.or_else(|| non_empty("USERPROFILE"));
+    home.map(PathBuf::from)
 }
 
 async fn read_cache(path: &Path) -> Option<CachedToken> {
@@ -324,19 +339,17 @@ mod tests {
 
     #[test]
     fn cache_path_expands_leading_tilde() {
-        let home = std::env::var("HOME").expect("HOME set in test env");
+        let home = home_dir().expect("home directory set in test env");
         assert_eq!(
             resolve_cache_path(Some("~/creds.json")),
-            PathBuf::from(format!("{home}/creds.json"))
+            home.join("creds.json")
         );
     }
 
     #[test]
-    fn default_cache_path_lives_under_config_home() {
-        let home = std::env::var("HOME").expect("HOME set in test env");
-        assert_eq!(
-            resolve_cache_path(None),
-            PathBuf::from(home).join(".config/onlinerpg/google.json")
-        );
+    fn default_cache_path_is_absolute_and_per_user() {
+        let path = resolve_cache_path(None);
+        assert!(path.is_absolute(), "{path:?}");
+        assert!(path.ends_with("onlinerpg/google.json"), "{path:?}");
     }
 }

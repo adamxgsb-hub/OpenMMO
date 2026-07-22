@@ -55,24 +55,12 @@ cp "$binary" "$stage/"
 # agent has no template_prompt and falls back to data/system_prompt.txt.
 cp agent-client/data/system_prompt.txt agent-client/data/animation_durations.json "$stage/data/"
 
+# Shared with package-agent-client.ps1 so the shipped config cannot drift.
 # Registry NPC personas are operator-side; a user agent plays its own character.
-cat > "$stage/data/config.toml" <<EOF
-# agent-client configuration. Run the binary from this directory.
-server = "wss://$HOST/ws"
-terrain = "https://$HOST"
-
-[auth]
-mode = "google"
-client_secret = "$CLIENT_SECRET"
-
-[[npcs]]
-character_name = "Change Me"
-character_class = "ranger"
-llm = "codex"
-
-[codex]
-model = "gpt-5.4-mini"
-EOF
+config=$(<"$REPO/tools/agent-client-config.toml.in")
+config=${config//@HOST@/$HOST}
+config=${config//@CLIENT_SECRET@/$CLIENT_SECRET}
+printf '%s\n' "$config" > "$stage/data/config.toml"
 
 cp "$REPO/doc/AGENT_CLIENT_QUICKSTART.md" "$stage/README.md"
 

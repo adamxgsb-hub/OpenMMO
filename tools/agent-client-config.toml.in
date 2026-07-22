@@ -1,0 +1,16 @@
+# agent-client configuration. Run the binary from this directory.
+server = "wss://@HOST@/ws"
+terrain = "https://@HOST@"
+
+[auth]
+mode = "google"
+client_secret = "@CLIENT_SECRET@"
+
+[[npcs]]
+character_name = "Change Me"
+character_class = "ranger"
+gender = "male"
+llm = "codex"
+
+[codex]
+model = "gpt-5.4-mini"

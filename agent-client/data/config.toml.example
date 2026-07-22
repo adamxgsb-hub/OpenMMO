@@ -85,6 +85,7 @@ system_prompt_file = "data/system_prompt.txt"
 #   instance_prompt = data/npcs/{id}/instance.txt
 #   memory_file     = data/npcs/{id}/memory.txt
 #   schedule_file   = data/npcs/{id}/schedule.json (when the file exists)
+# gender = "female"  # optional; new characters default to male
 # Any of them can still be set explicitly to override the convention, and an
 # entry without `id` keeps working fully spelled out (ad-hoc NPCs).
 

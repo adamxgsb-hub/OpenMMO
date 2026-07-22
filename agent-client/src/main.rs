@@ -446,9 +446,13 @@ token_cache = "/tmp/creds.json"
     #[test]
     fn google_mode_accepts_a_plain_player_agent() {
         let config = parse(&format!(
-            "{GOOGLE_BASE}\n[[npcs]]\ncharacter_name = \"Jake's Agent\"\ncharacter_class = \"ranger\"\n"
+            "{GOOGLE_BASE}\n[[npcs]]\ncharacter_name = \"Jake's Agent\"\ncharacter_class = \"rogue\"\ngender = \"female\"\n"
         ));
         assert!(check_google_mode_config(&config.npcs).is_ok());
+        assert_eq!(
+            config.npcs[0].gender,
+            Some(onlinerpg_shared::Gender::Female)
+        );
     }
 
     #[test]

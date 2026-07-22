@@ -103,6 +103,55 @@ impl CodexInvoker {
     }
 }
 
+/// npm installs the CLI as a `.cmd` shim, which `Command` cannot spawn, so
+/// look for a real `codex.exe` and otherwise run the package's node
+/// entrypoint ourselves. Resolved once: the answer cannot change while we run.
+#[cfg(windows)]
+fn codex_command() -> Command {
+    use std::path::PathBuf;
+    use std::sync::OnceLock;
+
+    static PROGRAM: OnceLock<(PathBuf, Option<PathBuf>)> = OnceLock::new();
+
+    let (program, entrypoint) = PROGRAM.get_or_init(|| {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+
+        if let Some(executable) = std::env::split_paths(&path)
+            .map(|directory| directory.join("codex.exe"))
+            .find(|candidate| candidate.is_file())
+        {
+            return (executable, None);
+        }
+
+        for directory in std::env::split_paths(&path) {
+            let entrypoint = directory.join("node_modules/@openai/codex/bin/codex.js");
+            if !entrypoint.is_file() {
+                continue;
+            }
+            let bundled_node = directory.join("node.exe");
+            let node = if bundled_node.is_file() {
+                bundled_node
+            } else {
+                PathBuf::from("node.exe")
+            };
+            return (node, Some(entrypoint));
+        }
+
+        (PathBuf::from("codex.exe"), None)
+    });
+
+    let mut command = Command::new(program);
+    if let Some(entrypoint) = entrypoint {
+        command.arg(entrypoint);
+    }
+    command
+}
+
+#[cfg(not(windows))]
+fn codex_command() -> Command {
+    Command::new("codex")
+}
+
 #[async_trait]
 impl LlmBackend for CodexInvoker {
     async fn send_message(&self, content: &str) -> anyhow::Result<String> {
@@ -110,7 +159,7 @@ impl LlmBackend for CodexInvoker {
 
         let full_prompt = format!("{}\n\n{}", self.system_prompt, content);
 
-        let mut cmd = Command::new("codex");
+        let mut cmd = codex_command();
         cmd.arg("exec")
             .arg("--sandbox")
             .arg("read-only")
