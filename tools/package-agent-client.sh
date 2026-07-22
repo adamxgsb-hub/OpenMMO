@@ -2,8 +2,14 @@
 # Build a tarball someone can unpack on their own machine and run.
 #
 # The agent-client needs its data/ directory next to the binary (prompts,
-# templates, animation timings) but none of the 3 GB terrain tree — that comes
-# over HTTP. Output: dist/agent-client-<commit>-<arch>.tar.gz
+# animation timings) but none of the 3 GB terrain tree — that comes over HTTP.
+# Output: dist/agent-client-<commit>-<target>.tar.gz
+#
+# Defaults to a static musl build. A glibc build bakes in the build host's
+# glibc version (ours needs 2.39, i.e. Ubuntu 24.04+), which strands everyone
+# on an older distro; musl links libc in, so the binary runs anywhere x86_64.
+# Needs: rustup target add x86_64-unknown-linux-musl && apt install musl-tools
+# (ring compiles C, so a musl-targeting cc has to exist).
 set -euo pipefail
 
 REPO=${REPO:-$(cd "$(dirname "$0")/.." && pwd)}
@@ -23,17 +29,18 @@ if [[ -z $CLIENT_SECRET ]]; then
     exit 1
 fi
 
+TARGET=${TARGET:-x86_64-unknown-linux-musl}
+
 cd "$REPO"
 commit=$(git rev-parse --short HEAD)
-arch=$(uname -m)
-name="agent-client-$commit-$arch"
+name="agent-client-$commit-${TARGET%%-unknown-linux-*}-${TARGET##*-}"
 stage="$OUT_DIR/$name"
 
-cargo build --release -p agent-client
+cargo build --release --target "$TARGET" -p agent-client
 
 rm -rf "$stage"
 mkdir -p "$stage/data"
-cp target/release/agent-client "$stage/"
+cp "target/$TARGET/release/agent-client" "$stage/"
 # No data/templates: those are operator NPC roles (merchant, guard). A user
 # agent has no template_prompt and falls back to data/system_prompt.txt.
 cp agent-client/data/system_prompt.txt agent-client/data/animation_durations.json "$stage/data/"
