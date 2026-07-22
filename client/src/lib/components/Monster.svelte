@@ -12,6 +12,7 @@
   import type { MonsterData } from '../types/Monster'
   import { getMonsterDef } from '../data/monsterDefs'
   import { getItemDef } from '../data/itemDefs'
+  import { computeCorpseGroundOffset } from '../utils/characterAnimationUtils'
 
   interface Props {
     position: { x: number; y: number; z: number }
@@ -77,6 +78,7 @@
   let damageTextRef = $state<ReturnType<typeof DamageText>>()
   let lastAppliedOpacity = 1
   let materialsCloned = false
+  let deadGroundApplied = false
   let corpseTimer = 0
   const CORPSE_FADE_START = 25
   const CORPSE_FADE_DURATION = 5
@@ -295,6 +297,14 @@
           }
           if (finishedClipName === (def?.animDie ?? 'Die')) {
             isDeadAnimationFinished = true
+            // The death clip clamps here with the pelvis still raised, so the
+            // corpse would hover. Drop the model so its lowest point in this
+            // settled pose rests on the ground (these rigs have no foot bones,
+            // so the standing sole-offset can't be reused).
+            if (model && !deadGroundApplied) {
+              deadGroundApplied = true
+              model.position.y = computeCorpseGroundOffset(model)
+            }
           }
         })
         playAnimation()
