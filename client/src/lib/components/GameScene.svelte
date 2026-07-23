@@ -1173,6 +1173,7 @@
     torchShadowMapSize={graphicsPreset.torchShadowMapSize}
     wallTorchPositions={() => dungeonLayerRef?.getWallTorchPositions() ?? []}
     heightManager={terrainHeightManager}
+    waterSurfaceAt={(x, z) => waterFieldManager.surfaceAt(x, z)}
     onStateChange={handlePlayerStateChange}
     onPlayerControlEvent={enqueuePlayerControlEvent}
     onAttackDuration={(duration) => (playerAttackDuration = duration)}
