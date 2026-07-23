@@ -32,6 +32,7 @@ use crate::llm_scheduler::{LlmPriority, LlmScheduler};
 use crate::orchestrator::ScheduleEntry;
 use crate::state::SharedState;
 
+pub(crate) use action::wants_reroll;
 use combat::{load_attack_cooldown, tick_combat};
 use execute::handle_response;
 use movement::{
@@ -56,6 +57,9 @@ pub struct DriverConfig {
     pub label: String,
     pub memory_file: Option<String>,
     pub min_interval: Duration,
+    /// Floor between prompts once an urgent event is pending — a player
+    /// talking to us shouldn't wait out the routine cadence.
+    pub urgent_min_interval: Duration,
     pub debounce: Duration,
     pub idle_interval: Duration,
     pub activity_window: Duration,
@@ -79,6 +83,7 @@ pub async fn llm_driver(
         label,
         memory_file,
         min_interval,
+        urgent_min_interval,
         debounce,
         idle_interval,
         activity_window,
@@ -198,8 +203,10 @@ pub async fn llm_driver(
                 debug!("[{label}] LLM driver: urgent event received");
                 last_activity_at = Instant::now();
                 pending_urgency = LlmPriority::Urgent;
-                // Mark that we want to prompt soon (start debounce window)
-                if prompt_pending_since.is_none() && llm_in_flight.is_none() {
+                // Start the debounce window now, even mid-call: it then runs
+                // alongside the in-flight prompt instead of only starting once
+                // that one lands. Double-submission is already ruled out below.
+                if prompt_pending_since.is_none() {
                     prompt_pending_since = Some(Instant::now());
                 }
             }
@@ -243,7 +250,14 @@ pub async fn llm_driver(
 
         // Periodic prompt — use short interval only when recently active (chat/combat)
         let active = attack_target.is_some() || last_activity_at.elapsed() < activity_window;
-        let effective_interval = if active { min_interval } else { idle_interval };
+        // A pending urgent event (a player talking to us, a hit landing) gets
+        // a shorter floor, so a reply isn't held back by the routine cadence.
+        let floor = if pending_urgency == LlmPriority::Urgent {
+            urgent_min_interval
+        } else {
+            min_interval
+        };
+        let effective_interval = if active { floor } else { idle_interval };
         if prompt_pending_since.is_none() && last_prompt_at.elapsed() >= effective_interval {
             prompt_pending_since = Some(Instant::now());
             if pending_urgency == LlmPriority::Idle && active {
@@ -258,8 +272,8 @@ pub async fn llm_driver(
             continue;
         }
 
-        // Also ensure min_interval since last prompt (keep pending state so we retry next tick)
-        if last_prompt_at.elapsed() < min_interval {
+        // Also ensure the floor since last prompt (keep pending state so we retry next tick)
+        if last_prompt_at.elapsed() < floor {
             continue;
         }
         prompt_pending_since = None;

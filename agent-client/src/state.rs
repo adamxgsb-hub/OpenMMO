@@ -22,6 +22,12 @@ const WISHLIST_TRADE_COOLDOWN: std::time::Duration = std::time::Duration::from_s
 /// radius and the agent's perception radius are guaranteed equal.
 pub(crate) use onlinerpg_shared::NPC_SIGHT_RADIUS;
 
+/// Where a carried item sits.
+pub enum Carried {
+    Worn(onlinerpg_shared::inventory::EquipSlot),
+    InBag(u64),
+}
+
 /// How urgently an event needs LLM attention.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EventUrgency {
@@ -117,6 +123,9 @@ pub struct SharedState {
     /// Our own bag (from InventoryState/InventoryUpdated), so a trading
     /// NPC knows what it carries.
     pub self_bag: Vec<onlinerpg_shared::inventory::ItemInstance>,
+    /// What we are wearing, so `use` knows whether to equip or take off.
+    pub self_equipped:
+        HashMap<onlinerpg_shared::inventory::EquipSlot, onlinerpg_shared::inventory::ItemInstance>,
     /// Until when the wishlist prompt section stays suppressed after a
     /// successful purchase — a satisfied shopper stops shopping for a
     /// while even if other wishes remain.
@@ -177,6 +186,7 @@ impl SharedState {
             self_player: None,
             self_gold: None,
             self_bag: Vec::new(),
+            self_equipped: HashMap::new(),
             trade_satiated_until: None,
             trade_busy: false,
             nearby_players: HashMap::new(),
@@ -568,6 +578,7 @@ impl SharedState {
             ServerMessage::InventoryState { ref inventory }
             | ServerMessage::InventoryUpdated { ref inventory } => {
                 self.self_bag = inventory.bag.clone();
+                self.self_equipped = inventory.equipped.clone();
             }
             // A player sold to us = we bought a wishlist item (the server
             // only lets residents buy their wishlist): shopping mood
@@ -869,6 +880,31 @@ impl SharedState {
             .map(|(id, p)| (*id, p.is_official_npc))
     }
 
+    /// Find the item the agent named among the ones we carry, and where it
+    /// sits. Matching is forgiving about the exact id (see
+    /// `item_defs::resolve_carried`) but never reaches past what we hold.
+    pub fn find_carried(&self, asked: &str) -> Option<(String, Carried)> {
+        let ids: Vec<&str> = self
+            .self_bag
+            .iter()
+            .chain(self.self_equipped.values())
+            .map(|i| i.item_def_id.as_str())
+            .collect();
+        let id = crate::item_defs::resolve_carried(&ids, asked)?;
+        let placed = self
+            .self_equipped
+            .iter()
+            .find(|(_, i)| i.item_def_id == id)
+            .map(|(slot, _)| Carried::Worn(*slot))
+            .or_else(|| {
+                self.self_bag
+                    .iter()
+                    .find(|i| i.item_def_id == id)
+                    .map(|i| Carried::InBag(i.instance_id))
+            })?;
+        Some((id.to_string(), placed))
+    }
+
     /// Current game time snapshot for schedule resolution.
     pub fn time_context(&self) -> (Option<bool>, Option<u32>, Option<u32>) {
         (self.is_night, self.game_hour, self.game_minute)
@@ -910,6 +946,15 @@ impl SharedState {
                 })
                 .collect();
             lines.push(format!("Your bag: {}", items.join(", ")));
+        }
+        if !self.self_equipped.is_empty() {
+            let mut worn: Vec<String> = self
+                .self_equipped
+                .iter()
+                .map(|(slot, i)| format!("{}: {}", slot.as_str(), i.item_def_id))
+                .collect();
+            worn.sort();
+            lines.push(format!("You are wearing: {}", worn.join(", ")));
         }
 
         // Nearby players (exclude self and humans beyond the sight radius)

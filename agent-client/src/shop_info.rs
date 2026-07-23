@@ -44,22 +44,8 @@ pub fn npc_by_id(id: &str) -> Option<&'static NpcRow> {
     npcs().get(id)
 }
 
-#[derive(Deserialize)]
-struct ItemRow {
-    name: String,
-    #[serde(rename = "basePrice")]
-    base_price: Option<i64>,
-}
-
 // The embedded game data is immutable at runtime, and the resident section
 // is rebuilt on every LLM turn — parse each file once.
-fn items() -> &'static HashMap<String, ItemRow> {
-    static CACHE: OnceLock<HashMap<String, ItemRow>> = OnceLock::new();
-    CACHE.get_or_init(|| {
-        serde_json::from_str(include_str!("../../data/items.json")).unwrap_or_default()
-    })
-}
-
 fn merchants() -> &'static HashMap<String, MerchantRow> {
     static CACHE: OnceLock<HashMap<String, MerchantRow>> = OnceLock::new();
     CACHE.get_or_init(|| {
@@ -98,14 +84,13 @@ pub fn format_price(copper: i64) -> String {
 /// a per-turn section instead (`resident_trade_prompt_for`) so it can
 /// disappear once their needs are met.
 pub fn merchant_prompt_for(npc_name: &str) -> Option<String> {
-    let items = items();
     let merchant = merchants()
         .values()
         .find(|m| m.npc_name.eq_ignore_ascii_case(npc_name))?;
 
     let mut section = String::from("## Your Shop\nItems you sell, with base prices:\n");
     for item_id in merchant.catalog.split(';').map(str::trim) {
-        let Some(item) = items.get(item_id) else {
+        let Some(item) = crate::item_defs::get(item_id) else {
             continue;
         };
         let price = item.base_price.map_or("?".to_string(), format_price);
@@ -133,7 +118,6 @@ pub fn resident_trade_prompt_for(
     let trader = npcs()
         .values()
         .find(|t| t.npc_name.eq_ignore_ascii_case(npc_name))?;
-    let items = items();
 
     let wanted: Vec<&str> = trader
         .wishlist
@@ -152,7 +136,7 @@ pub fn resident_trade_prompt_for(
          you need — from passing players only; other NPCs are not your suppliers:\n",
     );
     for item_id in wanted {
-        let Some(item) = items.get(item_id) else {
+        let Some(item) = crate::item_defs::get(item_id) else {
             continue;
         };
         let base = item.base_price.unwrap_or(0);

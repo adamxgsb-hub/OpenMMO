@@ -3,6 +3,7 @@ mod codex;
 mod driver;
 mod geom;
 mod google_auth;
+mod item_defs;
 mod llm_scheduler;
 mod monster_ai;
 mod openrouter;
@@ -109,6 +110,10 @@ fn is_http_source(terrain: &str) -> bool {
 
 pub fn default_min_interval_secs() -> u64 {
     5
+}
+
+pub fn default_urgent_min_interval_secs() -> u64 {
+    2
 }
 
 pub fn default_debounce_secs() -> u64 {

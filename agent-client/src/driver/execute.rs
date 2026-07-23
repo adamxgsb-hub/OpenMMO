@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
-use crate::state::SharedState;
+use crate::state::{Carried, SharedState};
 
 use super::action::{action_to_command, parse_agent_response, resolve_move_goal, AgentAction};
 use super::combat::{approach_player, chase_monster, ChaseResult};
@@ -168,6 +168,37 @@ pub(super) async fn handle_response(
                     "[OpenTrade] You asked the server to open your trade window for {player} — \
                      it only appears on their screen if they are within a few meters and accept."
                 ));
+            }
+            continue;
+        }
+
+        // Use an item: worn gear comes off, anything else is equipped or
+        // consumed out of the bag. Lighting a torch is equipping one.
+        if let AgentAction::Use { item } = action {
+            let mut s = state.lock().await;
+            let Some((def_id, placed)) = s.find_carried(item) else {
+                warn!("use: nothing carried matching '{item}'");
+                s.push_agent_event(format!(
+                    "[UseFailed] You are not carrying anything called '{item}'."
+                ));
+                continue;
+            };
+            let cmd = match placed {
+                Carried::Worn(slot) => onlinerpg_shared::ClientMessage::UnequipItem { slot },
+                Carried::InBag(instance_id) => {
+                    let def = crate::item_defs::get(&def_id);
+                    if def.is_some_and(|d| d.equip_slot.is_some()) {
+                        onlinerpg_shared::ClientMessage::EquipItem { instance_id }
+                    } else if def.is_some_and(|d| d.is_consumable()) {
+                        onlinerpg_shared::ClientMessage::UseItem { instance_id }
+                    } else {
+                        s.push_agent_event(format!("[UseFailed] {def_id} cannot be worn or used."));
+                        continue;
+                    }
+                }
+            };
+            if let Err(e) = s.send_command(cmd).await {
+                error!("Failed to send use action: {e}");
             }
             continue;
         }

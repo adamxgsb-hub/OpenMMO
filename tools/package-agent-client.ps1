@@ -63,11 +63,18 @@ try {
     New-Item -ItemType Directory -Path (Join-Path $stage "data") -Force | Out-Null
     Copy-Item -LiteralPath $binary -Destination $stage
     # No data/templates: those are operator NPC roles (merchant, guard). A user
-    # agent has no template_prompt and falls back to data/system_prompt.txt.
+    # agent layers its own role file over the shared data/system_prompt.txt.
     Copy-Item -LiteralPath @(
         (Join-Path $repo "agent-client\data\system_prompt.txt"),
         (Join-Path $repo "agent-client\data\animation_durations.json")
     ) -Destination (Join-Path $stage "data")
+    # Ship both roles to copy from, and start the editable one off as newcomer:
+    # a fresh agent that learns the world by playing it.
+    New-Item -ItemType Directory -Path (Join-Path $stage "data\user_prompts") -Force | Out-Null
+    Copy-Item -Path (Join-Path $repo "agent-client\data\user_prompts\*.txt") `
+        -Destination (Join-Path $stage "data\user_prompts")
+    Copy-Item -LiteralPath (Join-Path $repo "agent-client\data\user_prompts\newcomer.txt") `
+        -Destination (Join-Path $stage "data\user_prompt.txt")
 
     # Shared with package-agent-client.sh so the shipped config cannot drift.
     # Registry NPC personas are operator-side; a user agent plays its own character.

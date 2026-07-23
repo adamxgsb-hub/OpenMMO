@@ -74,8 +74,42 @@ pub(super) enum AgentAction {
         #[serde(alias = "target", alias = "player_name", alias = "target_player")]
         player: String,
     },
+    /// Use an item from the bag: gear is equipped (or taken off if already
+    /// worn), consumables are drunk or read. Mirrors the web quickslot.
+    #[serde(rename = "use", alias = "use_item", alias = "equip")]
+    Use {
+        #[serde(
+            alias = "item_def_id",
+            alias = "item_id",
+            alias = "name",
+            alias = "target"
+        )]
+        item: String,
+    },
+    /// Reroll starting stats. Only meaningful during character creation,
+    /// where it is the agent's version of the web client's reroll button.
+    #[serde(rename = "reroll", alias = "reroll_stats", alias = "roll_again")]
+    Reroll,
     #[serde(rename = "wait", alias = "idle", alias = "observe", alias = "none")]
     Wait,
+}
+
+/// Whether the agent asked to roll its starting stats again. Read from the
+/// ordinary action envelope; a reply we cannot parse counts as acceptance, so
+/// a confused agent cannot spin the roll loop.
+pub(crate) fn wants_reroll(reply: &str) -> bool {
+    if let Ok(parsed) = parse_agent_response(reply) {
+        return parsed
+            .actions
+            .iter()
+            .any(|a| matches!(a, AgentAction::Reroll));
+    }
+    let reply = reply.to_lowercase();
+    match (reply.rfind("reroll"), reply.rfind("accept")) {
+        (Some(reroll), Some(accept)) => reroll > accept,
+        (Some(_), None) => true,
+        (None, _) => false,
+    }
 }
 
 /// Parse a raw text response from an LLM into structured actions.
@@ -182,6 +216,11 @@ pub(super) fn action_to_command(
         // `execute::handle_response`, not here.
         AgentAction::OfferDeal { .. } => None,
         AgentAction::OpenTrade { .. } => None,
+        // Needs the bag and worn gear from SharedState; likewise handled there.
+        AgentAction::Use { .. } => None,
+        // Only reaches the server as a pre-creation RollCharacterStats; in
+        // game there is nothing left to reroll.
+        AgentAction::Reroll => None,
         AgentAction::Wait => None,
     }
 }
@@ -242,5 +281,53 @@ mod tests {
         assert_eq!(target, None);
         assert_eq!(x, Some(10.0));
         assert_eq!(z, Some(-5.0));
+    }
+
+    #[test]
+    fn use_parses_item_and_its_aliases() {
+        for json in [
+            r#"{"actions": [{"type": "use", "item": "torch"}]}"#,
+            r#"{"actions": [{"type": "use_item", "item_def_id": "torch"}]}"#,
+            r#"{"actions": [{"type": "equip", "name": "torch"}]}"#,
+        ] {
+            let AgentAction::Use { item } = parse_single_action(json) else {
+                panic!("expected Use for {json}");
+            };
+            assert_eq!(item, "torch");
+        }
+    }
+
+    /// `use` needs the bag and worn gear, so it resolves in `execute`.
+    #[test]
+    fn use_produces_no_direct_command() {
+        let action = parse_single_action(r#"{"actions": [{"type": "use", "item": "torch"}]}"#);
+        assert!(action_to_command(&action, None).is_none());
+    }
+
+    #[test]
+    fn reroll_is_read_from_the_action_envelope() {
+        assert!(wants_reroll(
+            r#"{"thought": "too frail", "actions": [{"type": "reroll"}]}"#
+        ));
+        assert!(wants_reroll(
+            "```json\n{\"actions\": [{\"type\": \"roll_again\"}]}\n```"
+        ));
+        assert!(!wants_reroll(
+            r#"{"thought": "good enough", "actions": [{"type": "wait"}]}"#
+        ));
+    }
+
+    #[test]
+    fn reroll_falls_back_to_the_last_word_said() {
+        assert!(wants_reroll("Too weak for a knight. Reroll."));
+        assert!(!wants_reroll("I could reroll, but I accept this one."));
+    }
+
+    /// A reply we cannot read must not keep the roll loop spinning.
+    #[test]
+    fn unreadable_reply_accepts_the_roll() {
+        assert!(!wants_reroll(""));
+        assert!(!wants_reroll("Hmm, hard to say."));
+        assert!(!wants_reroll(r#"{"actions": []}"#));
     }
 }

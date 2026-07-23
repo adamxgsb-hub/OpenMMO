@@ -1,0 +1,110 @@
+//! Item definitions from `data/items.json`, mirroring the server's
+//! `item_defs.rs`. Lets the agent work out what "use this item" means —
+//! equip it, take it off, or drink it. Embedded at compile time like the
+//! rest of the game data, so no runtime path to `data/` is needed.
+
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
+use onlinerpg_shared::inventory::EquipSlot;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+pub struct ItemDef {
+    pub name: String,
+    #[serde(rename = "basePrice")]
+    pub base_price: Option<i64>,
+    #[serde(rename = "equipSlot")]
+    pub equip_slot: Option<EquipSlot>,
+    #[serde(default)]
+    pub category: Option<String>,
+}
+
+impl ItemDef {
+    /// Usable straight from the bag. Mirrors the server's `use_effect`
+    /// categories — extend both when a new consumable lands.
+    pub fn is_consumable(&self) -> bool {
+        matches!(
+            self.category.as_deref(),
+            Some("healing_potion" | "return_scroll" | "enchant_scroll")
+        )
+    }
+}
+
+fn defs() -> &'static HashMap<String, ItemDef> {
+    static CACHE: OnceLock<HashMap<String, ItemDef>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        serde_json::from_str(include_str!("../../data/items.json")).unwrap_or_default()
+    })
+}
+
+pub fn get(item_def_id: &str) -> Option<&'static ItemDef> {
+    defs().get(item_def_id)
+}
+
+/// Pick the item the agent meant out of the ones it is carrying. An exact def
+/// id or display name wins; failing that, the first carried item whose id or
+/// name contains the request — an agent that says "torch" while holding a
+/// worn_torch means that one. Never names something it is not carrying.
+pub fn resolve_carried<'a>(carried: &[&'a str], asked: &str) -> Option<&'a str> {
+    let exact = |id: &str| {
+        id.eq_ignore_ascii_case(asked)
+            || get(id).is_some_and(|d| d.name.eq_ignore_ascii_case(asked))
+    };
+    if let Some(id) = carried.iter().find(|id| exact(id)).copied() {
+        return Some(id);
+    }
+    let asked = asked.to_lowercase();
+    carried
+        .iter()
+        .find(|id| {
+            id.to_lowercase().contains(&asked)
+                || get(id).is_some_and(|d| d.name.to_lowercase().contains(&asked))
+        })
+        .copied()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn torch_is_off_hand_gear_not_a_consumable() {
+        let def = get("torch").expect("torch is defined");
+        assert_eq!(def.equip_slot, Some(EquipSlot::OffHand));
+        assert!(!def.is_consumable());
+    }
+
+    #[test]
+    fn potions_are_consumable() {
+        let def = get("healing_potion").expect("healing potion is defined");
+        assert!(def.is_consumable());
+        assert!(def.equip_slot.is_none());
+    }
+
+    #[test]
+    fn carried_lookup_prefers_an_exact_match() {
+        let bag = ["torch", "worn_torch"];
+        assert_eq!(resolve_carried(&bag, "torch"), Some("torch"));
+        assert_eq!(resolve_carried(&bag, "Torch"), Some("torch"));
+        assert_eq!(resolve_carried(&bag, "worn_torch"), Some("worn_torch"));
+    }
+
+    /// A starter character carries a worn_torch, not a torch — asking for
+    /// "torch" must find the one it actually has.
+    #[test]
+    fn carried_lookup_falls_back_to_what_is_held() {
+        let bag = ["worn_torch", "healing_potion"];
+        assert_eq!(resolve_carried(&bag, "torch"), Some("worn_torch"));
+        assert_eq!(
+            resolve_carried(&bag, "Healing Potion"),
+            Some("healing_potion")
+        );
+    }
+
+    #[test]
+    fn carried_lookup_never_invents_an_item() {
+        assert!(resolve_carried(&["worn_torch"], "iron_sword").is_none());
+        assert!(resolve_carried(&[], "torch").is_none());
+    }
+}

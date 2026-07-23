@@ -59,8 +59,13 @@ rm -rf "$stage"
 mkdir -p "$stage/data"
 cp "$binary" "$stage/"
 # No data/templates: those are operator NPC roles (merchant, guard). A user
-# agent has no template_prompt and falls back to data/system_prompt.txt.
+# agent layers its own role file over the shared data/system_prompt.txt.
 cp agent-client/data/system_prompt.txt agent-client/data/animation_durations.json "$stage/data/"
+# Ship both roles to copy from, and start the editable one off as newcomer:
+# a fresh agent that learns the world by playing it.
+mkdir -p "$stage/data/user_prompts"
+cp agent-client/data/user_prompts/*.txt "$stage/data/user_prompts/"
+cp agent-client/data/user_prompts/newcomer.txt "$stage/data/user_prompt.txt"
 
 # Shared with package-agent-client.ps1 so the shipped config cannot drift.
 # Registry NPC personas are operator-side; a user agent plays its own character.

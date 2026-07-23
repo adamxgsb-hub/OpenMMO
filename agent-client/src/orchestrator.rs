@@ -19,7 +19,7 @@ use crate::claude::{self, ClaudeConfig};
 use crate::codex::{self, CodexConfig};
 use crate::driver;
 use crate::google_auth::GoogleAuth;
-use crate::llm_scheduler::LlmScheduler;
+use crate::llm_scheduler::{LlmPriority, LlmScheduler};
 use crate::openrouter::{self, OpenRouterConfig};
 use crate::state::{SharedState, WorldCache};
 use crate::ws;
@@ -129,6 +129,10 @@ pub struct NpcConfig {
     pub llm: LlmType,
     #[serde(default = "super::default_min_interval_secs")]
     pub min_interval_secs: u64,
+    /// Floor between prompts while an urgent event waits (player chat, a hit
+    /// landing). Shorter than `min_interval_secs` so replies feel prompt.
+    #[serde(default = "super::default_urgent_min_interval_secs")]
+    pub urgent_min_interval_secs: u64,
     #[serde(default = "super::default_debounce_secs")]
     pub debounce_secs: u64,
     #[serde(default = "super::default_idle_interval_secs")]
@@ -341,18 +345,19 @@ async fn run_npc_session(
                 label, char_name, class, gender
             );
 
-            // Roll stats
-            ws::send(
+            // Registry NPCs are fixtures of the town with a fixed post; they
+            // take the roll they are given. Only a user's own character
+            // shops around for a better one.
+            let agent = npc.id.is_none().then(|| build_llm_backend(npc)).flatten();
+            roll_stats_with_agent(
                 &mut ws_tx,
-                &ClientMessage::RollCharacterStats {
-                    character_class: class.clone(),
-                    gender,
-                },
+                &mut ws_rx,
+                label,
+                &class,
+                gender,
+                agent.as_ref(),
+                &shared.scheduler,
             )
-            .await?;
-            ws::wait_for_msg(&mut ws_rx, label, "CharacterStatsRolled", |msg| {
-                matches!(msg, ServerMessage::CharacterStatsRolled { .. })
-            })
             .await?;
 
             // Create character
@@ -544,55 +549,186 @@ impl NpcConfig {
     }
 }
 
-/// Build the system prompt for an NPC.
+/// Ceiling on stat rolls at character creation. A backstop against a prompt
+/// that never says yes — how picky to be is the agent's own business, and
+/// belongs in its prompt.
+const MAX_STAT_ROLLS: u32 = 20;
+
+/// Roll starting stats, letting the agent accept or reroll each result the
+/// way a human works the web client's reroll button. Whatever is on the table
+/// when it accepts — or when the rolls run out — is what it plays. Without an
+/// LLM the first roll stands, as before.
 ///
-/// If `template_prompt` is set, uses the 3-tier system (template + instance + memory).
-/// Otherwise falls back to the backend-specific `system_prompt_file`.
-fn build_system_prompt(npc: &NpcConfig) -> anyhow::Result<String> {
-    let label = npc.label();
-    if let Some(ref template_path) = npc.template_prompt {
-        let mut parts = vec![driver::load_system_prompt(template_path)?];
-        if let Some(ref instance_path) = npc.instance_prompt {
-            parts.push(driver::load_system_prompt(instance_path)?);
+/// The decisions go through the scheduler like any other call, so a fleet
+/// starting up with fresh accounts still honours `max_concurrent`.
+async fn roll_stats_with_agent(
+    ws_tx: &mut ws::WsTx,
+    ws_rx: &mut ws::WsRx,
+    label: &str,
+    class: &onlinerpg_shared::CharacterClass,
+    gender: Gender,
+    agent: Option<&Arc<dyn driver::LlmBackend>>,
+    scheduler: &LlmScheduler,
+) -> anyhow::Result<()> {
+    for attempt in 1..=MAX_STAT_ROLLS {
+        ws::send(
+            ws_tx,
+            &ClientMessage::RollCharacterStats {
+                character_class: class.clone(),
+                gender,
+            },
+        )
+        .await?;
+        let rolled = ws::wait_for_msg(ws_rx, label, "CharacterStatsRolled", |msg| {
+            matches!(msg, ServerMessage::CharacterStatsRolled { .. })
+        })
+        .await?;
+        let ServerMessage::CharacterStatsRolled {
+            attributes: a,
+            max_hp,
+        } = rolled
+        else {
+            unreachable!("wait_for_msg only returns CharacterStatsRolled here");
+        };
+        info!(
+            "[{label}] Roll {attempt}/{MAX_STAT_ROLLS}: STR {} DEX {} CON {} INT {} WIS {} CHA {} \
+             guard {} HP {max_hp}",
+            a.r#str, a.dex, a.con, a.int, a.wis, a.cha, a.guard
+        );
+
+        let Some(agent) = agent else {
+            return Ok(());
+        };
+        let left = MAX_STAT_ROLLS - attempt;
+        if left == 0 {
+            warn!("[{label}] Out of rerolls — keeping this roll");
+            return Ok(());
         }
-        // Merchants get their catalog and prices for roleplay; the server
-        // re-validates every trade and haggle. Resident traders get their
-        // wishlist per turn instead (driver/prompt.rs) so it can satiate.
-        if let Some(shop) = npc
-            .character_name
-            .as_deref()
-            .and_then(crate::shop_info::merchant_prompt_for)
-        {
-            parts.push(shop);
-        }
-        if let Some(ref memory_path) = npc.memory_file {
-            match std::fs::read_to_string(memory_path) {
-                Ok(content) if !content.trim().is_empty() => {
-                    parts.push(format!("=== YOUR MEMORIES ===\n{content}"));
-                }
-                Ok(_) => {}
-                Err(_) => {
-                    let _ = std::fs::write(memory_path, "");
-                }
+
+        let question = format!(
+            "[CharacterCreation] You are rolling up your {class:?}, before entering the world \
+             for the first time. This roll: STR {} DEX {} CON {} INT {} WIS {} CHA {}, \
+             guard {}, max HP {max_hp}. The six stats always sum to 72, and once you enter \
+             the world they are fixed for good. Decide what to do with this roll; you may \
+             be offered {left} more.",
+            a.r#str, a.dex, a.con, a.int, a.wis, a.cha, a.guard
+        );
+        let decision = scheduler
+            .submit(label, LlmPriority::Routine, question, Arc::clone(agent))
+            .await;
+        match decision {
+            Ok(reply) if driver::wants_reroll(&reply) => continue,
+            Ok(_) => {
+                info!("[{label}] Agent accepted roll {attempt}");
+                return Ok(());
+            }
+            Err(e) => {
+                warn!("[{label}] Could not ask about the roll ({e}) — keeping it");
+                return Ok(());
             }
         }
-        info!(
-            "[{}] Using 3-tier prompt: template={template_path}{}{}",
-            label,
-            npc.instance_prompt
-                .as_deref()
-                .map(|p| format!(", instance={p}"))
-                .unwrap_or_default(),
-            npc.memory_file
-                .as_deref()
-                .map(|p| format!(", memory={p}"))
-                .unwrap_or_default(),
-        );
-        Ok(parts.join("\n\n"))
-    } else {
-        match npc.system_prompt_file() {
-            Some(path) => driver::load_system_prompt(path),
-            None => Ok(String::new()),
+    }
+    Ok(())
+}
+
+/// Role prompt for agents with no class template — the plain player agent's
+/// own layer, mirroring `data/templates/{class}.txt` for registry NPCs.
+/// Optional: agents run fine on the shared prompt alone.
+const USER_PROMPT_FILE: &str = "data/user_prompt.txt";
+
+/// Build the system prompt for an NPC by layering, outermost first.
+///
+/// Every agent starts from the shared prompt — the JSON schema and the action
+/// types they all speak — so a new action is documented in one place. Its role
+/// goes on top (a registry NPC's class template, else `user_prompt.txt`),
+/// then its personality, shop knowledge and memories.
+fn build_system_prompt(npc: &NpcConfig) -> anyhow::Result<String> {
+    let role = npc.template_prompt.as_deref().or_else(|| {
+        std::path::Path::new(USER_PROMPT_FILE)
+            .exists()
+            .then_some(USER_PROMPT_FILE)
+    });
+    let files: Vec<&str> = npc
+        .system_prompt_file()
+        .into_iter()
+        .chain(role)
+        .chain(npc.instance_prompt.as_deref())
+        .collect();
+
+    let mut parts = files
+        .iter()
+        .map(|path| driver::load_system_prompt(path))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    // Merchants get their catalog and prices for roleplay; the server
+    // re-validates every trade and haggle. Resident traders get their
+    // wishlist per turn instead (driver/prompt.rs) so it can satiate.
+    if let Some(shop) = npc
+        .character_name
+        .as_deref()
+        .and_then(crate::shop_info::merchant_prompt_for)
+    {
+        parts.push(shop);
+    }
+    if let Some(ref memory_path) = npc.memory_file {
+        match std::fs::read_to_string(memory_path) {
+            Ok(content) if !content.trim().is_empty() => {
+                parts.push(format!("=== YOUR MEMORIES ===\n{content}"));
+            }
+            Ok(_) => {}
+            Err(_) => {
+                let _ = std::fs::write(memory_path, "");
+            }
+        }
+    }
+
+    info!("[{}] Prompt layers: {}", npc.label(), files.join(" + "));
+    Ok(parts.join("\n\n"))
+}
+
+/// Build the configured LLM backend, already carrying the layered system
+/// prompt. `None` when the agent runs without an LLM, or when the provider
+/// could not be set up.
+fn build_llm_backend(npc: &NpcConfig) -> Option<Arc<dyn driver::LlmBackend>> {
+    let label = npc.label();
+    let system_prompt = match build_system_prompt(npc) {
+        Ok(p) => p,
+        Err(e) => {
+            error!("[{label}] Failed to build system prompt: {e}");
+            return None;
+        }
+    };
+
+    let (provider, model, invoker) = match npc.llm {
+        LlmType::Claude => (
+            "Claude CLI",
+            &npc.claude.model,
+            claude::ClaudeInvoker::new(&npc.claude, system_prompt)
+                .map(|i| Arc::new(i) as Arc<dyn driver::LlmBackend>),
+        ),
+        LlmType::Openrouter => (
+            "OpenRouter API",
+            &npc.openrouter.model,
+            openrouter::OpenRouterInvoker::new(&npc.openrouter, system_prompt)
+                .map(|i| Arc::new(i) as Arc<dyn driver::LlmBackend>),
+        ),
+        LlmType::Codex => (
+            "Codex CLI",
+            &npc.codex.model,
+            codex::CodexInvoker::new(&npc.codex, system_prompt)
+                .map(|i| Arc::new(i) as Arc<dyn driver::LlmBackend>),
+        ),
+        LlmType::None => return None,
+    };
+
+    match invoker {
+        Ok(inv) => {
+            info!("[{label}] {provider} integration enabled (model={model})");
+            Some(inv)
+        }
+        Err(e) => {
+            error!("[{label}] Failed to create {provider} invoker: {e}");
+            None
         }
     }
 }
@@ -606,60 +742,12 @@ fn spawn_llm_task(
 ) -> Option<tokio::task::JoinHandle<()>> {
     let label = npc.label();
     let min_interval = Duration::from_secs(npc.min_interval_secs);
+    let urgent_min_interval = Duration::from_secs(npc.urgent_min_interval_secs);
     let debounce = Duration::from_secs(npc.debounce_secs);
     let idle_interval = Duration::from_secs(npc.idle_interval_secs);
     let activity_window = Duration::from_secs(npc.activity_window_secs);
 
-    let system_prompt = match build_system_prompt(npc) {
-        Ok(p) => p,
-        Err(e) => {
-            error!("[{}] Failed to build system prompt: {e}", label);
-            return None;
-        }
-    };
-
-    let invoker: Arc<dyn driver::LlmBackend> = match npc.llm {
-        LlmType::Claude => {
-            info!(
-                "[{}] Claude CLI integration enabled (model={})",
-                label, npc.claude.model
-            );
-            match claude::ClaudeInvoker::new(&npc.claude, system_prompt) {
-                Ok(inv) => Arc::new(inv),
-                Err(e) => {
-                    error!("[{}] Failed to create Claude invoker: {e}", label);
-                    return None;
-                }
-            }
-        }
-        LlmType::Openrouter => {
-            info!(
-                "[{}] OpenRouter API integration enabled (model={})",
-                label, npc.openrouter.model
-            );
-            match openrouter::OpenRouterInvoker::new(&npc.openrouter, system_prompt) {
-                Ok(inv) => Arc::new(inv),
-                Err(e) => {
-                    error!("[{}] Failed to create OpenRouter invoker: {e}", label);
-                    return None;
-                }
-            }
-        }
-        LlmType::Codex => {
-            info!(
-                "[{}] Codex CLI integration enabled (model={})",
-                label, npc.codex.model
-            );
-            match codex::CodexInvoker::new(&npc.codex, system_prompt) {
-                Ok(inv) => Arc::new(inv),
-                Err(e) => {
-                    error!("[{}] Failed to create Codex invoker: {e}", label);
-                    return None;
-                }
-            }
-        }
-        LlmType::None => return None,
-    };
+    let invoker = build_llm_backend(npc)?;
 
     let state = Arc::clone(state);
     let scheduler = scheduler.clone();
@@ -722,6 +810,7 @@ fn spawn_llm_task(
         label: label.to_string(),
         memory_file: npc.memory_file.clone(),
         min_interval,
+        urgent_min_interval,
         debounce,
         idle_interval,
         activity_window,

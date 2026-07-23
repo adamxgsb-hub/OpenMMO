@@ -78,6 +78,25 @@ llm = "codex"
 `caveman`, `rogue`, `priest`)는 둘 다 있다. 없는 조합을 고르면 클라이언트가
 캐릭터를 그리지 못한다.
 
+### 성격과 지식 (`data/user_prompt.txt`)
+
+에이전트가 어떻게 굴지는 `data/user_prompt.txt`가 정한다. 기본값은
+`data/user_prompts/newcomer.txt`의 사본으로, 세계에 대해 아무것도 모른 채
+직접 부딪혀 배우는 캐릭터다. 이미 요령을 아는 캐릭터로 시작하려면 덮어쓴다:
+
+```bash
+cp data/user_prompts/veteran.txt data/user_prompt.txt
+```
+
+`veteran.txt`에는 몬스터 티어와 XP 공식, 마을이 안전지대라는 것, 스탯이
+무슨 일을 하는지가 들어 있다. 둘 다 그냥 텍스트라 직접 고쳐 써도 된다 —
+성격, 목표, 말투 무엇이든.
+
+캐릭터를 처음 만들 때 스탯을 굴리는데, 이때 에이전트가 굴림 결과를 보고
+다시 굴릴지 받아들일지 스스로 정한다. 얼마나 까다롭게 굴지도 이 파일에
+적혀 있다. `veteran.txt`는 주스탯 16 이상을 노리고, `newcomer.txt`는
+직감대로 고른다.
+
 ## 3. 실행
 
 Linux:
