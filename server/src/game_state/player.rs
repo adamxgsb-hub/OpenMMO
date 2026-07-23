@@ -199,8 +199,11 @@ impl super::GameState {
             let mut map = self.player_characters.write().await;
             map.remove(player_id);
         }
-        let mut gold_map = self.player_gold.write().await;
-        gold_map.remove(player_id);
+        {
+            let mut gold_map = self.player_gold.write().await;
+            gold_map.remove(player_id);
+        }
+        self.forget_player_skills(player_id).await;
     }
 
     pub async fn get_player_gold(&self, player_id: &PlayerId) -> i64 {
@@ -270,10 +273,11 @@ impl super::GameState {
             characters.push(save_data);
         }
         let inventories = Vec::from_iter(self.take_player_inventory(player_id).await);
+        let skills = Vec::from_iter(self.take_player_skills(player_id).await);
 
         let auth = auth.clone();
         flush_save(
-            move || auth.save_batch(&characters, &inventories, None),
+            move || auth.save_batch(&characters, &inventories, &skills, None),
             "player state",
         )
         .await;
@@ -284,13 +288,14 @@ impl super::GameState {
     /// 5,000 logouts don't become 5,000 commits.
     pub async fn persist_shutdown_snapshot(&self, auth: &AuthService) {
         let (characters, inventories) = self.collect_shutdown_snapshot().await;
+        let skills = self.collect_all_skill_states().await;
         let character_count = characters.len();
         let inventory_count = inventories.len();
         let datetime = self.current_game_datetime();
         let auth = auth.clone();
         flush_save(
             move || {
-                auth.save_batch(&characters, &inventories, Some(&datetime))?;
+                auth.save_batch(&characters, &inventories, &skills, Some(&datetime))?;
                 info!(
                     "Saved shutdown snapshot: {} character(s), {} inventory/inventories",
                     character_count, inventory_count
@@ -344,7 +349,8 @@ impl super::GameState {
 
         let dirty_states = self.collect_dirty_character_states().await;
         let dirty_inventories = self.collect_dirty_inventory_states().await;
-        if dirty_states.is_empty() && dirty_inventories.is_empty() {
+        let dirty_skills = self.collect_dirty_skill_states().await;
+        if dirty_states.is_empty() && dirty_inventories.is_empty() && dirty_skills.is_empty() {
             return;
         }
 
@@ -353,7 +359,7 @@ impl super::GameState {
         let auth = auth.clone();
         flush_save(
             move || {
-                auth.save_batch(&dirty_states, &dirty_inventories, None)?;
+                auth.save_batch(&dirty_states, &dirty_inventories, &dirty_skills, None)?;
                 info!(
                     "Batch-saved {} character state(s), {} inventory/inventories",
                     character_count, inventory_count
