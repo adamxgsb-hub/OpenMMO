@@ -14,6 +14,7 @@ Working copy of [Julian-adv/OpenMMO](https://github.com/Julian-adv/OpenMMO)
 | `fishing/pr3-struggle` | PR3 (stacked on PR2): ArcheAge-style struggle — tension rounds (Pulling/Tiring), per-round windows, struggle HUD panel, bystander trophy shout-outs — implemented + tested |
 | `fishing/pr4-agent` | PR4 (stacked on PR3): agent-client fishing — auto-hook/struggle reflexes, `fish`/`stop_fishing` LLM actions, `[Fishing]` outcome events — implemented + tested |
 | `fishing/pr5-rivers` | PR5 (stacked on PR4): **river fishing fix** — detect water via the unified water field (WFD1) server-side, so rivers (beds above sea level) are fishable, not just ocean — implemented + tested + live-verified |
+| `fishing/pr6-fish-icons` | PR6 (stacked on PR5): distinct 128×128 icon art for each of the five fish (were reusing sword.png) — minnow, perch, trout, salmon, golden carp |
 | `main` | This notes branch only (proposal + plan) |
 
 **All four implementation stages are complete and verified** — 456 Rust
