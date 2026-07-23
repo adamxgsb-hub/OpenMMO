@@ -11,10 +11,15 @@ Working copy of [Julian-adv/OpenMMO](https://github.com/Julian-adv/OpenMMO)
 | `master` | Upstream `Julian-adv/OpenMMO@master`, full history (as of 2026-07-23) |
 | `fishing/pr1-skills` | PR1: trained-skill foundation (SkillId, persistence, SkillsUpdate) — implemented + tested |
 | `fishing/pr2-core` | PR2 (stacked on PR1): fishing core loop — cast/bite/hook/catch, rod + fish items, water detection, client UI, `doc/FISHING.md` — implemented + tested |
+| `fishing/pr3-struggle` | PR3 (stacked on PR2): ArcheAge-style struggle — tension rounds (Pulling/Tiring), per-round windows, struggle HUD panel, bystander trophy shout-outs — implemented + tested |
+| `fishing/pr4-agent` | PR4 (stacked on PR3): agent-client fishing — auto-hook/struggle reflexes, `fish`/`stop_fishing` LLM actions, `[Fishing]` outcome events — implemented + tested |
 | `main` | This notes branch only (proposal + plan) |
 
-Still to build: PR3 (ArcheAge-style struggle minigame, trophies, SFX) and
-PR4 (agent-client auto-hook + `fish()` MCP tool) — see `PLAN.md`.
+**All four implementation stages are complete and verified** — 456 Rust
+tests + 279 client tests green, and a full live catch executed against a
+running server over the real protocol (cast → bite → hook → 5-round
+struggle → `raw_trout ×1` in the bag, +90 fishing XP). Deferred by design:
+SFX/animations polish, bait, rod tiers (`doc/FISHING.md`).
 
 ## Next steps
 
