@@ -4,6 +4,7 @@
   import {
     graphicsQuality,
     reloadNeeded,
+    setQualityManual,
     type QualityLevel,
   } from '../stores/graphicsSettings'
   import VolumeControl from './VolumeControl.svelte'
@@ -37,7 +38,7 @@
           <button
             class="quality-btn"
             class:active={$graphicsQuality === opt.value}
-            onclick={() => graphicsQuality.set(opt.value)}
+            onclick={() => setQualityManual(opt.value)}
           >
             {opt.label}
           </button>

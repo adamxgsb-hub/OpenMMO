@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { Canvas } from '@threlte/core'
   import GameScene from './lib/components/GameScene.svelte'
   import GameHud from './lib/components/GameHud.svelte'
@@ -17,6 +18,12 @@
   } from './lib/network/socket'
   import { startBgm } from './lib/managers/bgmManager'
   import SettingsPanel from './lib/components/SettingsPanel.svelte'
+  import { runGpuBenchmark } from './lib/utils/gpuBenchmark'
+  import {
+    needsAutoQuality,
+    qualityForScore,
+    applyAutoQuality,
+  } from './lib/stores/graphicsSettings'
 
   let showSettings = $state(false)
 
@@ -59,8 +66,34 @@
   let createSelectedClass = $state<CharacterClass>('knight')
   let createSelectedGender = $state<Gender>('male')
 
-  // Whether the shared Canvas should be mounted (all screens except login)
-  let showCanvas = $derived(screen !== 'login')
+  // First launch on this browser: measure the GPU while the login screen is
+  // up and pick a preset from it. A stored choice, however it got there,
+  // always wins, so this runs at most once.
+  let gpuProbePending = $state(needsAutoQuality())
+
+  // Whether the shared Canvas should be mounted (all screens except login).
+  // Also held back until the probe settles: `antialias` is baked in at
+  // `new WebGPURenderer()`, so a result arriving after mount could not be
+  // applied and would raise "restart required" on a first launch. The probe
+  // caps itself at 3s and normally finishes long before login completes.
+  let showCanvas = $derived(screen !== 'login' && !gpuProbePending)
+
+  onMount(() => {
+    if (!gpuProbePending) return
+    void runGpuBenchmark()
+      .then((result) => {
+        if (!result) return
+        const level = qualityForScore(result.score)
+        console.info(
+          `[GpuBenchmark] score=${result.score.toFixed(1)} ` +
+            `probe=${result.elapsedMs.toFixed(0)}ms -> ${level}`
+        )
+        applyAutoQuality(level)
+      })
+      .finally(() => {
+        gpuProbePending = false
+      })
+  })
 
   $effect(() => {
     if (selectedCharacterId === null) {

@@ -133,6 +133,16 @@ const PRESETS: Record<QualityLevel, GraphicsPreset> = {
 
 const STORAGE_KEY = 'onlinerpg_graphicsQuality'
 const STORAGE_KEY_APPLIED_AA = 'onlinerpg_appliedAA'
+/** Used only when the GPU probe can't run (no WebGPU, timeout, failure). */
+const DEFAULT_QUALITY: QualityLevel = 'medium'
+
+// Snapshot taken at module init, before `graphicsQuality`'s subscriber
+// persists its initial value — that write lands synchronously on
+// subscription and would otherwise erase the "never chosen" state.
+const _hadStoredQuality = readStoredQuality() !== null
+/** Set once the level is settled for this session — by the probe landing, or
+ *  by the player picking one while the probe was still in flight. */
+let _autoQualityLocked = false
 
 // Device render budgets are constant for the session, so compute each once and
 // cache it. They're read on hot paths (grass streaming, graphics-quality changes)
@@ -207,7 +217,7 @@ function getMobileSafePreset(preset: GraphicsPreset): GraphicsPreset {
   }
 }
 
-function loadQuality(): QualityLevel {
+function readStoredQuality(): QualityLevel | null {
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (stored === 'high' || stored === 'medium' || stored === 'low')
@@ -215,7 +225,61 @@ function loadQuality(): QualityLevel {
   } catch {
     // localStorage unavailable
   }
-  return 'medium'
+  return null
+}
+
+function loadQuality(): QualityLevel {
+  return readStoredQuality() ?? DEFAULT_QUALITY
+}
+
+/** True when nothing had ever been stored for this browser, so the GPU probe
+ *  should decide. A stored value — auto-picked or hand-picked — always wins;
+ *  the probe never overrides a level the player is already running. */
+export function needsAutoQuality(): boolean {
+  return !_hadStoredQuality && !_autoQualityLocked
+}
+
+/** Map a `runGpuBenchmark` score onto a preset.
+ *
+ * Two measured anchors, both Chrome 150:
+ *   RTX 4090 ~1730 (±8%)   -> high
+ *   M3 10-core ~92 (±1.5%) -> medium
+ * The medium cut sits at 70 so the M3 clears it with roughly 30% of margin.
+ *
+ * That the M3 lands in medium is deliberate. An M3 MacBook Air 15 ran ~30fps
+ * on the medium that predates the preset trim (grass shadows off, density
+ * 0.7, tree cap 768, torch shadow 512) and ~50fps after it. Low reads as too
+ * stripped-down to ship as a modern laptop's default, so if the M3 ever needs
+ * more headroom, make medium cheaper rather than lowering it into low.
+ *
+ * The high cut is pure interpolation; no mid-range discrete part has been
+ * measured. It leans conservative on purpose: guessing medium for a fast
+ * machine costs fidelity the player can undo in settings, while guessing high
+ * for a slow one is a bad first five minutes. */
+const AUTO_QUALITY_THRESHOLDS: { min: number; level: QualityLevel }[] = [
+  { min: 600, level: 'high' },
+  { min: 70, level: 'medium' },
+]
+
+export function qualityForScore(score: number): QualityLevel {
+  for (const { min, level } of AUTO_QUALITY_THRESHOLDS) {
+    if (score >= min) return level
+  }
+  return 'low'
+}
+
+/** Persist a probe-derived level. No-op once anything is stored. */
+export function applyAutoQuality(level: QualityLevel): void {
+  if (!needsAutoQuality()) return
+  _autoQualityLocked = true
+  graphicsQuality.set(level)
+}
+
+/** An explicit choice from the settings panel. Locks out the probe, which on
+ *  a first launch may still be in flight and would otherwise overwrite it. */
+export function setQualityManual(level: QualityLevel): void {
+  _autoQualityLocked = true
+  graphicsQuality.set(level)
 }
 
 /**
