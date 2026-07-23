@@ -110,8 +110,7 @@ impl MonsterBrain {
     /// the brain simulates every frame but only syncs a couple of times a
     /// second. Remote clients interpolate toward `target_position` between syncs.
     pub(super) fn should_sync_move(&mut self) -> bool {
-        if self.state != self.last_synced_state
-            || self.sync_elapsed_ms >= NETWORK_SYNC_INTERVAL_MS
+        if self.state != self.last_synced_state || self.sync_elapsed_ms >= NETWORK_SYNC_INTERVAL_MS
         {
             self.sync_elapsed_ms = 0.0;
             self.last_synced_state = self.state;

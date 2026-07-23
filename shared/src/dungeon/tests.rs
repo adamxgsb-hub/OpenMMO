@@ -6,6 +6,10 @@
 use super::*;
 use crate::pathfinding::{find_and_smooth_path, PassabilityCache};
 
+/// The two cells straddling a wall line, with the edge bit a shut door sets
+/// on each: `(high_cell, low_cell, high_bit, low_bit)`.
+type DoorCellPair = ((i32, i32), (i32, i32), u8, u8);
+
 fn fnv1a64_bytes(h: &mut u64, bytes: &[u8]) {
     for b in bytes {
         *h ^= *b as u64;
@@ -99,7 +103,7 @@ fn structure_invariants_many_seeds() {
 
             // Rooms in bounds, non-overlapping (fallback floors have 1 room).
             for r in &f.rooms {
-                assert!(r.x >= 1 && r.z >= 1 && r.x + r.w <= GRID - 1 && r.z + r.d <= GRID - 1);
+                assert!(r.x >= 1 && r.z >= 1 && r.x + r.w < GRID && r.z + r.d < GRID);
             }
 
             // Shaft alignment: this floor's down shaft is the next floor's up shaft.
@@ -373,7 +377,7 @@ fn interior_doors_seal_corridor_mouths_until_opened() {
                 let [ax, az, bx, bz] = d.seg();
                 // Cell pairs straddling the wall line, and the edge bits a
                 // shut door must set on each (mirrors `is_*_blocked`'s OR).
-                let pairs: Vec<((i32, i32), (i32, i32), u8, u8)> = if az == bz {
+                let pairs: Vec<DoorCellPair> = if az == bz {
                     (ax..bx)
                         .map(|x| ((x, az), (x, az - 1), EDGE_N, EDGE_S))
                         .collect()

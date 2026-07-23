@@ -394,7 +394,7 @@ fn keep_top_components(mask: &mut [u8], res: usize, n: usize) {
 
     // Decide which labels to keep (labels 1..next_label, sizes[1..]).
     let mut ranked: Vec<(u32, usize)> = (1..next_label).map(|l| (l, sizes[l as usize])).collect();
-    ranked.sort_by(|a, b| b.1.cmp(&a.1));
+    ranked.sort_by_key(|r| std::cmp::Reverse(r.1));
     let keep: std::collections::HashSet<u32> = ranked.iter().take(n).map(|&(l, _)| l).collect();
     for i in 0..total {
         if mask[i] == 1 && !keep.contains(&label[i]) {

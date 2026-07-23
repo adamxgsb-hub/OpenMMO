@@ -107,9 +107,7 @@ pub fn find_path(
     let h = |x: i32, z: i32, fk: u16| -> u32 {
         let real_f = key_to_floor(fk) as i32;
         let goal_f = goal_floor as i32;
-        (x - gx).unsigned_abs()
-            + (z - gz).unsigned_abs()
-            + (real_f - goal_f).unsigned_abs() as u32 * 2
+        (x - gx).unsigned_abs() + (z - gz).unsigned_abs() + (real_f - goal_f).unsigned_abs() * 2
     };
 
     let start_h = h(sx, sz, start_fk);

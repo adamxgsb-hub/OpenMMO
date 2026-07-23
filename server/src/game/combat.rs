@@ -78,7 +78,7 @@ pub fn roll_attack_with_extra_damage_roll(
 
     if hit {
         let mut total: i64 = i64::from(damage_bonus);
-        for roll in std::iter::once(damage_roll).chain(extra_damage_roll.into_iter()) {
+        for roll in std::iter::once(damage_roll).chain(extra_damage_roll) {
             let (count, sides) = parse_damage_roll(roll);
             for _ in 0..count {
                 total += i64::from(rng.gen_range(1..=sides));

@@ -320,7 +320,7 @@ async fn run_npc_session(
             &ClientMessage::DeleteCharacter { character_id: c.id },
         )
         .await?;
-        ws::wait_for_msg(&mut ws_rx, &label, "CharacterDeleted", |msg| {
+        ws::wait_for_msg(&mut ws_rx, label, "CharacterDeleted", |msg| {
             matches!(
                 msg,
                 ServerMessage::CharacterDeleted { .. } | ServerMessage::CharacterError { .. }
@@ -350,7 +350,7 @@ async fn run_npc_session(
                 },
             )
             .await?;
-            ws::wait_for_msg(&mut ws_rx, &label, "CharacterStatsRolled", |msg| {
+            ws::wait_for_msg(&mut ws_rx, label, "CharacterStatsRolled", |msg| {
                 matches!(msg, ServerMessage::CharacterStatsRolled { .. })
             })
             .await?;
@@ -365,7 +365,7 @@ async fn run_npc_session(
                 },
             )
             .await?;
-            let created = ws::wait_for_msg(&mut ws_rx, &label, "CharacterCreated", |msg| {
+            let created = ws::wait_for_msg(&mut ws_rx, label, "CharacterCreated", |msg| {
                 matches!(
                     msg,
                     ServerMessage::CharacterCreated { .. } | ServerMessage::CharacterError { .. }

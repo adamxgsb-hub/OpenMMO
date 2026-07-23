@@ -167,11 +167,9 @@ impl super::GameState {
 
         if !rows.is_empty() {
             let start_id = self.reserve_instance_ids(rows.len() as u64).await;
-            let mut next_id = start_id;
 
-            for row in rows {
-                let instance_id = next_id;
-                next_id += 1;
+            for (offset, row) in rows.into_iter().enumerate() {
+                let instance_id = start_id + offset as u64;
 
                 match row.equip_slot {
                     Some(slot_str) => {
