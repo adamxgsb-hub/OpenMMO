@@ -17,10 +17,11 @@ Working copy of [Julian-adv/OpenMMO](https://github.com/Julian-adv/OpenMMO)
 | `fishing/pr6-fish-icons` | PR6 (stacked on PR5): distinct 128×128 icon art for each of the five fish (were reusing sword.png) — minnow, perch, trout, salmon, golden carp |
 | `fishing/pr7-rod` | PR7 (stacked on PR6): **rod obtainable** — sold by the general merchant (Rica, 3 silver), excluded from dungeon-chest loot, its own icon, and fish/rod prices anchored to the income economy — a catch ≈ a couple of coin piles (minnow 10c … golden carp 15s) |
 | `fishing/pr8-flotsam` | PR8 (stacked on PR7): **junk & coin catches** — Old Boot / Clump of Kelp (worthless gag junk), Message in a Bottle (15c), Sunken Coin Pouch (`coin_catch`: 3d8 copper straight to the wallet); all rarity 0 = no XP, no trophies; per-catch sell EV ~16c locked by a contract test (5–25c band); four new icons |
+| `fishing/pr9-hardening` | PR9 (stacked on PR8): **hardening** — death and rod-loss (unequip/swap/drop) now abort the session (two real holes found by test-writing); two-angler concurrency, broadcast-radius, stop/late-hook boundary, bag-spill, eat-fish tests; key wiring mutation-tested |
 | `main` | This notes branch only (proposal + plan) |
 
-**All implementation stages are complete and verified** — 460+ Rust
-tests + 279 client tests green, and full live catches executed against a
+**All implementation stages are complete and verified** — 488 Rust
+tests + 285 client tests green, and full live catches executed against a
 running server over the real protocol (fish into the bag with XP; junk
 into the bag with 0 XP; coin pouch paying copper via `GoldGained`).
 Deferred by design: SFX/animations polish, bait, rod tiers
