@@ -18,15 +18,25 @@ a tension meter; tension ≥ 100 loses the fish; surviving all rounds catches it
 attacking, trading, or disconnecting aborts. Every timer and outcome is server-side; the
 client only renders and responds.
 
-- **Water** = terrain height < 0 at the cast point (sea level per `doc/WATER_SYSTEM.md`),
-  sampled server-side via the `terrain` crate's `HeightSampler` — the server's first
-  gameplay use of water, no new data needed.
+- **Water** = real depth at the cast point: `waterSurface − terrainBed > 0.1 m`, with the
+  surface sampled server-side from the baked unified water field (WFD1 — sea + rivers)
+  via a new `terrain::WaterSampler` beside the existing `HeightSampler`. (My first cut
+  used `terrain height < 0`, which only matches the ocean — river beds bottom out at sea
+  level and climb, so every inland river read as land. The water-field check fishes both.)
 - **Fish** are five stackable items in `data-src/items.csv` (minnow → golden carp) with
   weighted catch tables: sellable through the existing merchant flow, edible via the
   category-derived use-effect (heal dice, like potions). Catch rolls reuse the d20 idiom
   from `game/combat.rs` (a nat-20 quality roll doubles size → trophy + `ServerNotice`).
   Trophy size stays ephemeral (announcement only) so fish keep stacking — no
-  `ItemInstance` changes.
+  `ItemInstance` changes. A few **flotsam** rows share the table (~15% of casts): gag
+  junk (Old Boot, Clump of Kelp), a Message in a Bottle (token 15c), and a Sunken Coin
+  Pouch that pays a 3d8 copper roll straight to the wallet — rarity 0, so no skill XP
+  and no trophies from junk.
+- **Economy guardrail as a test:** prices are anchored to the game's income faucets
+  (coin piles, chest gold, the guard's 50s/day salary), and a unit test locks the
+  expected *sell* value of one catch to the 5–25c coin-pile band (~16c today, flotsam
+  included) — if a future species or treasure row makes fishing a money printer, the
+  suite fails.
 - **Agent parity by construction:** the struggle broadcast carries the fish state — the
   same information the human UI renders — so the agent-client can auto-respond locally
   (like its built-in A* pathfinding) while the LLM decides where/when to fish. Planned MCP
@@ -58,13 +68,31 @@ minimal one, designed to stay small but leave room for future gathering professi
    tests with injected clock/RNG.
 3. **Struggle + polish** — multi-round tension minigame, trophy roll + notice, SFX.
 4. **Agent-client** — reflex layer + MCP tools + docs.
+5. **River fishing** — the `WaterSampler` water-field check above (ocean-only → all water).
+6. **Fish icon art** — a distinct 128×128 icon per species.
+7. **Rod acquisition + economy pass** — rod sold by the general merchant (3s), excluded
+   from dungeon-chest loot, prices anchored to income (minnow 10c … golden carp 15s).
+8. **Flotsam** — the junk/coin catches + the EV contract test above, four more icons.
+
+## v2 ideas (not built — asking first)
+
+- **Waterlogged Cache** — a rare catch (~1% of casts) that opens like a small treasure
+  chest: a modest copper roll (capped ≈1–2s) plus one or two *catalog commons* — torch,
+  potion, arrows, the things merchants already sell. Hard rule: never dungeon-chest gear
+  (the ≥2000c equipment pool stays dungeon-exclusive so fishing can't bypass combat
+  loot), and the EV contract test above would count the cache in its 5–25c band. It adds
+  a slot-machine "anything could be on the hook" moment without opening a second gear
+  faucet — but it's a loot-philosophy call, so I'd rather have your blessing before
+  building it.
+- Bait, rod tiers, designated hot-spots, cast/idle animation clips + SFX — all deferred
+  from v1 on purpose (`doc/FISHING.md` lists the cut lines).
 
 ## Questions before I open PRs
 
 1. **Skill system shape** — happy with a `HashMap<SkillId, SkillProgress>` on its own
    table, cap 20, `100·level²`? Anything you'd change while it's still one skill deep?
-2. **Where can players fish?** Anywhere terrain < 0 (sea + lakes + rivers), or would you
-   rather gate it to designated spots?
+2. **Where can players fish?** Anywhere with real water depth (sea + rivers via the
+   baked water field), or would you rather gate it to designated spots?
 3. **Protocol:** I bumped `PROTOCOL_VERSION` per the comment in `shared/lib.rs` — right
    call for additive `ServerMessage` variants?
 4. **Trophy size as announcement-only** (fish stay stackable) — acceptable, or would you
