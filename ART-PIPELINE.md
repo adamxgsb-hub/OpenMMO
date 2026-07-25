@@ -97,8 +97,18 @@ fill the square), and a transparent 128x128 output:
 
 ```bash
 pip install pillow numpy
+
+# one render
 python make-icon.py trout_render.png raw_trout.png
+
+# or a whole folder at once
+python make-icon.py C:\Users\<you>\Downloads\renders icons_out
 ```
+
+Batch mode keeps each file's stem, so `trout.png` in becomes `trout.png` out —
+name your renders after the item ids (`raw_trout.png`, `golden_sturgeon.png`,
+`old_boot.png` …) and the output drops straight into
+`client/public/items/`.
 
 It knocks the background out with a region-growing flood fill from the image
 border rather than a colour key, so grey *inside* the subject survives — which

@@ -17,6 +17,7 @@ Requires: pip install pillow numpy
 """
 import argparse
 import sys
+from pathlib import Path
 from collections import deque
 
 try:
@@ -67,20 +68,40 @@ def flood_background(rgb, tol):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("src")
-    ap.add_argument("dst")
+    ap.add_argument("src", help="a render, or a folder of renders")
+    ap.add_argument("dst", help="output icon, or output folder when src is a folder")
     ap.add_argument("--tol", type=int, default=12,
                     help="per-step tolerance; raise if a halo remains, lower if it eats the subject")
     ap.add_argument("--no-rotate", action="store_true",
                     help="keep the subject horizontal even if very wide")
     args = ap.parse_args()
 
-    im = Image.open(args.src).convert("RGB")
+    src = Path(args.src)
+    if src.is_dir():
+        out = Path(args.dst)
+        out.mkdir(parents=True, exist_ok=True)
+        renders = sorted(
+            f for f in src.iterdir()
+            if f.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp")
+        )
+        if not renders:
+            sys.exit(f"no images found in {src}")
+        for f in renders:
+            try:
+                convert(f, out / (f.stem + ".png"), args.tol, args.no_rotate)
+            except SystemExit as e:
+                print(f"  {f.name}: {e}")
+        return
+    convert(src, Path(args.dst), args.tol, args.no_rotate)
+
+
+def convert(src, dst, tol, no_rotate):
+    im = Image.open(src).convert("RGB")
     # Work at a manageable size; the flood fill is the slow part.
     if max(im.size) > 900:
         im.thumbnail((900, 900), Image.LANCZOS)
 
-    bg = flood_background(np.array(im), args.tol)
+    bg = flood_background(np.array(im), tol)
     rgba = im.convert("RGBA")
     a = np.array(rgba)
     a[..., 3] = np.where(bg, 0, 255)
@@ -92,7 +113,7 @@ def main():
     cut = cut.crop(box)
 
     w, h = cut.size
-    if not args.no_rotate and w / h > ROTATE_ABOVE:
+    if not no_rotate and w / h > ROTATE_ABOVE:
         # Long subjects go diagonal so they fill the square, like his swords.
         cut = cut.rotate(-30, resample=Image.BICUBIC, expand=True)
         cut = cut.crop(cut.getbbox())
@@ -102,8 +123,8 @@ def main():
 
     icon = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
     icon.paste(cut, ((SIZE - cut.width) // 2, (SIZE - cut.height) // 2), cut)
-    icon.save(args.dst)
-    print(f"wrote {args.dst} ({SIZE}x{SIZE}, subject {cut.width}x{cut.height})")
+    icon.save(dst)
+    print(f"wrote {dst} ({SIZE}x{SIZE}, subject {cut.width}x{cut.height})")
 
 
 if __name__ == "__main__":
