@@ -97,6 +97,13 @@ GOOGLE_CLIENT_ID=<your client id> ADMIN_EMAILS=<your gmail> cargo run -p onliner
 cd client && npm install && npm run dev -- --port 10004
 ```
 
+**Windows PowerShell** sets env vars differently — the `VAR=x cmd` form above
+is bash-only and will fail:
+
+```powershell
+$env:GOOGLE_CLIENT_ID='<your client id>'; $env:ADMIN_EMAILS='<your gmail>'; cargo run -p onlinerpg-server
+```
+
 Open **http://localhost:10004**, sign in with Google, create a character.
 
 | Port | What |
