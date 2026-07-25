@@ -58,6 +58,10 @@ omits (without it there is no water in the world). Windows helpers:
 **`setup-local.ps1`** (one-shot: clone + LFS + terrain bake + builds) and
 `grant-fishing-rod.ps1` (a rod for a 0-gold character).
 
+**[PR-READINESS.md](PR-READINESS.md)** — what upstream actually requires
+(his commit-agent gate, the CLA, what a merged feature PR looks like) and the
+pre-flight checklist before opening PRs.
+
 ## Next steps
 
 1. Post `PR0-fishing-proposal.md` as an issue on the upstream repo (owner's
