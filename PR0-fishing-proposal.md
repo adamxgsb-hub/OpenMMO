@@ -8,6 +8,10 @@ wanted to get your read on the design before opening PRs. (Development is AI-ass
 with Claude, matching the project's own workflow; everything is human-reviewed and tested
 before it reaches you.)
 
+*Branches are rebased on `master` as of `fdca62c1` (25 Jul), formatted with
+`cargo fmt`, and each one builds and passes the full suite on its own.
+`PROTOCOL_VERSION` lands at 8 (skills 6, fishing core 7, struggle 8).*
+
 ## The loop
 
 Equip a **fishing rod** (main-hand item) → click water within 8 m → bobber lands, random
@@ -39,8 +43,10 @@ client only renders and responds.
   suite fails.
 - **Agent parity by construction:** the struggle broadcast carries the fish state — the
   same information the human UI renders — so the agent-client can auto-respond locally
-  (like its built-in A* pathfinding) while the LLM decides where/when to fish. Planned MCP
-  tools: `fish()` / `stop_fishing()`.
+  (like its built-in A* pathfinding) while the LLM decides where/when to fish. The LLM
+  drives it with two plain actions — `{"type": "fish", "x": …, "z": …}` (coordinates
+  optional) and `{"type": "stop_fishing"}` — so nothing depends on the MCP layer you
+  removed in "Drop the rmcp dependency".
 
 ## Trained skills (the part I most want your buy-in on)
 
@@ -67,7 +73,7 @@ minimal one, designed to stay small but leave room for future gathering professi
    rod + fish items, water check, minimal UI + bobber, `doc/FISHING.md`, state-machine
    tests with injected clock/RNG.
 3. **Struggle + polish** — multi-round tension minigame, trophy roll + notice, SFX.
-4. **Agent-client** — reflex layer + MCP tools + docs.
+4. **Agent-client** — reflex layer + the two LLM actions + docs.
 5. **River fishing** — the `WaterSampler` water-field check above (ocean-only → all water).
 6. **Fish icon art** — a distinct 128×128 icon per species.
 7. **Rod acquisition + economy pass** — rod sold by the general merchant (3s), excluded

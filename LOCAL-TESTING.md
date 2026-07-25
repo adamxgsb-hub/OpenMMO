@@ -180,12 +180,21 @@ so persistence works too.
 | `npm run build:wasm` fails with `rm: command not found` | Run it from Git Bash, or `npm config set script-shell bash` |
 | Protocol version mismatch on connect | Client and server built from different commits — rebuild the wasm (`npm run build:wasm`) and restart both |
 
-## Running the automated tests instead
+## Running the tests in CI instead (zero local setup)
+
+The `ci/fishing-tests` branch carries a GitHub Actions workflow that runs the
+whole suite — rustfmt, workspace build, all Rust tests, the client type-check
+and vitest — on every push to a `fishing/**` or `ci/**` branch. Watch it under
+the repo's **Actions** tab. It is deliberately **not** part of the upstream PR
+stack (upstream runs no test CI); to test a different branch, rebase that
+branch's work under it or push to a `ci/` branch.
+
+## Running the automated tests locally instead
 
 If you only want the evidence without playing:
 
 ```bash
-cargo test --workspace          # 488 tests, includes the whole fishing suite
-cd client && npm test           # 285 tests
+cargo test --workspace          # 512 tests, includes the whole fishing suite
+cd client && npm test           # 290 tests
 cd client && npm run check      # type/svelte check
 ```
