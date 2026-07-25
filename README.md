@@ -58,6 +58,10 @@ omits (without it there is no water in the world). Windows helpers:
 **`setup-local.ps1`** (one-shot: clone + LFS + terrain bake + builds) and
 `grant-fishing-rod.ps1` (a rod for a 0-gold character).
 
+**[PR-BODIES.md](PR-BODIES.md)** — ready-to-paste PR descriptions, one per
+stacked branch, each leading with agent parity and marked with the GIF /
+screenshot to capture before posting.
+
 **[PR-READINESS.md](PR-READINESS.md)** — what upstream actually requires
 (his commit-agent gate, the CLA, what a merged feature PR looks like) and the
 pre-flight checklist before opening PRs.

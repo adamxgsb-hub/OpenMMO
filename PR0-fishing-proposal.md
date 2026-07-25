@@ -12,6 +12,30 @@ before it reaches you.)
 `cargo fmt`, and each one builds and passes the full suite on its own.
 `PROTOCOL_VERSION` lands at 8 (skills 6, fishing core 7, struggle 8).*
 
+## Agent parity, by construction
+
+The part I most wanted to get right, since it's the project's whole premise.
+
+Every decision point in fishing is **broadcast, not hidden**. The bite and each
+struggle round carry the fish's state to the client — *Pulling* or *Tiring* —
+which is exactly what the human UI renders. So an agent has the same
+information a person reading the screen does, and the response windows
+(2.5 s for the bite, 1.8–3 s per struggle round, plus 0.5 s latency grace) are
+sized for a network round trip rather than for human reflexes. Nothing in the
+mechanic requires reactions only software can deliver, and nothing is too fast
+for software either.
+
+The agent-client answers locally as a reflex layer — the same precedent as its
+built-in A* pathfinding — while the LLM makes the actual decisions through two
+plain actions: `{"type": "fish", "x": …, "z": …}` (coordinates optional) and
+`{"type": "stop_fishing"}`. In-flight messages are classified as noise so they
+cost no LLM calls; only outcomes reach the model. This depends on nothing from
+the MCP layer you removed in "Drop the rmcp dependency".
+
+Instant reflex answers confer no advantage: correctness is binary and the
+tension math ignores response speed inside the window. A bot and a person fish
+equally well.
+
 ## The loop
 
 Equip a **fishing rod** (main-hand item) → click water within 8 m → bobber lands, random
@@ -41,12 +65,6 @@ client only renders and responds.
   expected *sell* value of one catch to the 5–25c coin-pile band (~16c today, flotsam
   included) — if a future species or treasure row makes fishing a money printer, the
   suite fails.
-- **Agent parity by construction:** the struggle broadcast carries the fish state — the
-  same information the human UI renders — so the agent-client can auto-respond locally
-  (like its built-in A* pathfinding) while the LLM decides where/when to fish. The LLM
-  drives it with two plain actions — `{"type": "fish", "x": …, "z": …}` (coordinates
-  optional) and `{"type": "stop_fishing"}` — so nothing depends on the MCP layer you
-  removed in "Drop the rmcp dependency".
 
 ## Trained skills (the part I most want your buy-in on)
 
