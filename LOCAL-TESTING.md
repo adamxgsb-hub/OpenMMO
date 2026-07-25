@@ -24,7 +24,11 @@ there is no water in the world and fishing cannot work at all.
    merchant Rica — but NPCs are themselves agent-clients that only exist in the
    world if you run one (needs an Anthropic API key). For a quick test, grant
    the rod directly (step 6).
-4. **`npm run build:wasm` uses `rm -rf`** — run npm from **Git Bash**, not
+4. **Every 3D model is stored in Git LFS.** `*.glb`, `*.blend` and `*.mp3` are
+   LFS-tracked (see `.gitattributes`). Clone without Git LFS installed and you
+   get 134-byte text pointers instead of models — no characters, no weapons,
+   no animations. Install LFS *before* cloning (step 1).
+5. **`npm run build:wasm` uses `rm -rf`** — run npm from **Git Bash**, not
    cmd/PowerShell, or it fails on Windows.
 
 ---
@@ -178,6 +182,7 @@ so persistence works too.
 | Symptom | Cause |
 |---|---|
 | World is a flat grey plane, no water anywhere | Terrain not baked — step 3 |
+| Characters/weapons invisible or the client errors on model load | Git LFS not pulled — `git lfs install && git lfs pull` |
 | Clicking water walks instead of casting | No rod in the **main hand** (off-hand doesn't count), or you're not on the overworld |
 | "You need a fishing rod in your main hand." | Same — equip it in main hand |
 | "That water is out of casting range." | Max cast is 8 m; step closer |
