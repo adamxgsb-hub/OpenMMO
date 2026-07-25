@@ -18,10 +18,19 @@ Working copy of [Julian-adv/OpenMMO](https://github.com/Julian-adv/OpenMMO)
 | `fishing/pr7-rod` | PR7 (stacked on PR6): **rod obtainable** — sold by the general merchant (Rica, 3 silver), excluded from dungeon-chest loot, its own icon, and fish/rod prices anchored to the income economy — a catch ≈ a couple of coin piles (minnow 10c … golden carp 15s) |
 | `fishing/pr8-flotsam` | PR8 (stacked on PR7): **junk & coin catches** — Old Boot / Clump of Kelp (worthless gag junk), Message in a Bottle (15c), Sunken Coin Pouch (`coin_catch`: 3d8 copper straight to the wallet); all rarity 0 = no XP, no trophies; per-catch sell EV ~16c locked by a contract test (5–25c band); four new icons |
 | `fishing/pr9-hardening` | PR9 (stacked on PR8): **hardening** — death and rod-loss (unequip/swap/drop) now abort the session (two real holes found by test-writing); two-angler concurrency, broadcast-radius, stop/late-hook boundary, bag-spill, eat-fish tests; key wiring mutation-tested |
+| `ci/fishing-tests` | **Fork-only CI** (stacked on PR9): GitHub Actions running rustfmt + build + all Rust tests + client check/vitest on every push. Never include in an upstream PR — upstream has no test CI |
 | `main` | This notes branch only (proposal + plan) |
 
-**All implementation stages are complete and verified** — 488 Rust
-tests + 285 client tests green, and full live catches executed against a
+**Rebased onto upstream `fdca62c1` (25 Jul, +36 commits)** — upstream had
+independently bumped `PROTOCOL_VERSION` to 5 (ours now 6/7/8), removed
+`InventoryError` in favour of `SystemMessage`, and changed
+`DungeonDefs::load()`'s signature; all resolved. Every branch builds standalone
+and `cargo fmt --all --check` is clean. Note upstream also added a **CLA**
+(`CLA.md`) that must be signed by comment on any PR — read it first, it grants
+commercial/relicensing rights.
+
+**All implementation stages are complete and verified** — 512 Rust
+tests + 290 client tests green, and full live catches executed against a
 running server over the real protocol (fish into the bag with XP; junk
 into the bag with 0 XP; coin pouch paying copper via `GoldGained`).
 Deferred by design: SFX/animations polish, bait, rod tiers
