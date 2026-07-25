@@ -34,6 +34,14 @@ level, so every inland river read as land. PR5 adds a server-side
 `waterSurface − terrainBed > 0` so ocean and rivers both fish. Verified live:
 ocean catch, river catch (bed at +5 m), and land correctly refused.
 
+## Testing it yourself
+
+**[LOCAL-TESTING.md](LOCAL-TESTING.md)** — verified step-by-step for running
+the fishing branches locally, including the terrain-bake step upstream's README
+omits (without it there is no water in the world). Windows helpers:
+`test-fishing-locally.ps1` (setup) and `grant-fishing-rod.ps1` (a rod for a
+0-gold character).
+
 ## Next steps
 
 1. Post `PR0-fishing-proposal.md` as an issue on the upstream repo (owner's
