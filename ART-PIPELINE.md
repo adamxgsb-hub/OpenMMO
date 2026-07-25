@@ -89,7 +89,28 @@ placeholder rather than guessing:
   `fishing_rod.glb — Meshy.ai (유료 생성, YYYY-MM-DD, "<generation name>"). 완전 소유권·상업 OK`
   plus `원화는 <tool>` linking `doc/images/fishing_rod.png`.
 
-### 5. Redo the 2D icons
+### 5. Turning a render into an icon
+
+`make-icon.py` in this repo does the conversion — background knock-out, trim,
+diagonal rotation for long subjects (his sword icons sit diagonally so they
+fill the square), and a transparent 128x128 output:
+
+```bash
+pip install pillow numpy
+python make-icon.py trout_render.png raw_trout.png
+```
+
+It knocks the background out with a region-growing flood fill from the image
+border rather than a colour key, so grey *inside* the subject survives — which
+matters for a silver fish on a grey backdrop — and a graded backdrop is
+followed all the way in. Flags: `--tol` (raise if a halo survives, lower if it
+eats into the subject) and `--no-rotate` to keep a wide subject horizontal.
+
+Verified against Jake's own material: running it on his
+`doc/images/leather_armor.png` concept render reproduces something
+indistinguishable from the `leather_armor.png` icon he shipped.
+
+### 6. Redo the 2D icons
 
 Same concept-image treatment for the five fish and four flotsam items, then
 downscale to 128×128 with transparency. The current ones are hand-drawn flat
