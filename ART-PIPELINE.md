@@ -142,3 +142,75 @@ The client already tracks fishing state in `stores/fishingStore.ts`
 picks clips from play state today; a cast one-shot on `casting` and a looping
 `fishing_idle` while waiting is the minimal wiring. No server change needed —
 this is client-side presentation only.
+
+---
+
+## The prompt pack
+
+Nine of the ten assets are **icons only** — `worldModel` is empty for every
+fish and flotsam item, so they never render in the world. Only the rod needs
+a mesh. That means nine image generations and one 3D job, not ten.
+
+House style, in every prompt: *photorealistic product render, single object,
+centred, flat neutral grey studio background, soft key light from upper left,
+gentle contact shadow, slight three-quarter angle, muted earthy palette, no
+text, no watermark, no border.* Square, 1024px or better.
+
+Reject and regenerate if the image has: a busy or coloured background, more
+than one object, text/labels, the object cropped at the frame edge, or a
+silhouette that turns to mush when you squint (it has to read at 32px).
+
+### Fish
+
+- **Raw Minnow** — a tiny silver freshwater minnow, side profile, barely a
+  handspan, plain silver flanks with a faint dark lateral stripe, wet sheen.
+- **Raw Perch** — a European river perch, side profile, olive-green back with
+  bold dark vertical bars, orange-red lower fins, spiny dorsal raised.
+- **Raw Trout** — a speckled brown trout, side profile, buttery-olive flank
+  with dark and red spots, soft adipose fin, freshly caught wet sheen.
+- **River Salmon** — a powerful silver salmon, side profile, steel-blue back
+  fading to bright silver flanks, small dark spots above the lateral line,
+  strong forked tail.
+- **Golden Sturgeon** — an armoured ancient river sturgeon, side profile,
+  long tapering body with a pointed rostrum and barbels beneath the snout,
+  rows of raised bony scutes along the back and flank, upturned shark-like
+  tail, aged-brass gold rather than bright yellow.
+
+### Flotsam
+
+- **Old Boot** — a single waterlogged medieval leather boot, sodden and
+  misshapen, broken lace, a strand of weed caught on the heel, water dripping.
+- **Clump of Kelp** — a tangled clump of olive-green kelp fronds gathered in a
+  loose knot, a few air bladders, slick and dripping.
+- **Message in a Bottle** — a corked green glass bottle lying at a slight
+  tilt, a rolled parchment scrap visible inside, twine wrapped at the neck,
+  weathered.
+- **Sunken Coin Pouch** — a drowned leather drawstring purse, dark waterlogged
+  cloth slumped open, a few tarnished copper coins spilling out, weed draped
+  across it.
+
+### The rod (also needs a mesh)
+
+> Photorealistic product render of a medieval wooden fishing rod on a flat
+> neutral grey studio background. Slender tapered hazel shaft with visible
+> wood grain, wrapped leather grip with a brass ferrule, waxed line looped
+> along the shaft, small bone hook. Weathered, hand-made, functional — not
+> ornate. Soft studio key light from upper left, gentle contact shadow,
+> slight three-quarter angle, muted browns and aged brass. Centred, full
+> object in frame, no text.
+
+**Expect the rod to be the hard one.** Long thin geometry is the weakest case
+for image-to-3D: the shaft may come out lumpy and the line usually vanishes
+entirely. Two ways through:
+
+1. **Try Meshy first** (cheap). If the shaft is clean and only the line is
+   missing, that's fine — the line was never going to survive, and the
+   placeholder spear has no line either.
+2. **If it comes out lumpy, model it by hand.** A rod is a tapered cylinder
+   plus a grip — genuinely 20 minutes in Blender for a first-timer: add a
+   cylinder, scale one end down, add a short fatter cylinder for the grip,
+   two brown materials, done. It will look *better* than a bad generation and
+   costs nothing.
+
+Either way, finish in Blender against `spear.glb` as the transform reference
+(see the item pipeline above).
