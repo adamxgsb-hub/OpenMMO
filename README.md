@@ -48,6 +48,10 @@ ocean catch, river catch (bed at +5 m), and land correctly refused.
 **[CLAUDE-SETUP-PROMPT.md](CLAUDE-SETUP-PROMPT.md)** — the fastest route: a
 paste-ready prompt that has Claude Code do the whole local setup for you.
 
+**[ART-PIPELINE.md](ART-PIPELINE.md)** — how to make models, icons and
+animations that match Jake's house style, following his own documented
+workflow (Meshy → Blender → glb, and Mixamo → animation packs).
+
 **[LOCAL-TESTING.md](LOCAL-TESTING.md)** — verified step-by-step for running
 the fishing branches locally, including the terrain-bake step upstream's README
 omits (without it there is no water in the world). Windows helpers:
