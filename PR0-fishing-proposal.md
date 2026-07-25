@@ -59,7 +59,7 @@ minimal one, designed to stay small but leave room for future gathering professi
 - Persistence: additive `character_skills` table (missing rows = level 0), riding the
   existing dirty-set `save_batch` — with an **upsert** instead of delete+insert so rows a
   newer server wrote survive a rollback. No migration risk for existing characters.
-- Protocol v3: `SkillsUpdate` (full map on EnterGame) + `SkillXpGained` (mirror of
+- Protocol v6: `SkillsUpdate` (full map on EnterGame) + `SkillXpGained` (mirror of
   `XpGained`), both direct messages — skills stay out of the broadcast `Player`, like gold.
 - Skill effects on fishing: shorter waits, slightly wider struggle windows, better rare
   weights. Fishing grants **skill XP only** — character XP/combat balance untouched.
