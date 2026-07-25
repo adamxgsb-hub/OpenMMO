@@ -27,7 +27,9 @@ there is no water in the world and fishing cannot work at all.
 4. **Every 3D model is stored in Git LFS.** `*.glb`, `*.blend` and `*.mp3` are
    LFS-tracked (see `.gitattributes`). Clone without Git LFS installed and you
    get 134-byte text pointers instead of models — no characters, no weapons,
-   no animations. Install LFS *before* cloning (step 1).
+   no animations. Worse, **this repo holds no LFS objects of its own** — it
+   isn't a GitHub fork, so it doesn't share upstream's LFS storage. Clone
+   upstream for the binaries and layer the fishing branches on top (step 1).
 5. **`npm run build:wasm` uses `rm -rf`** — run npm from **Git Bash**, not
    cmd/PowerShell, or it fails on Windows.
 
@@ -35,11 +37,33 @@ there is no water in the world and fishing cannot work at all.
 
 ## 1. Get the code
 
+**Clone upstream first, then add this repo as a remote.** `adamxgsb-hub/OpenMMO`
+is a standalone repo, not a GitHub fork, so it does *not* share Git LFS storage
+with upstream — its `.glb`/`.blend` pointers resolve to nothing there
+(`git lfs pull` returns `Object does not exist on the server`). Upstream holds
+the real binaries, and LFS objects are content-addressed, so pulling them once
+from upstream also satisfies the fishing branches.
+
 ```bash
-git clone https://github.com/adamxgsb-hub/OpenMMO.git
+git lfs install                      # Windows: winget install GitHub.GitLFS
+
+git clone https://github.com/Julian-adv/OpenMMO.git
 cd OpenMMO
-git checkout fishing/pr9-hardening   # the full stack, PR1–PR9
+git lfs pull                         # the real models (large)
+
+git remote add fishing https://github.com/adamxgsb-hub/OpenMMO.git
+git fetch fishing
+git checkout -b pr9-hardening fishing/fishing/pr9-hardening
 ```
+
+Sanity check — a real size, not ~134 bytes:
+
+```bash
+ls -l client/public/models/weapons/spear.glb
+```
+
+(Once you make a *true* GitHub fork of upstream for the PRs this stops
+mattering — forks share LFS storage with their parent.)
 
 ## 2. Prerequisites
 
