@@ -108,6 +108,16 @@ minimal one, designed to stay small but leave room for future gathering professi
   a slot-machine "anything could be on the hook" moment without opening a second gear
   faucet — but it's a loot-philosophy call, so I'd rather have your blessing before
   building it.
+- **River vs sea catch tables** — the baked water field already carries a
+  `riverness` byte per pixel (1 inside an inland channel, 0 in open sea), and
+  the `WaterSampler` currently decodes only `surfaceY`. Reading that one extra
+  channel would let the catch table split by water type, so a River Salmon
+  can't surface in the middle of the Dawnward Sea and Silverbight can have its
+  own species. Cheap to implement — the data is already baked — but it's a
+  worldbuilding call, so I'd rather ask. Same question applies to whether
+  `Golden Carp` suits Dulunar; something like a pike or a sturgeon might sit
+  better beside Havgard and Brosund, and a sturgeon's "ancient armoured
+  survivor" reading would echo the ruins theme.
 - Bait, rod tiers, designated hot-spots, cast/idle animation clips + SFX — all deferred
   from v1 on purpose (`doc/FISHING.md` lists the cut lines).
 
