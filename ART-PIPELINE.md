@@ -173,13 +173,59 @@ fish and flotsam item, so they never render in the world. Only the rod needs
 a mesh. That means nine image generations and one 3D job, not ten.
 
 House style, in every prompt: *photorealistic product render, single object,
-centred, flat neutral grey studio background, soft key light from upper left,
-gentle contact shadow, slight three-quarter angle, muted earthy palette, no
-text, no watermark, no border.* Square, 1024px or better.
+centred, slight three-quarter angle, soft key light from upper left, muted
+earthy palette, no text, no watermark, no border.* Square, 1024px or better.
 
-Reject and regenerate if the image has: a busy or coloured background, more
-than one object, text/labels, the object cropped at the frame edge, or a
-silhouette that turns to mush when you squint (it has to read at 32px).
+**Background — this part is for the cutout, not the look.** The backdrop gets
+knocked out on the way to a 128x128 transparent icon, so ask for one that
+separates cleanly:
+
+> flat uniform matte background with no gradient and no vignette, no cast
+> shadow and no reflection, subject floating clear of the backdrop
+
+Three things make an automated cutout fail, and all three are avoidable in the
+prompt:
+
+- **A graded backdrop** — the fill has to chase the gradient inward, which
+  risks leaking into the subject. Ask for *flat and uniform*.
+- **A contact shadow** — it's the same tone family as the backdrop and touches
+  the subject, so it either survives as a grey smear or takes part of the fish
+  with it. Ask for *no cast shadow*.
+- **A backdrop the same colour as the subject** — grey is the worst possible
+  choice behind a silver fish. Pick a contrasting tone.
+
+Background colour per asset — pick the one that fights the subject least:
+
+| Subject | Ask for |
+|---|---|
+| Minnow, salmon (silver) | flat **deep teal** background |
+| Perch, trout, sturgeon (olive/gold) | flat **slate blue** background |
+| Old Boot, Coin Pouch (dark brown/purple) | flat **light warm grey** background |
+| Kelp (green) | flat **warm sand** background |
+| Bottle (green glass) | flat **light warm grey** background |
+| Fishing rod (brown/brass) | flat **slate blue** background |
+
+Keep the full-resolution render — it becomes `doc/images/<item>.png` and is
+what `doc/assets/items.md` points at, exactly as Jake archives his.
+
+Reject and regenerate if the image has: a gradient or shadow you asked it to
+omit, more than one object, text/labels, the object cropped at the frame edge,
+or a silhouette that turns to mush when you squint (it has to read at 32px).
+
+### Getting renders to me
+
+Chat attachments don't land in my filesystem, so I can't process an image you
+paste. Push them to the repo instead and I can fetch them:
+
+```bash
+cd <your notes clone>
+mkdir -p renders && cp ~/Downloads/trout_render.png renders/
+git add renders && git commit -m "Add trout concept render" && git push
+```
+
+Then I can pull, run `make-icon.py`, put the icon on a dark slot beside Jake's
+existing art, and wire it in. Or just run the script yourself — it's two
+commands and you see the result immediately.
 
 ### Fish
 
