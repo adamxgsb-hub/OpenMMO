@@ -93,6 +93,52 @@ minimal one, designed to stay small but leave room for future gathering professi
 - Bait, rod tiers, designated hot-spots, cast/idle animation clips + SFX — all deferred
   from v1 on purpose (`doc/FISHING.md` lists the cut lines).
 
+## Art addendum — animations and asset style
+
+I'd like to follow up the code with art, done the same way you do it rather
+than in my own style, so it sits in the world properly. Two gaps I'd fix:
+
+- **The rod has no model.** `fishing_rod` currently points at
+  `weapons/spear.glb` as a placeholder, so anglers appear to hold a spear.
+- **There are no fishing animations.** The character stands in its normal idle
+  through cast, bite and struggle. The bobber does the visual work today.
+
+I also want to flag honestly that the **item icons I shipped don't match your
+look** — I hand-drew them as flat vector art, whereas yours (leather_armor,
+healing_potion, the shields) are photoreal renders derived from the same
+concept image as the mesh. I'd redo the five fish and four flotsam icons to
+match, rather than leave the inconsistency in your repo.
+
+My plan, mirroring `doc/assets/characters.md`: AI concept art → A-pose/product
+shot → **Meshy.ai on a paid plan** (full ownership, retained after downgrade;
+not published to Meshy Community; inputs are Apache-2.0/self-owned) → Blender
+cleanup → `.glb` + a 128×128 icon downscaled from the same render → licence,
+tool and date recorded in `doc/assets/items.md` like your leather armor
+entries. Animations via Mixamo through
+`tools/blender-scripts/import_mixamo_animation.py` and `export_animations.py`,
+with invoices kept as proof of paid-tier generation.
+
+Questions before I spend anything on generation:
+
+1. **Which animation pack?** `fishing_cast` / `fishing_idle` could go in
+   `social`, or justify a new `gathering` pack for future professions. Your
+   call — it affects `EXPORT_PACKS` and the `AnimationName`/`AnimationIndex`
+   ordering.
+2. **Do you want contributor-generated 3D assets at all**, or would you rather
+   own the art yourself and take only code from outside? Entirely reasonable
+   either way — it's your world's look, and I'd rather ask than surprise you
+   with a mesh you don't like.
+3. **Is the Meshy paid-tier route acceptable** as a provenance story for
+   contributed assets, documented the way you document yours?
+4. **Should the rod model ship inside a fishing PR** or as a separate art-only
+   PR that's easier to reject without blocking the mechanics?
+5. **Concept art in the repo?** You keep yours at `doc/images/<item>.png` — happy
+   to do the same, or leave them out if you'd rather not carry the megabytes.
+
+If you'd prefer to do the art yourself, the code is written so nothing depends
+on it: the rod works with any `worldModel`, and the client simply plays no
+special clip until one exists.
+
 ## Questions before I open PRs
 
 1. **Skill system shape** — happy with a `HashMap<SkillId, SkillProgress>` on its own
