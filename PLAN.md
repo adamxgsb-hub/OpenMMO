@@ -60,7 +60,7 @@ Cast (validate: rod in MainHand, target ≤8 m, terrain height < 0, not dead/tra
 ## Items (`data-src/items.csv` — no commas in any field)
 
 - `fishing_rod`: main_hand equip, category `fishing_rod`, basePrice 2500.
-- Five stackable fish (category `fish`): `raw_minnow` (1d3 heal / 150), `raw_perch` (1d6/400), `raw_trout` (2d4/1200), `river_salmon` (2d6/4000), `golden_carp` (4d6/20000).
+- Five stackable fish (category `fish`): `raw_minnow` (1d3 heal / 150), `raw_perch` (1d6/400), `raw_trout` (2d4/1200), `river_salmon` (2d6/4000), `golden_sturgeon` (4d6/20000).
 - New appended columns `rarityTier,catchWeight,sizeDice,trophyCm` (empty for non-fish; generator omits empties), mirrored as `#[serde(default)] Option<..>` on `ItemDefinition` — single data source, existing loader.
 - Edible: one arm in `use_effect()` — `"fish" => self.dice.clone().map(UseEffect::Heal)`. Sellable: `basePrice` + existing SellItem flow, untouched.
 - **Trophy size is ephemeral** — lives only in `FishingOutcome::Caught` + the `ServerNotice`. (Rejected: reusing `enchant` — semantically wrong, breaks stacking; a new `ItemInstance` field — forces fish non-stackable, touches trading. Follow-up option: distinct non-stackable `*_trophy` item ids.) Bait: deferred to v2, documented.
@@ -96,7 +96,7 @@ Skill shape/cap and attribute interaction; fishing anywhere height<0 vs designat
 
 - `cargo test -p onlinerpg-shared -p onlinerpg-server`: skill curve, fishing state machine (seeded RNG/injected clock: hook-timeout → Escaped, tension overflow → Escaped, full-round survival → Caught, move-cancels), weighted catch table distribution.
 - Client: `fishingController.test.ts` via existing vitest setup.
-- Manual browser script: debug-drop rod → equip → cast too far (error) → cast on land (error) → ignore bite (escape) → catch → eat (HP up) → sell to merchant → move mid-struggle with a second browser client watching (abort + bobber despawn on both) → temporarily weight `golden_carp` to force a trophy `ServerNotice` on the second client → disconnect mid-session (server cleans up).
+- Manual browser script: debug-drop rod → equip → cast too far (error) → cast on land (error) → ignore bite (escape) → catch → eat (HP up) → sell to merchant → move mid-struggle with a second browser client watching (abort + bobber despawn on both) → temporarily weight `golden_sturgeon` to force a trophy `ServerNotice` on the second client → disconnect mid-session (server cleans up).
 - Agent smoke: run agent-client with prompt "walk to the lake and catch a fish"; verify `fish()` tool round-trip.
 - PR assets: 10–20 s GIFs, pasted test output.
 

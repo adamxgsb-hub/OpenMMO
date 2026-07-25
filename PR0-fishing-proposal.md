@@ -51,7 +51,9 @@ client only renders and responds.
   via a new `terrain::WaterSampler` beside the existing `HeightSampler`. (My first cut
   used `terrain height < 0`, which only matches the ocean — river beds bottom out at sea
   level and climb, so every inland river read as land. The water-field check fishes both.)
-- **Fish** are five stackable items in `data-src/items.csv` (minnow → golden carp) with
+- **Fish** are five stackable items in `data-src/items.csv` (minnow → golden sturgeon,
+  species picked to suit Dulunar — temperate northern water, with a sturgeon rather than
+  anything tropical as the legendary catch) with
   weighted catch tables: sellable through the existing merchant flow, edible via the
   category-derived use-effect (heal dice, like potions). Catch rolls reuse the d20 idiom
   from `game/combat.rs` (a nat-20 quality roll doubles size → trophy + `ServerNotice`).
@@ -95,7 +97,7 @@ minimal one, designed to stay small but leave room for future gathering professi
 5. **River fishing** — the `WaterSampler` water-field check above (ocean-only → all water).
 6. **Fish icon art** — a distinct 128×128 icon per species.
 7. **Rod acquisition + economy pass** — rod sold by the general merchant (3s), excluded
-   from dungeon-chest loot, prices anchored to income (minnow 10c … golden carp 15s).
+   from dungeon-chest loot, prices anchored to income (minnow 10c … golden sturgeon 15s).
 8. **Flotsam** — the junk/coin catches + the EV contract test above, four more icons.
 
 ## v2 ideas (not built — asking first)
@@ -112,12 +114,9 @@ minimal one, designed to stay small but leave room for future gathering professi
   `riverness` byte per pixel (1 inside an inland channel, 0 in open sea), and
   the `WaterSampler` currently decodes only `surfaceY`. Reading that one extra
   channel would let the catch table split by water type, so a River Salmon
-  can't surface in the middle of the Dawnward Sea and Silverbight can have its
-  own species. Cheap to implement — the data is already baked — but it's a
-  worldbuilding call, so I'd rather ask. Same question applies to whether
-  `Golden Carp` suits Dulunar; something like a pike or a sturgeon might sit
-  better beside Havgard and Brosund, and a sturgeon's "ancient armoured
-  survivor" reading would echo the ruins theme.
+  can't surface in the middle of the Dawnward Sea and Silverbight could have
+  its own species. Cheap to implement — the data is already baked — but it's
+  a worldbuilding call, so I'd rather ask before assuming.
 - Bait, rod tiers, designated hot-spots, cast/idle animation clips + SFX — all deferred
   from v1 on purpose (`doc/FISHING.md` lists the cut lines).
 
