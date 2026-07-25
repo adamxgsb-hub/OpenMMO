@@ -55,8 +55,8 @@ workflow (Meshy → Blender → glb, and Mixamo → animation packs).
 **[LOCAL-TESTING.md](LOCAL-TESTING.md)** — verified step-by-step for running
 the fishing branches locally, including the terrain-bake step upstream's README
 omits (without it there is no water in the world). Windows helpers:
-`test-fishing-locally.ps1` (setup) and `grant-fishing-rod.ps1` (a rod for a
-0-gold character).
+**`setup-local.ps1`** (one-shot: clone + LFS + terrain bake + builds) and
+`grant-fishing-rod.ps1` (a rod for a 0-gold character).
 
 ## Next steps
 
