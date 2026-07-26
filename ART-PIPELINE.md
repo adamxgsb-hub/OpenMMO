@@ -291,3 +291,18 @@ entirely. Two ways through:
 
 Either way, finish in Blender against `spear.glb` as the transform reference
 (see the item pipeline above).
+
+## SFX (done — how it was sourced, for future additions)
+
+Fishing ships five CC0 one-shots (splash, plop, reel, snap, catch) in
+`client/public/sounds/*.ogg` — credits in upstream `doc/assets/sfx.md`.
+Rules for any future sound:
+
+- **CC0 only** (that's what PR0 promised Jake), from no-login sources:
+  Kenney.nl packs, OpenGameArt CC0 filter. Record the source URL at pick time.
+- **`.ogg`, not `.mp3`** — mp3 is LFS-tracked, ogg ships as a plain blob like
+  the existing sword sounds. Trim, normalize to ≈ −3 dB, fade the tail.
+- **Route through `sfxManager.ts`** (`preload<X>Sound`/`play<X>Sound` pattern)
+  so the Settings slider and mute apply. Never `new Audio()` elsewhere.
+- **Self-only, on server responses** — combat precedent: remote players'
+  actions are silent, and sounds confirm what the server said, not keypresses.

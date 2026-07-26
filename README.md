@@ -33,7 +33,7 @@ commercial/relicensing rights.
 tests + 290 client tests green, and full live catches executed against a
 running server over the real protocol (fish into the bag with XP; junk
 into the bag with 0 XP; coin pouch paying copper via `GoldGained`).
-Deferred by design: SFX/animations polish, bait, rod tiers
+Deferred by design: animations polish, bait, rod tiers (SFX shipped: five CC0 cues)
 (`doc/FISHING.md`).
 
 **River fix (PR5):** the initial water check (`terrain height < 0`) only
