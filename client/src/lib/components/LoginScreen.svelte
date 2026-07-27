@@ -58,6 +58,18 @@
   }
 
   onMount(async () => {
+    // LOCAL DEV ONLY (never commit): skip Google when ?npcauth= is present —
+    // socket.ts routes the login through AuthenticateNpc instead.
+    if (new URLSearchParams(window.location.search).get('npcauth')) {
+      isConnecting = true
+      try {
+        const result = await onLogin(getDefaultServerUrl(), 'npc-dev-login')
+        if (!result.ok) errorMessage = result.message ?? 'NPC auth failed'
+      } finally {
+        isConnecting = false
+      }
+      return
+    }
     const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined
     if (!clientId) {
       errorMessage = 'VITE_GOOGLE_CLIENT_ID is not configured'

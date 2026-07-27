@@ -647,6 +647,20 @@ class NetworkManager {
   }
 
   private authenticateWithGoogle(googleIdToken: string): boolean {
+    // LOCAL DEV ONLY (never commit): ?npcauth=<account>&npctoken=<token>
+    // logs in via the headless NPC path so the sandbox can drive the client
+    // without Google. Also exposes the socket for scripted screenshots.
+    const devParams = new URLSearchParams(window.location.search)
+    const npcAccount = devParams.get('npcauth')
+    if (npcAccount) {
+      ;(window as unknown as { __net: unknown }).__net = this
+      return this.sendAndSerialize({
+        AuthenticateNpc: {
+          account_name: npcAccount,
+          npc_token: devParams.get('npctoken') ?? '',
+        },
+      } as unknown as Parameters<typeof this.sendAndSerialize>[0])
+    }
     setApiAuthToken(googleIdToken)
 
     return this.sendAndSerialize({
