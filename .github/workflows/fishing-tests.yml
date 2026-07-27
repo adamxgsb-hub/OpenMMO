@@ -1,0 +1,86 @@
+# Fork-only CI: runs the whole test suite on every push so the fishing stack
+# can be verified without a local setup.
+#
+# NOT part of the upstream PR stack — upstream runs no test CI, and this file
+# lives only on the `ci/fishing-tests` branch. Rebase it onto a fishing branch
+# to test that branch; never include it in a PR to Julian-adv/OpenMMO.
+name: fishing tests
+
+on:
+  push:
+    branches: ["fishing/**", "ci/**"]
+  workflow_dispatch:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Formatting
+        run: cargo fmt --all --check
+      - name: Build
+        run: cargo build --workspace
+      - name: Tests
+        run: cargo test --workspace
+
+  client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # build:wasm's clip-measuring pre-steps parse real GLB binaries; a
+      # full `lfs: true` checkout would pull ~1 GB, so fetch only the model
+      # dirs those tools read.
+      - name: Pull LFS models needed by the clip generators
+        run: |
+          git lfs install --local
+          git lfs pull --include "client/public/models/monsters/*.glb,client/public/models/animations/*.glb,client/public/models/characters/female_knight.glb"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+      - name: Install dependencies
+        working-directory: client
+        run: npm ci
+      # data/*.json are generated from CSV; build:wasm's monster-clips
+      # pre-step reads them, so generate before anything else.
+      - name: Generate data from CSV
+        working-directory: client
+        run: npm run generate:csv
+      # Mirrors the project's own commit-agent gate
+      # (.claude/agents/commit-agent.md): format -> lint -> check.
+      #
+      # Prettier runs BEFORE the wasm build on purpose. wasm-bindgen emits
+      # src/lib/wasm/*.d.ts unformatted, and those files are matched by the
+      # src/** glob, so checking after the build fails on generated code that
+      # no human wrote. eslint.config.ts already ignores 'src/lib/wasm/';
+      # client/.prettierignore does not, and that file ships upstream, so
+      # ordering the step here keeps the fix inside this fork-only workflow.
+      - name: Prettier
+        working-directory: client
+        run: npx prettier --check "src/**/*.{ts,svelte}"
+
+      # src/lib/wasm is generated and gitignored, so svelte-check cannot
+      # resolve '../wasm/onlinerpg_shared' until this runs.
+      - name: Build wasm bindings
+        working-directory: client
+        run: npm run build:wasm
+
+      - name: ESLint
+        working-directory: client
+        run: npm run lint
+
+      - name: Type + Svelte check
+        working-directory: client
+        run: npm run check
+      - name: Tests
+        working-directory: client
+        run: npm test
