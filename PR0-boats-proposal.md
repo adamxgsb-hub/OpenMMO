@@ -91,10 +91,26 @@ boarders come over the rail. This is deliberately boat-local and *not* a
 party system (that's your own TODO line, left untouched) — but it makes a
 trade run something friends do together.
 
-**Sailing skill**: second `SkillId` on the system fishing added. XP from
-distance sailed and first-dockings at new ports; levels unlock tiers and add
-a small speed bonus. Same curve, same cap, same UI — the foundation PR was
-built for this moment.
+**Sailing skill**: second `SkillId` on the system fishing added — same
+`100·level²` curve, same cap 30, same UI. XP sources and what they pay:
+**150 XP/km under way**, **+500** per voyage (docking ≥2 km out), **+2,000**
+the first time you ever dock at each named port or island (~20 sites — a
+one-time ~40k discovery pool), **+2,000** per sealed contract delivered,
+**+750** for surviving a pirate encounter. In practice: an Edra→Stenhavn run
+pays ~1,400 XP (~3,400 with a contract), so an active trader earns roughly
+9k XP/hour.
+
+Against the curve (38.5k / 287k / 945.5k cumulative to levels 10/20/30),
+the gates land where I want them to *feel*: the **sloop** is earned by
+exploring — the discovery pool alone nearly funds level 10; the **cog** is
+a mid-term achievement (~30 hours of strait trading — whoever docks one has
+run the Brosund for weeks); the **caravel** is prestige, ~100 trading hours
+with the final level alone costing 90k — which is what a license from the
+Council of Shipmasters *should* cost. That pace is consistent with (in fact
+slightly faster than) fishing's own road to 30. If playtesting says 30
+feels punishing, the levers are the contract and distance rates, never the
+curve — it's shared with fishing and shouldn't fork — and a contract test
+pins the hours-to-gate bands the same way the economy test pins profit.
 
 ## Ports & the minimum route
 
