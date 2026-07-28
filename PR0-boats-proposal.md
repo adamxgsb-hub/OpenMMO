@@ -73,11 +73,24 @@ The skiff is deliberately the rod of this system: no skill gate (anyone can
 row), cheap enough that the feature is for everyone, day one — every Sailing
 level thereafter is earned at your own tiller. The caravel is deliberately
 the sturgeon: it tops out at the skill cap (30), you earn the right to buy
-it, and buying it requires having crossed the sea already. Exact prices
-anchored to the income faucets as before (and locked with the same kind of
-economy contract test) — my working band is skiff ≈ a few silver, caravel ≈
-dungeon-gear territory, but that's calibration, not design, and I'll tune it
-to whatever you think.
+it, and buying it requires having crossed the sea already. Working price bands,
+anchored to the income faucets (a coin pile is 5–25c, a guard earns 50s a
+day, dungeon gear starts ≈20s, the rod is 3s):
+
+- **Skiff ≈ 2–3s** — rod-priced, day one.
+- **Sloop ≈ 50s** — a guard's full day's wage: the first purchase that
+  stings, a small achievement in itself.
+- **Cog ≈ 200s at the yard, ~300s all-in** — the two material loads cost
+  real coin at their sources and cross pirate water, so part of the price
+  is risk, not just gold.
+- **Caravel ≈ 600s at the yard, ~1,000s all-in** — three loads plus the
+  license record: weeks of trading, priced like the flagship it is.
+
+The guardrail is payback expressed in the boat's own earnings — a cog
+should pay for itself in roughly **ten trading hours**, a caravel in
+roughly **thirty** — pinned by the same economy contract test, so
+"significant" stays true even if the income faucets are later rebalanced.
+All of it calibration, not design; I'll tune to whatever you think.
 
 **The speed ladder is deliberately not straight**: the sloop is *faster*
 than the cog. Stepping up to the cog trades speed for cargo — and marks you
