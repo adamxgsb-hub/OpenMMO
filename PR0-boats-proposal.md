@@ -65,9 +65,9 @@ on the Sailing skill, and each tier's identity comes from the worldbuilding:
 | Boat | Lore | Skill | Speed | Hold | Acquired |
 |---|---|---|---|---|---|
 | **River Skiff** | The flat-bottomed rowboat every Dulunar riverbank knows; Aldermark's carpenter knocks them together from Gray Plains timber | — | slow | none | Cheap at any port or the starting town (fishing-rod-priced: a new player can own one day one) |
-| **Gullwing Sloop** | Single-sail coastal boat named for Gullisle's wheeling seabirds; the fisherman's and smuggler's favorite | 10 | medium | small | Sold by port shipwrights |
-| **Brosund Cog** | The broad-beamed workhorse of the Brovik–Edra strait trade; most of Duluna's legitimate cargo crosses in one | 20 | medium | large | Sold in the two strait ports (Brovik, Edra) |
-| **Silverbight Caravel** | Havgard's shipwrights are the finest in the world, and this is why; fast, tall-masted, built in Stenhavn's cliff yards | 30 | fast | large | **Stenhavn only**, and only to those the Council of Shipmasters will license — i.e. you have to sail there first on something lesser |
+| **Gullwing Sloop** | Single-sail coastal boat named for Gullisle's wheeling seabirds; the fisherman's and smuggler's favorite | 10 | fast | small | Sold by port shipwrights |
+| **Brosund Cog** | The broad-beamed workhorse of the Brovik–Edra strait trade; most of Duluna's legitimate cargo crosses in one | 20 | medium — slow when laden | large | **Commissioned** at the strait yards (Brovik, Edra) — see below |
+| **Silverbight Caravel** | Havgard's shipwrights are the finest in the world, and this is why; fast, tall-masted, built in Stenhavn's cliff yards | 30 | fastest | large | **Commissioned in Stenhavn only**, under a Council of Shipmasters license — see below |
 
 The skiff is deliberately the rod of this system: no skill gate (anyone can
 row), cheap enough that the feature is for everyone, day one — every Sailing
@@ -78,6 +78,26 @@ anchored to the income faucets as before (and locked with the same kind of
 economy contract test) — my working band is skiff ≈ a few silver, caravel ≈
 dungeon-gear territory, but that's calibration, not design, and I'll tune it
 to whatever you think.
+
+**The speed ladder is deliberately not straight**: the sloop is *faster*
+than the cog. Stepping up to the cog trades speed for cargo — and marks you
+as prey, since pirates fly sloops precisely because a laden cog can't shake
+one. The caravel is the prize because it's the only hull that is both fast
+and full: it outruns the wolves while carrying the fortune.
+
+**Commissioning, not shopping** (cog and caravel): the big hulls cost more
+than gold, but there is no ship-part grind — the build materials are
+ordinary trade goods **hauled to the yard as real, visible deck cargo**.
+The Brovik or Edra yard lays a cog's keel once you've delivered two loads
+of build timber and iron to its dock and kept **five sealed contracts** (in
+Havgard, your ledger is your character reference). The caravel's Council
+license reads a sailor's whole record: **first dockings at ten named
+harbors, twelve contracts kept unbroken**, and three material loads —
+Valdran oak among them — delivered to Stenhavn's cliff yard, which means
+sailing build materials through contested water. Crafting cost *is* trade
+gameplay: every component can be stolen off your deck on the way. And by
+levels 20 and 30 most of this record exists naturally — the feats formalize
+the journey rather than lengthen it.
 
 A boat is owned as a **deed** (the Ultima Online pattern): place it at a dock
 or shore to launch, dry-dock it back into a rolled deed in your bag when
@@ -202,8 +222,9 @@ makes it true, and it's what makes cargo interesting rather than just a
 slower merchant flow.
 
 - **Pirate crews are agent-clients** on sloops/cogs, patrolling contested
-  water. They spot a laden boat, give chase (speed matters: a caravel can
-  outrun a cog), and if they close, hail:
+  water. They spot a laden boat, give chase (speed matters: sloops outpace
+  a laden cog — which is why pirates fly them — and a caravel outruns
+  everything), and if they close, hail:
   **flee / fight / surrender / parley**.
   - **Flee**: a chase resolved by boat speed, Sailing skill, and a d20 roll —
     escape leaves everyone where they were.
@@ -317,8 +338,9 @@ slower merchant flow.
    ferry captain) and let you name, characterize, and re-dress them and the
    towns however you want — or hold the PR until you've written them. Which
    do you prefer?
-7. **Pricing** — bands above anchored to the same faucets as fishing; any
-   targets you'd set differently?
+7. **Pricing** — bands above anchored to the same faucets as fishing, and
+   the commissioning requirements (loads hauled, contracts kept, harbors
+   visited) are tunable the same way; any targets you'd set differently?
 8. **Parley stakes** — comfortable with LLM captains negotiating over real
    cargo? Every outcome is server-enforced and capped at the hold (the same
    hold-only rule), but the words are a model's — happy to gate parley
