@@ -59,6 +59,9 @@ Same contract as fishing: nothing twitchy, nothing hidden.
 Following the fishing unlock ladder (salmon at 10, sturgeon at 20), tiers gate
 on the Sailing skill, and each tier's identity comes from the worldbuilding:
 
+<!-- IMAGE: proposal-assets/boat-tiers.png — the four tiers, side profiles,
+     with the real Nordic reference vessels for the art pass -->
+
 | Boat | Lore | Skill | Speed | Hold | Acquired |
 |---|---|---|---|---|---|
 | **River Skiff** | The flat-bottomed rowboat every Dulunar riverbank knows; Aldermark's carpenter knocks them together from Gray Plains timber | — | slow | none | Cheap at any port or the starting town (fishing-rod-priced: a new player can own one day one) |
@@ -99,7 +102,8 @@ Your map has already placed everything this needs — Aldermark, Edra, Brovik,
 and Stenhavn are real sites on `doc/map.png` with continuous water between
 them. So v1 is one line drawn on your own map:
 
-<!-- MAP: doc/map.png overlay showing the route (attached) -->
+<!-- IMAGE: proposal-assets/route-min.png — the v1 route drawn on doc/map.png
+     (proposal-assets/route-world.png for full-world context) -->
 
 - **Aldermark → Edra**: the existing road (~8 km) — or row the spawn river
   in a skiff. No new content needed.
@@ -172,6 +176,9 @@ over the existing synced game clock), applied as a single offset inside the
 - Amplitude stays bounded so no dock or ferry route ever strands — pinned
   by a contract test, like the economy band.
 
+<!-- IMAGE: proposal-assets/tide-chart.png — one day of the two-moon tide
+     schedule with the high/low gameplay thresholds -->
+
 ## Piracy & boarding
 
 The lore already says the Brosund crawls with privateers and smugglers — this
@@ -196,6 +203,12 @@ slower merchant flow.
     toll moves real crates, a failed bluff resumes the chase. I don't think
     any MMO has ever shipped this, because no other MMO's pirates can
     actually be reasoned with.
+
+<!-- IMAGE: proposal-assets/hail-panel.png — mockup of the four-way hail
+     panel (FishingPanel pattern) -->
+<!-- IMAGE: proposal-assets/parley-chat.png — mockup of a parley: the
+     captain remembers a past encounter; the toll is server-enforced -->
+
 - **Captains, not mobs**: pirate crews are led by *named* captains, and the
   agent memory system already persists NPC memories across sessions — so
   the captain who took your kelp last week remembers, and the one you
