@@ -49,15 +49,20 @@ on the Sailing skill, and each tier's identity comes from the worldbuilding:
 
 | Boat | Lore | Skill | Speed | Hold | Acquired |
 |---|---|---|---|---|---|
-| **River Skiff** | The flat-bottomed rowboat every Dulunar riverbank knows; Aldermark's carpenter knocks them together from Gray Plains timber | — | slow | none | Cheap at any port or the starting town (fishing-rod-priced: a new player can own one early) |
-| **Gullwing Sloop** | Single-sail coastal boat named for Gullisle's wheeling seabirds; the fisherman's and smuggler's favorite | 5 | medium | small | Sold by port shipwrights |
-| **Brosund Cog** | The broad-beamed workhorse of the Brovik–Edra strait trade; most of Duluna's legitimate cargo crosses in one | 12 | medium | large | Sold in the two strait ports (Brovik, Edra) |
-| **Silverbight Caravel** | Havgard's shipwrights are the finest in the world, and this is why; fast, tall-masted, built in Stenhavn's cliff yards | 20 | fast | large | **Stenhavn only**, and only to those the Council of Shipmasters will license — i.e. you have to sail there first on something lesser |
+| **River Skiff** | The flat-bottomed rowboat every Dulunar riverbank knows; Aldermark's carpenter knocks them together from Gray Plains timber | 5 | slow | none | Cheap at any port or the starting town (fishing-rod-priced: a new player can own one in their first session) |
+| **Gullwing Sloop** | Single-sail coastal boat named for Gullisle's wheeling seabirds; the fisherman's and smuggler's favorite | 10 | medium | small | Sold by port shipwrights |
+| **Brosund Cog** | The broad-beamed workhorse of the Brovik–Edra strait trade; most of Duluna's legitimate cargo crosses in one | 20 | medium | large | Sold in the two strait ports (Brovik, Edra) |
+| **Silverbight Caravel** | Havgard's shipwrights are the finest in the world, and this is why; fast, tall-masted, built in Stenhavn's cliff yards | 30 | fast | large | **Stenhavn only**, and only to those the Council of Shipmasters will license — i.e. you have to sail there first on something lesser |
+
+Sailing 1–5 comes from **riding ferries as a deckhand** — every paid crossing
+grants a little XP (you learn the ropes as a passenger), so the skiff is a
+first-session purchase, not a grind, and the ferry system doubles as the
+skill's on-ramp. From the skiff on, XP comes from your own tiller.
 
 The skiff is deliberately the rod of this system: cheap enough that the
-feature is for everyone, day one. The caravel is deliberately the sturgeon:
-you earn the right to buy it, and buying it requires having crossed the sea
-already. Exact prices anchored to the income faucets as before (and locked
+feature is for everyone in their first session. The caravel is deliberately
+the sturgeon: it tops out at the skill cap (30), you earn the right to buy
+it, and buying it requires having crossed the sea already. Exact prices anchored to the income faucets as before (and locked
 with the same kind of economy contract test) — my working band is skiff ≈ a
 few silver, caravel ≈ dungeon-gear territory, but that's calibration, not
 design, and I'll tune it to whatever you think.
