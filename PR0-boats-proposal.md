@@ -18,13 +18,14 @@ that lore playable.
 
 ## The shape of it
 
-Four pieces, each a separate PR stage, each useful without the next:
+Five pieces, each a separate PR stage, each useful without the next:
 
 1. **Sailing** — pilot a boat across real water; a Sailing trained skill.
 2. **Ports & ferries** — named harbors; pay a fare to cross without a boat.
 3. **Cargo & port trade** — a hold, and per-port prices worth sailing for.
 4. **Piracy & boarding** — agent-crewed pirates who can stop you and take
-   what's in the hold — and only what's in the hold.
+   what's in the hold — and only what's in the hold. Or be talked out of it.
+5. **Tides** — the two moons pulling the sea on a schedule anyone can learn.
 
 ## Agent parity, by construction
 
@@ -43,8 +44,13 @@ Same contract as fishing: nothing twitchy, nothing hidden.
 - Boat state (`position, heading, speed, hull`) is broadcast like player
   movement — spectators and agents see what the pilot sees.
 - A pirate intercept is announced with a generous response window (hail →
-  choice: flee / fight / surrender), sized for a network round trip like the
-  fishing bite. No outcome depends on reaction speed.
+  choice: flee / fight / surrender / parley), sized for a network round trip
+  like the fishing bite. No outcome depends on reaction speed.
+- **Parley is parity's showcase**: the hail happens in chat and the pirate
+  is an LLM, so a human trader and an agent trader negotiate the same way —
+  in words. The server enforces whatever is agreed (an accepted toll moves
+  real hold items; a failed bluff resumes the chase), so the model roleplays
+  but can't cheat physics.
 - Boarding resolves through the **existing combat system** on a stationary
   deck — no new combat mechanics for agents to learn.
 
@@ -75,6 +81,12 @@ or shore to launch, dry-dock it back into a rolled deed in your bag when
 done. No abandoned hulls silting up Edra's harbor, no lost-boat support
 burden, and persistence rides the existing item system instead of a new
 table. One hull afloat per player at a time.
+
+A boat also carries **crew**: other players can step aboard and ride your
+deck — positions attached to the hull, swords very much their own when
+boarders come over the rail. This is deliberately boat-local and *not* a
+party system (that's your own TODO line, left untouched) — but it makes a
+trade run something friends do together.
 
 **Sailing skill**: second `SkillId` on the system fishing added. XP from
 distance sailed and first-dockings at new ports; levels unlock tiers and add
@@ -132,9 +144,33 @@ accessible; *cargo* is where boats earn their keep.
   trade UI — it's the existing merchant flow with per-port price modifiers.
   (Saltisle salt and the rest of the island goods are the expansion, not
   the start.)
+- **Sealed contracts** (straight from the lore: "ledgers and sealed oaths
+  are law"): port notice boards post delivery runs — these goods, that port,
+  a deadline, a bonus for arriving under seal. Lose the seal to pirates and
+  the notice board remembers. Trade gains a verb beyond arbitrage, and
+  pirates gain targets worth bragging about.
 - Economy guardrail as a contract test, like fishing's: expected profit per
   hour of sailing stays within a band of the game's income faucets, so a
   route can't become a money printer without failing the suite.
+
+## Tides (the two moons, working)
+
+Duluna has two moons — Eldor and Serin — and your tavern astronomers already
+argue about how they move. Tides make the argument *matter*: the water
+surface rises and falls on a deterministic schedule (two summed sine waves
+over the existing synced game clock), applied as a single offset inside the
+`WaterSampler` that every water query already passes through.
+
+- **High tide** opens the shallow ways — reef passages (Wreckisle's ring)
+  and river mouths a cog only clears when Eldor stands high.
+- **Low tide** bares the flats — shortcuts and salvage grounds for a
+  skiff's draft only.
+- A **tide table is knowledge, not reflexes**: the schedule is exact and
+  forecastable, the client displays it, agents compute it — parity by
+  construction. And it makes the two moons *gameplay*, which I don't know
+  of any MMO ever doing with a real orbital schedule.
+- Amplitude stays bounded so no dock or ferry route ever strands — pinned
+  by a contract test, like the economy band.
 
 ## Piracy & boarding
 
@@ -144,13 +180,27 @@ slower merchant flow.
 
 - **Pirate crews are agent-clients** on sloops/cogs, patrolling contested
   water. They spot a laden boat, give chase (speed matters: a caravel can
-  outrun a cog), and if they close, hail: **flee / fight / surrender**.
+  outrun a cog), and if they close, hail:
+  **flee / fight / surrender / parley**.
   - **Flee**: a chase resolved by boat speed, Sailing skill, and a d20 roll —
     escape leaves everyone where they were.
-  - **Fight**: grapple → boarding → normal melee combat on the joined decks.
-    Win and their boat's hold is yours to loot.
+  - **Fight**: grapple → boarding → normal melee combat on the joined decks,
+    your crew fighting beside you. Win and their hold is yours to loot.
   - **Surrender** (or lose the fight): they take the **hold cargo only** —
     never your bag, never equipment, never the boat. You sail on lighter.
+  - **Parley**: the pirate is an LLM and the hail is a chat window — so
+    *talk*. Bluff an escort over the horizon, plead a hold full of
+    worthless kelp, or haggle a toll ("half my cargo and you never saw me")
+    through the same offer machinery the merchants already use. The captain
+    decides in character; the server enforces the bargain — an accepted
+    toll moves real crates, a failed bluff resumes the chase. I don't think
+    any MMO has ever shipped this, because no other MMO's pirates can
+    actually be reasoned with.
+- **Captains, not mobs**: pirate crews are led by *named* captains, and the
+  agent memory system already persists NPC memories across sessions — so
+  the captain who took your kelp last week remembers, and the one you
+  bluffed once won't fall for it twice. Reputation on the Brosund emerges
+  from actual memories, not a faction meter.
 - Risk is opt-in and legible: carry nothing, lose nothing. The **Silverbight
   is patrolled and safe** (Havgard's convoy fleets, per the lore), the
   Brosund is contested, the open Dawnward and Mistward seas are wildest.
@@ -163,21 +213,26 @@ slower merchant flow.
 
 ## PR plan (each shippable, each behind the previous)
 
-1. **Boat movement core** — boat entity, board/disembark, waypoint sailing on
-   the water mask, the River Skiff, protocol messages, state-machine tests
-   with injected clock/RNG. Rivers and coast become traversable.
+1. **Boat movement core** — boat entity, board/disembark for pilot *and*
+   passengers, waypoint sailing on the water mask, the River Skiff, protocol
+   messages, state-machine tests with injected clock/RNG. Rivers and coast
+   become traversable.
 2. **Sailing skill + tiers** — second `SkillId`, XP sources, tier gating,
    sloop/cog/caravel deeds + shipwright merchants, the tillerman at the helm
    of every sailed boat.
 3. **Ports & ferries** — the two v1 docks (Edra, Stenhavn) + the Brovik
    ferry landing, ferry posts, agent-client ferry captains, fares.
-4. **Cargo & port trade** — the hold, per-port pricing, economy contract test.
-5. **Piracy & boarding** — intercepts, the three-way hail, boarding combat,
-   hold-only loss rule, safe/contested water zones.
-6. **Agent-client sailing** — `sail` / `dock` / responses to a hail as LLM
-   actions, reflexes local, docs. (Built alongside 1–5; listed separately
-   for review.)
-7. **Art pass** — boat models and icons per the house pipeline
+4. **Cargo & port trade** — the hold, visible deck crates, per-port pricing,
+   sealed contracts, economy contract test.
+5. **Piracy & boarding** — intercepts, the four-way hail (flee / fight /
+   surrender / parley), named captains with persistent memory, boarding
+   combat, hold-only loss rule, safe/contested water zones.
+6. **Tides** — the two-moon schedule, the `WaterSampler` offset, tide table
+   in the client + computable by agents, the no-stranding contract test.
+7. **Agent-client sailing** — `sail` / `dock` / responses to a hail
+   (including parley in chat) as LLM actions, reflexes local, docs. (Built
+   alongside 1–6; listed separately for review.)
+8. **Art pass** — boat models and icons per the house pipeline
    (`ART-PIPELINE` workflow: Meshy → Blender → glb), SFX (creaking hull,
    sail snap, gull cries — CC0 like the fishing set).
 
@@ -196,15 +251,25 @@ slower merchant flow.
   east and arrive from the west deserves a `ServerNotice`. Cheap and very
   much in the spirit of the colony-NPC lore.
 - **Convoy escorts** — hire a Freeblade agent to sail with you.
+- **Relic smuggling** — the lore's central conflict (the Eye of Garath wants
+  every relic registered; Havgard's markets sell them openly) as gameplay:
+  run dungeon relics past Edra's inspectors to Stenhavn's stalls. It would
+  connect dungeons → sea trade → factions — but it's the beating heart of
+  your worldbuilding, so it's yours to green-light or veto outright.
+- **A ship's log** — a journal of first dockings and discoveries across the
+  fifteen named islands; pairs naturally with the first-docking XP.
+- **A ghost ship** in the Mistward fog, beside the sea serpent.
+- **Sailing music** — the "Blood and Bronze (1) during combat" precedent
+  suggests the sails filling deserves a tune of their own.
 - **Weather/wind** affecting speed — flagged early because it tempts real-time
   steering, which would break the parity contract; I'd only do it as route
   modifiers.
 
 ## Questions before I build
 
-1. **Scope check** — four systems is a lot even staged. If you want a subset,
-   my cut order is: piracy last, trade before ferries, sailing always. Which
-   pieces do you actually want?
+1. **Scope check** — five systems is a lot even staged. If you want a
+   subset, my cut order is: tides first to go, then piracy, trade before
+   ferries, sailing always. Which pieces do you actually want?
 2. **Piracy at all?** Hold-only loss is designed to be the gentlest possible
    theft, but it's still theft — happy to ship trade with safe seas only and
    leave pirates behind a config flag or drop them entirely.
@@ -225,6 +290,13 @@ slower merchant flow.
    do you prefer?
 7. **Pricing** — bands above anchored to the same faucets as fishing; any
    targets you'd set differently?
+8. **Parley stakes** — comfortable with LLM captains negotiating over real
+   cargo? Every outcome is server-enforced and capped at the hold (the same
+   hold-only rule), but the words are a model's — happy to gate parley
+   behind a config flag if you'd rather watch it in the wild first.
+9. **Tides** — yes or no on the world-sim itself; and if yes, amplitude
+   bounds you're comfortable with (the contract test pins "no dock or ferry
+   route ever strands").
 
 If the direction looks right I'll start with PR 1 — happy to adjust anything,
 including cutting whole systems from the plan.
