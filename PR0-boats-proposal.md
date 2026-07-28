@@ -87,17 +87,31 @@ and full: it outruns the wolves while carrying the fortune.
 
 **Commissioning, not shopping** (cog and caravel): the big hulls cost more
 than gold, but there is no ship-part grind — the build materials are
-ordinary trade goods **hauled to the yard as real, visible deck cargo**.
+ordinary trade goods, and **each is sold only at its source**, so acquiring
+them is a voyage in itself, hauled to the yard as real, visible deck cargo:
+
+- **Valdran oak** — sold only in Valdran's timber country, then sailed
+  north through the contested strait.
+- **Clan iron** — the mountain clans' ore, sold only where they bring it
+  down to Havgard's coast (the lore already says the clans feed the ports).
+
 The Brovik or Edra yard lays a cog's keel once you've delivered two loads
-of build timber and iron to its dock and kept **five sealed contracts** (in
-Havgard, your ledger is your character reference). The caravel's Council
-license reads a sailor's whole record: **first dockings at ten named
-harbors, twelve contracts kept unbroken**, and three material loads —
-Valdran oak among them — delivered to Stenhavn's cliff yard, which means
-sailing build materials through contested water. Crafting cost *is* trade
-gameplay: every component can be stolen off your deck on the way. And by
-levels 20 and 30 most of this record exists naturally — the feats formalize
-the journey rather than lengthen it.
+(oak + iron) to its dock and kept **five sealed contracts** — in Havgard,
+your ledger is your character reference. The caravel's Council license
+reads a sailor's whole record: **first dockings at ten named harbors,
+twelve contracts kept unbroken**, and three source-bound loads delivered to
+Stenhavn's cliff yard. Crafting cost *is* trade gameplay: every component
+crosses pirate water and can be stolen off your deck on the way. By levels
+20 and 30 most of this record exists naturally — the feats formalize the
+journey rather than lengthen it.
+
+Deliberately **not** in this proposal: harvesting the materials yourself.
+That's a gathering-professions system (Woodcutting, Mining — new `SkillId`s
+on the same foundation), and it deserves its own proposal rather than
+riding in a boats PR. The seam is designed, though: the material items
+exist from day one, so a future gathering PR can add a harvest path to the
+same ids — fell the oak yourself instead of buying it, cheaper but slower.
+Boats create the demand; gathering, if you want it later, supplies it.
 
 A boat is owned as a **deed** (the Ultima Online pattern): place it at a dock
 or shore to launch, dry-dock it back into a rolled deed in your bag when
