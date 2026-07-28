@@ -70,18 +70,38 @@ distance sailed and first-dockings at new ports; levels unlock tiers and add
 a small speed bonus. Same curve, same cap, same UI — the foundation PR was
 built for this moment.
 
-## Ports & ferries
+## Ports & the minimum route
 
-- A **port** is a dock prop + a shipwright merchant + a ferry post at the
-  water's edge of a settlement. v1 places a handful by hand at lore sites —
-  Edra and Brovik facing across the Brosund, Stenhavn in the Silverbight —
-  plus a jetty near the starting town so the feature is reachable from spawn.
-- **Ferries** are how the boat-less cross: pay a fare at the post, and an
-  NPC ferry carries you along a fixed route (Edra ⇄ Brovik to start). Ferry
-  captains are **agent-clients** like every other NPC — they sail with the
-  same protocol players do, which keeps parity honest and gives the world
-  moving ships that aren't players. Fares priced like a coin pile or two:
-  travel should be accessible; *cargo* is where boats earn their keep.
+Your map has already placed everything this needs — Aldermark, Edra, Brovik,
+and Stenhavn are real sites on `doc/map.png` with continuous water between
+them. So v1 is one line drawn on your own map:
+
+<!-- MAP: doc/map.png overlay showing the route (attached) -->
+
+- **Aldermark → Edra**: the existing road (~8 km) — or row the spawn river
+  in a skiff. No new content needed.
+- **Edra ⇄ Brovik ferry** (~3.5 km across the Brosund): the lore's official
+  crossing, and the boat-less player's way over.
+- **Edra → Stenhavn sail** (~6 km, measured off the map render — the baked
+  water field is authoritative): east out of the strait, north up the channel,
+  into the Silverbight arm, docking under the **Council of Shipmasters** —
+  where the caravel license lives. This single A→B exercises everything the
+  system has: open-water sailing, contested water in the strait, and a
+  destination that makes Sailing 30 worth the voyage.
+
+A v1 **port** is deliberately just furniture: a dock prop, a shipwright
+merchant, a ferry post. Two of them — Edra and Stenhavn — plus the ferry
+landing at Brovik. **The towns themselves, and every NPC's name, face, and
+personality, are yours** — I'd stub neutral placeholders (a shipwright, a
+ferry captain) for you to rewrite or replace, and whether Brovik, Frihavn,
+Riftmark, or Mistfall ever get working docks is entirely your call.
+
+**Ferries** are how the boat-less cross: pay a fare at the post, and an
+NPC ferry carries you along the fixed route. Ferry captains are
+**agent-clients** like every other NPC — they sail with the same protocol
+players do, which keeps parity honest and gives the world moving ships that
+aren't players. Fares priced like a coin pile or two: travel should be
+accessible; *cargo* is where boats earn their keep.
 
 ## Cargo & simple trade
 
@@ -89,10 +109,13 @@ built for this moment.
   to the boat, loaded and unloaded only while docked or anchored. Your bag
   and equipment stay yours; the hold is the thing at sea-risk.
 - **Port trade v1 is intentionally simple**: each port's merchant stocks a
-  local commodity cheap and pays over the odds for far ones — salt from
-  Saltisle, furs and ore in Stenhavn, catalog goods in Edra. Buy low, sail,
-  sell high; profit scales with distance and hold size. No new trade UI —
-  it's the existing merchant flow with per-port price modifiers.
+  local commodity cheap and pays over the odds for far ones. The minimum
+  route needs only its two ends — Stenhavn sells Havgard furs and ore cheap,
+  Edra sells Valdran catalog goods, each paying well for the other's. Buy
+  low, sail, sell high; profit scales with distance and hold size. No new
+  trade UI — it's the existing merchant flow with per-port price modifiers.
+  (Saltisle salt and the rest of the island goods are the expansion, not
+  the start.)
 - Economy guardrail as a contract test, like fishing's: expected profit per
   hour of sailing stays within a band of the game's income faucets, so a
   route can't become a money printer without failing the suite.
@@ -129,8 +152,8 @@ slower merchant flow.
    with injected clock/RNG. Rivers and coast become traversable.
 2. **Sailing skill + tiers** — second `SkillId`, XP sources, tier gating,
    sloop/cog/caravel items + shipwright merchants.
-3. **Ports & ferries** — the hand-placed ports, ferry posts, agent-client
-   ferry captains, fares.
+3. **Ports & ferries** — the two v1 docks (Edra, Stenhavn) + the Brovik
+   ferry landing, ferry posts, agent-client ferry captains, fares.
 4. **Cargo & port trade** — the hold, per-port pricing, economy contract test.
 5. **Piracy & boarding** — intercepts, the three-way hail, boarding combat,
    hold-only loss rule, safe/contested water zones.
@@ -164,14 +187,17 @@ slower merchant flow.
    leave pirates behind a config flag or drop them entirely.
 3. **PvP boarding** — should players ever be able to initiate against
    players, or is piracy NPC-only? (My default: NPC-only v1.)
-4. **Port placement** — hand-placed at the lore sites via the map editor, or
-   do you want ports emitted by worldgen's settlement pass?
+4. **Port placement** — v1 adds dock props only at Edra and Stenhavn (your
+   map's own sites), hand-placed via the map editor. Right call, or would you
+   rather ports come out of worldgen's settlement pass?
 5. **Boat persistence** — my default: your boat lives at the port/anchorage
    where you left it (position in a new table, the `character_skills`
    pattern). One boat owned per tier, or one total?
-6. **Havgard as content** — this puts the first real content on the second
-   continent (Stenhavn's shipwright + the caravel license). Is Havgard yours
-   to build, or fair ground for contribution?
+6. **Towns & NPCs are yours** — this route puts the first working content in
+   Edra and Stenhavn. I'd ship neutral placeholder NPCs (a shipwright, a
+   ferry captain) and let you name, characterize, and re-dress them and the
+   towns however you want — or hold the PR until you've written them. Which
+   do you prefer?
 7. **Pricing** — bands above anchored to the same faucets as fishing; any
    targets you'd set differently?
 
