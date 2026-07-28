@@ -30,10 +30,16 @@ Four pieces, each a separate PR stage, each useful without the next:
 
 Same contract as fishing: nothing twitchy, nothing hidden.
 
-- Steering is **waypoint sailing**, not real-time helm work: the pilot sends
+- Steering is **waypoint sailing**, not real-time helm work: the pilot gives
   a destination, the server plots and follows a water route (the A* precedent,
-  over the water mask instead of land). A person clicks the sea; an agent
-  sends `{"type": "sail", "x": …, "z": …}`. Same information, same control.
+  over the water mask instead of land). Same information, same control.
+- The pilot's interface is the **tillerman** (the Ultima Online homage): a
+  crewman at the helm of every sailed boat. A person clicks the sea or tells
+  him in chat — "sail to Stenhavn"; an agent sends
+  `{"type": "sail", "x": …, "z": …}`. Chat is already the one interface
+  humans and agents genuinely share, so the boat's controls live in it. He
+  acknowledges in kind ("Aye — Stenhavn, by the strait"), which doubles as
+  the voyage log.
 - Boat state (`position, heading, speed, hull`) is broadcast like player
   movement — spectators and agents see what the pilot sees.
 - A pirate intercept is announced with a generous response window (hail →
@@ -64,6 +70,12 @@ it, and buying it requires having crossed the sea already. Exact prices anchored
 with the same kind of economy contract test) — my working band is skiff ≈ a
 few silver, caravel ≈ dungeon-gear territory, but that's calibration, not
 design, and I'll tune it to whatever you think.
+
+A boat is owned as a **deed** (the Ultima Online pattern): place it at a dock
+or shore to launch, dry-dock it back into a rolled deed in your bag when
+done. No abandoned hulls silting up Edra's harbor, no lost-boat support
+burden, and persistence rides the existing item system instead of a new
+table. One hull afloat per player at a time.
 
 **Sailing skill**: second `SkillId` on the system fishing added. XP from
 distance sailed and first-dockings at new ports; levels unlock tiers and add
@@ -108,6 +120,11 @@ accessible; *cargo* is where boats earn their keep.
 - A piloted boat (sloop and up) has a **hold** — a server-side inventory tied
   to the boat, loaded and unloaded only while docked or anchored. Your bag
   and equipment stay yours; the hold is the thing at sea-risk.
+- **Cargo is visible** (the ArcheAge lesson): crates stack on the deck as
+  the hold fills, so anyone — player or agent — can see who's carrying
+  value. Risk stays honest and consensual-by-behavior: pirates chase laden
+  boats on sight and let empty ones pass, and "carry nothing, lose nothing"
+  is something you can *see*, not just read in a doc.
 - **Port trade v1 is intentionally simple**: each port's merchant stocks a
   local commodity cheap and pays over the odds for far ones. The minimum
   route needs only its two ends — Stenhavn sells Havgard furs and ore cheap,
@@ -151,7 +168,8 @@ slower merchant flow.
    the water mask, the River Skiff, protocol messages, state-machine tests
    with injected clock/RNG. Rivers and coast become traversable.
 2. **Sailing skill + tiers** — second `SkillId`, XP sources, tier gating,
-   sloop/cog/caravel items + shipwright merchants.
+   sloop/cog/caravel deeds + shipwright merchants, the tillerman at the helm
+   of every sailed boat.
 3. **Ports & ferries** — the two v1 docks (Edra, Stenhavn) + the Brovik
    ferry landing, ferry posts, agent-client ferry captains, fares.
 4. **Cargo & port trade** — the hold, per-port pricing, economy contract test.
@@ -167,6 +185,12 @@ slower merchant flow.
 ## v2 ideas (not built — asking first)
 
 - **Naming your boat**, visible to other players (pure flavor, pure joy).
+- **SOS wrecks** — upgrade fishing's Message in a Bottle from a 15c token to
+  a chance of carrying wreck coordinates: sail there, anchor, and fish up
+  salvage from the deep. Wreckisle's reef graveyard finally pays out, and
+  fishing and sailing start feeding each other through one item change.
+- **A sea serpent** in deep water — the existing monster/combat system,
+  spawned at sea. Gives the Mistward fog something to hide.
 - **Fishing from a deck** — deep-water species only reachable by boat; the
   `WaterSampler` already knows depth.
 - **Circumnavigation** — the world is a cylinder; the first player to sail
@@ -190,9 +214,11 @@ slower merchant flow.
 4. **Port placement** — v1 adds dock props only at Edra and Stenhavn (your
    map's own sites), hand-placed via the map editor. Right call, or would you
    rather ports come out of worldgen's settlement pass?
-5. **Boat persistence** — my default: your boat lives at the port/anchorage
-   where you left it (position in a new table, the `character_skills`
-   pattern). One boat owned per tier, or one total?
+5. **Boat persistence** — my plan is UO-style **deeds**: dry-dock to an item
+   in your bag, place at water's edge to launch, one hull afloat per player.
+   Rides the existing item system, leaves no abandoned hulls in harbors. OK —
+   and is owning multiple deeds fine (they're just items), or cap ownership
+   too?
 6. **Towns & NPCs are yours** — this route puts the first working content in
    Edra and Stenhavn. I'd ship neutral placeholder NPCs (a shipwright, a
    ferry captain) and let you name, characterize, and re-dress them and the
