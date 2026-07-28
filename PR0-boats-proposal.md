@@ -140,12 +140,12 @@ trade run something friends do together.
 
 **Sailing skill**: second `SkillId` on the system fishing added — same
 `100·level²` curve, same cap 30, same UI. XP sources and what they pay:
-**150 XP/km under way**, **+500** per voyage (docking ≥2 km out), **+2,000**
+**400 XP/km under way**, **+500** per voyage (docking ≥2 km out), **+2,000**
 the first time you ever dock at each named port or island (~20 sites — a
 one-time ~40k discovery pool), **+2,000** per sealed contract delivered,
-**+750** for surviving a pirate encounter. In practice: an Edra→Stenhavn run
-pays ~1,400 XP (~3,400 with a contract), so an active trader earns roughly
-9k XP/hour.
+**+750** for surviving a pirate encounter. In practice: the ~25 km
+Edra→Stenhavn voyage pays ~10,500 XP (~12,500 under contract), so an active
+trader earns roughly 9k XP/hour.
 
 Against the curve (38.5k / 287k / 945.5k cumulative to levels 10/20/30),
 the gates land where I want them to *feel*: the **sloop** is earned by
@@ -170,14 +170,18 @@ them. So v1 is one line drawn on your own map:
 
 - **Aldermark → Edra**: the existing road (~8 km) — or row the spawn river
   in a skiff. No new content needed.
-- **Edra ⇄ Brovik ferry** (~3.5 km across the Brosund): the lore's official
+- **Edra ⇄ Brovik ferry** (~4 km across the Brosund): the lore's official
   crossing, and the boat-less player's way over.
-- **Edra → Stenhavn sail** (~6 km, measured off the map render — the baked
-  water field is authoritative): east out of the strait, north up the channel,
-  into the Silverbight arm, docking under the **Council of Shipmasters** —
-  where the caravel license lives. This single A→B exercises everything the
-  system has: open-water sailing, contested water in the strait, and a
-  destination that makes Sailing 30 worth the voyage.
+- **Edra → Stenhavn sail** (~25 km, traced through the actual water on the
+  map render — the baked water field is authoritative): **west** down the
+  Brosund past Brovik, around the gateway landmass's cape, up into the
+  Silverbight, and down its southeastern arm to Stenhavn — docking under
+  the **Council of Shipmasters**, where the caravel license lives. (The
+  strait's northern bay is a dead end — the voyage genuinely rounds the
+  landmass, which is what makes it a voyage.) This single A→B exercises
+  everything the system has: contested strait water, an open-sea leg, safe
+  Silverbight water at the end, the ferry stop literally en route, and a
+  destination that makes Sailing 30 worth the crossing.
 
 A v1 **port** is deliberately just furniture: a dock prop, a shipwright
 merchant, a ferry post. Two of them — Edra and Stenhavn — plus the ferry
