@@ -60,16 +60,15 @@ on the Sailing skill, and each tier's identity comes from the worldbuilding:
 | **Brosund Cog** | The broad-beamed workhorse of the Brovik–Edra strait trade; most of Duluna's legitimate cargo crosses in one | 20 | medium | large | Sold in the two strait ports (Brovik, Edra) |
 | **Silverbight Caravel** | Havgard's shipwrights are the finest in the world, and this is why; fast, tall-masted, built in Stenhavn's cliff yards | 30 | fast | large | **Stenhavn only**, and only to those the Council of Shipmasters will license — i.e. you have to sail there first on something lesser |
 
-The skiff needs no skill at all — anyone can row — so the system is open
-from level 0, and every level thereafter is earned at your own tiller.
-
-The skiff is deliberately the rod of this system: no skill gate, cheap
-enough that the feature is for everyone, day one. The caravel is deliberately
+The skiff is deliberately the rod of this system: no skill gate (anyone can
+row), cheap enough that the feature is for everyone, day one — every Sailing
+level thereafter is earned at your own tiller. The caravel is deliberately
 the sturgeon: it tops out at the skill cap (30), you earn the right to buy
-it, and buying it requires having crossed the sea already. Exact prices anchored to the income faucets as before (and locked
-with the same kind of economy contract test) — my working band is skiff ≈ a
-few silver, caravel ≈ dungeon-gear territory, but that's calibration, not
-design, and I'll tune it to whatever you think.
+it, and buying it requires having crossed the sea already. Exact prices
+anchored to the income faucets as before (and locked with the same kind of
+economy contract test) — my working band is skiff ≈ a few silver, caravel ≈
+dungeon-gear territory, but that's calibration, not design, and I'll tune it
+to whatever you think.
 
 A boat is owned as a **deed** (the Ultima Online pattern): place it at a dock
 or shore to launch, dry-dock it back into a rolled deed in your bag when
