@@ -26,7 +26,14 @@ impl ItemDef {
     pub fn is_consumable(&self) -> bool {
         matches!(
             self.category.as_deref(),
-            Some("healing_potion" | "return_scroll" | "enchant_scroll" | "fish")
+            Some(
+                "healing_potion"
+                    | "return_scroll"
+                    | "enchant_scroll"
+                    | "fish"
+                    | "coin_catch"
+                    | "boat_deed"
+            )
         )
     }
 }
@@ -85,6 +92,15 @@ mod tests {
         let def = get("healing_potion").expect("healing potion is defined");
         assert!(def.is_consumable());
         assert!(def.equip_slot.is_none());
+    }
+
+    /// The fishing outcome line tells the agent to *use* a hauled-up coin
+    /// pouch — the consumable set has to agree, or the advice dead-ends in
+    /// a `[UseFailed]`.
+    #[test]
+    fn a_coin_pouch_is_usable_from_the_bag() {
+        let def = get("sunken_coin_pouch").expect("coin pouch is defined");
+        assert!(def.is_consumable());
     }
 
     #[test]
