@@ -6797,4 +6797,281 @@ mod boat_tests {
             done.x
         );
     }
+
+    /// A bystander with a direct channel, close enough to watch the boat.
+    async fn make_watcher(
+        game_state: &GameState,
+        name: &str,
+        x: f32,
+        z: f32,
+    ) -> (
+        PlayerId,
+        tokio::sync::mpsc::UnboundedReceiver<ServerMessage>,
+    ) {
+        let id = pid(name);
+        game_state.add_player(make_player(name, x, z)).await;
+        game_state
+            .register_player_character(&id, 3, 0, attrs_with_cha(10), 0)
+            .await;
+        let rx = game_state.register_direct_channel(&id).await;
+        (id, rx)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn two_riders_ride_together_without_player_moved_spam() {
+        let game_state = make_river_game_state("boat_ride_together");
+        let (owner, boat_id, mut owner_rx) = launch_on_river(&game_state, "pilot", 0.0, 0.0).await;
+        let hull = game_state
+            .boats
+            .read()
+            .await
+            .get(&boat_id)
+            .unwrap()
+            .position;
+
+        // A friend standing by the hull climbs aboard into seat 1.
+        let (friend, mut friend_rx) =
+            make_watcher(&game_state, "friend", hull.x + 2.0, hull.z).await;
+        game_state.board_boat(&friend, boat_id).await;
+        let boarded = drain(&mut friend_rx);
+        assert!(boarded.iter().any(
+            |m| matches!(m, ServerMessage::BoatBoarded { player_id, seat: 1, .. } if *player_id == friend)
+        ));
+
+        // And a spectator on the bank watches the voyage.
+        let (_, mut watcher_rx) =
+            make_watcher(&game_state, "bank_watcher", hull.x, hull.z + 20.0).await;
+
+        game_state.sail_boat(&owner, hull.x, hull.z + 30.0).await;
+        drain(&mut owner_rx);
+        drain(&mut friend_rx);
+        drain(&mut watcher_rx);
+        for _ in 0..30 {
+            game_state.tick_boats(0.2).await;
+        }
+
+        // Both riders' server positions track the hull exactly.
+        let boat_pos = game_state
+            .boats
+            .read()
+            .await
+            .get(&boat_id)
+            .unwrap()
+            .position;
+        {
+            let players = game_state.players.read().await;
+            assert_eq!(players.get(&owner).unwrap().position.z, boat_pos.z);
+            assert_eq!(players.get(&friend).unwrap().position.z, boat_pos.z);
+        }
+
+        // The spectator saw the boat move — and neither rider "walk".
+        let seen = drain(&mut watcher_rx);
+        assert!(seen
+            .iter()
+            .any(|m| matches!(m, ServerMessage::BoatState { .. })));
+        assert!(
+            seen.iter()
+                .all(|m| !matches!(m, ServerMessage::PlayerMoved { .. })),
+            "riders are carried by BoatState, never PlayerMoved"
+        );
+
+        // Going ashore is refused in open water (the river world is deep
+        // everywhere, so there is no dry point to land on).
+        game_state.leave_boat(&friend).await;
+        assert!(drain(&mut friend_rx).iter().any(
+            |m| matches!(m, ServerMessage::BoatError { message } if message.contains("Open water"))
+        ));
+
+        // Walking, fighting and fishing are refused while aboard.
+        game_state
+            .update_player_position(
+                &friend,
+                MoveCommand {
+                    position: Position {
+                        x: 0.0,
+                        y: 0.0,
+                        z: 0.0,
+                    },
+                    rotation: 0.0,
+                    floor_level: 0,
+                    append: false,
+                },
+                false,
+                false,
+            )
+            .await;
+        game_state
+            .broadcast_player_attack(&friend, "m1_1".into())
+            .await;
+        game_state
+            .start_fishing(
+                &friend,
+                Position {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 4.0,
+                },
+            )
+            .await;
+        let refusals = drain(&mut friend_rx);
+        assert!(refusals.iter().any(
+            |m| matches!(m, ServerMessage::BoatError { message } if message.contains("sail it or step ashore"))
+        ));
+        assert!(refusals.iter().any(
+            |m| matches!(m, ServerMessage::BoatError { message } if message.contains("cannot fight"))
+        ));
+        assert!(refusals.iter().any(
+            |m| matches!(m, ServerMessage::BoatError { message } if message.contains("cannot fish"))
+        ));
+        // And the boat did not move an inch for any of it.
+        assert_eq!(
+            game_state
+                .boats
+                .read()
+                .await
+                .get(&boat_id)
+                .unwrap()
+                .position
+                .z,
+            boat_pos.z
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn boarding_rejects_far_full_and_double() {
+        let game_state = make_river_game_state("boat_board_rejects");
+        let (_, boat_id, _rx) = launch_on_river(&game_state, "pilot", 0.0, 0.0).await;
+        let hull = game_state
+            .boats
+            .read()
+            .await
+            .get(&boat_id)
+            .unwrap()
+            .position;
+
+        // Too far: BOARD_RADIUS_M is 3.
+        let (far, mut far_rx) =
+            make_watcher(&game_state, "far_swimmer", hull.x + 10.0, hull.z).await;
+        game_state.board_boat(&far, boat_id).await;
+        assert!(drain(&mut far_rx).iter().any(
+            |m| matches!(m, ServerMessage::BoatError { message } if message.contains("too far"))
+        ));
+
+        // Fill the remaining seats, then one more is refused.
+        for (i, name) in ["mate_a", "mate_b", "mate_c"].iter().enumerate() {
+            let (mate, mut mate_rx) = make_watcher(&game_state, name, hull.x + 1.0, hull.z).await;
+            game_state.board_boat(&mate, boat_id).await;
+            assert!(
+                drain(&mut mate_rx).iter().any(
+                    |m| matches!(m, ServerMessage::BoatBoarded { seat, .. } if *seat == (i + 1) as u8)
+                ),
+                "{name} takes seat {}",
+                i + 1
+            );
+        }
+        let (late, mut late_rx) =
+            make_watcher(&game_state, "latecomer", hull.x + 1.0, hull.z).await;
+        game_state.board_boat(&late, boat_id).await;
+        assert!(drain(&mut late_rx).iter().any(
+            |m| matches!(m, ServerMessage::BoatError { message } if message.contains("full"))
+        ));
+
+        // Boarding twice from a seat is refused.
+        let mate_a = pid("mate_a");
+        let mut mate_a_rx = game_state.register_direct_channel(&mate_a).await;
+        game_state.board_boat(&mate_a, boat_id).await;
+        assert!(drain(&mut mate_a_rx)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::BoatError { message } if message.contains("already aboard"))));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn death_and_disconnect_pull_players_off_the_boat() {
+        let game_state = make_river_game_state("boat_death_disconnect");
+        let (owner, boat_id, mut owner_rx) = launch_on_river(&game_state, "pilot", 0.0, 0.0).await;
+        let hull = game_state
+            .boats
+            .read()
+            .await
+            .get(&boat_id)
+            .unwrap()
+            .position;
+        let (friend, mut friend_rx) =
+            make_watcher(&game_state, "friend", hull.x + 2.0, hull.z).await;
+        game_state.board_boat(&friend, boat_id).await;
+        drain(&mut owner_rx);
+        drain(&mut friend_rx);
+
+        // The friend dies: their seat frees, the boat stays afloat.
+        game_state
+            .players
+            .write()
+            .await
+            .get_mut(&friend)
+            .unwrap()
+            .health = 0;
+        game_state.on_player_died(&friend).await;
+        assert!(game_state.is_aboard(&friend).await.is_none());
+        assert!(game_state.boats.read().await.contains_key(&boat_id));
+        assert!(drain(&mut owner_rx).iter().any(
+            |m| matches!(m, ServerMessage::BoatLeft { player_id, .. } if *player_id == friend)
+        ));
+
+        // The owner drops mid-voyage: last one off takes the hull with
+        // them — the deed model leaves no orphan boats.
+        game_state.sail_boat(&owner, hull.x, hull.z + 30.0).await;
+        game_state.remove_from_boat_if_aboard(&owner).await;
+        assert!(game_state.is_aboard(&owner).await.is_none());
+        assert!(
+            !game_state.boats.read().await.contains_key(&boat_id),
+            "an empty hull despawns back into its deed"
+        );
+        // And a repeat call is a quiet no-op (the chokepoint idiom).
+        game_state.remove_from_boat_if_aboard(&owner).await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn anchored_boats_are_announced_to_players_entering_range() {
+        let game_state = make_river_game_state("boat_aoi_entry");
+        let (_, boat_id, _rx) = launch_on_river(&game_state, "pilot", 0.0, 0.0).await;
+        let hull = game_state
+            .boats
+            .read()
+            .await
+            .get(&boat_id)
+            .unwrap()
+            .position;
+
+        // A stranger teleports in from far outside the delivery radius,
+        // then steps within it (trusted moves skip the walking sim).
+        let (stranger, mut stranger_rx) =
+            make_watcher(&game_state, "stranger", hull.x + 200.0, hull.z).await;
+        drain(&mut stranger_rx);
+        for (target_x, expect_boat) in [(hull.x + 150.0, false), (hull.x + 10.0, true)] {
+            game_state
+                .update_player_position(
+                    &stranger,
+                    MoveCommand {
+                        position: Position {
+                            x: target_x,
+                            y: 0.0,
+                            z: hull.z,
+                        },
+                        rotation: 0.0,
+                        floor_level: 0,
+                        append: false,
+                    },
+                    true,
+                    false,
+                )
+                .await;
+            let saw_boat = drain(&mut stranger_rx)
+                .iter()
+                .any(|m| matches!(m, ServerMessage::BoatSpawned { boat } if boat.id == boat_id));
+            assert_eq!(
+                saw_boat, expect_boat,
+                "at {target_x}: boat announcement should be {expect_boat}"
+            );
+        }
+    }
 }

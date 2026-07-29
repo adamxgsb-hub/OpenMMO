@@ -155,6 +155,13 @@ impl GameState {
     /// Handle `ClientMessage::FishingCast`: validate everything the design
     /// requires (rod, floor, range, water, liveness) and open the session.
     pub async fn start_fishing(&self, player_id: &PlayerId, target: Position) {
+        // Casting from the deck is a listed follow-up, not part of this
+        // slice (doc/BOATS.md).
+        if self.is_aboard(player_id).await.is_some() {
+            self.send_boat_error(player_id, "You cannot fish from the boat.")
+                .await;
+            return;
+        }
         if self.fishing_sessions.read().await.contains_key(player_id) {
             self.send_fishing_error(player_id, "You are already fishing.")
                 .await;

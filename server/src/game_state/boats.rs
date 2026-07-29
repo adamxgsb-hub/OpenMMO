@@ -11,7 +11,8 @@
 use std::collections::VecDeque;
 
 use onlinerpg_shared::boats::{
-    BoatId, BoatPassenger, BoatSnapshot, BOAT_SEATS, MIN_NAV_DEPTH_M, SHORE_PROBE_RADIUS_M,
+    BoatId, BoatPassenger, BoatSnapshot, BOARD_RADIUS_M, BOAT_SEATS, MIN_NAV_DEPTH_M,
+    SHORE_PROBE_RADIUS_M,
 };
 use onlinerpg_shared::messages::ServerMessage;
 use onlinerpg_shared::{wrap_world_x, PlayerId, Position};
@@ -37,8 +38,9 @@ pub(crate) struct Boat {
     /// Water-validated waypoints ahead, `y` pre-sampled — `tick_boats`
     /// follows them without touching a sampler.
     pub route: VecDeque<Position>,
-    /// Everyone aboard; index is the seat, the owner holds seat 0.
-    pub passengers: Vec<PlayerId>,
+    /// Fixed seats: index is the seat number, the owner holds seat 0.
+    /// Slots stay put when someone leaves, so nobody is ever re-seated.
+    pub seats: [Option<PlayerId>; BOAT_SEATS],
 }
 
 impl Boat {
@@ -49,15 +51,25 @@ impl Boat {
             position: self.position,
             heading: self.heading,
             passengers: self
-                .passengers
+                .seats
                 .iter()
                 .enumerate()
-                .map(|(seat, player_id)| BoatPassenger {
-                    player_id: *player_id,
-                    seat: seat as u8,
+                .filter_map(|(seat, player_id)| {
+                    player_id.map(|player_id| BoatPassenger {
+                        player_id,
+                        seat: seat as u8,
+                    })
                 })
                 .collect(),
         }
+    }
+
+    pub fn riders(&self) -> Vec<PlayerId> {
+        self.seats.iter().flatten().copied().collect()
+    }
+
+    pub fn is_rider(&self, player_id: &PlayerId) -> bool {
+        self.seats.iter().flatten().any(|id| id == player_id)
     }
 }
 
@@ -79,7 +91,7 @@ impl GameState {
             .read()
             .await
             .values()
-            .find(|boat| boat.passengers.contains(player_id))
+            .find(|boat| boat.is_rider(player_id))
             .map(|boat| boat.id)
     }
 
@@ -147,7 +159,11 @@ impl GameState {
                 position: spot,
                 heading,
                 route: VecDeque::new(),
-                passengers: vec![*player_id],
+                seats: {
+                    let mut seats = [None; BOAT_SEATS];
+                    seats[0] = Some(*player_id);
+                    seats
+                },
             };
             let snapshot = boat.snapshot();
             boats.insert(boat_id, boat);
@@ -191,7 +207,7 @@ impl GameState {
                     .await;
                 return;
             }
-            if boat.passengers.len() > 1 {
+            if boat.riders().len() > 1 {
                 self.send_boat_error(
                     player_id,
                     "You cannot pack up the boat while others are aboard.",
@@ -317,7 +333,7 @@ impl GameState {
         .await;
     }
 
-    pub(super) async fn send_boat_error(&self, player_id: &PlayerId, message: &str) {
+    pub(crate) async fn send_boat_error(&self, player_id: &PlayerId, message: &str) {
         self.send_direct_message(
             player_id,
             ServerMessage::BoatError {
@@ -335,10 +351,7 @@ impl GameState {
     pub async fn sail_boat(&self, player_id: &PlayerId, x: f32, z: f32) {
         let (boat_id, boat_pos) = {
             let boats = self.boats.read().await;
-            let Some(boat) = boats
-                .values()
-                .find(|boat| boat.passengers.contains(player_id))
-            else {
+            let Some(boat) = boats.values().find(|boat| boat.is_rider(player_id)) else {
                 self.send_boat_error(player_id, "You are not aboard a boat.")
                     .await;
                 return;
@@ -407,10 +420,7 @@ impl GameState {
     pub async fn stop_sailing(&self, player_id: &PlayerId) {
         let state_msg = {
             let mut boats = self.boats.write().await;
-            let Some(boat) = boats
-                .values_mut()
-                .find(|boat| boat.passengers.contains(player_id))
-            else {
+            let Some(boat) = boats.values_mut().find(|boat| boat.is_rider(player_id)) else {
                 return;
             };
             if boat.owner != *player_id || boat.route.is_empty() {
@@ -436,7 +446,7 @@ impl GameState {
             .read()
             .await
             .get(&boat_id)
-            .map(|boat| boat.passengers.clone())
+            .map(|boat| boat.riders())
             .unwrap_or_default()
     }
 
@@ -468,7 +478,7 @@ impl GameState {
                         new_position,
                         heading,
                         !boat.route.is_empty(),
-                        boat.passengers.clone(),
+                        boat.riders(),
                     ));
                 }
             }
@@ -493,9 +503,9 @@ impl GameState {
         }
     }
 
-    /// Move one rider with the hull: position write, spatial-cell move and
-    /// the dirty flag for the periodic save — deliberately no `PlayerMoved`
-    /// (clients place riders from `BoatState`).
+    /// Move one rider with the hull: position write, spatial-cell move, the
+    /// dirty flag for the periodic save, and the appearance-only AOI diff —
+    /// deliberately no `PlayerMoved` (clients place riders from `BoatState`).
     async fn carry_rider(
         &self,
         player_id: &PlayerId,
@@ -503,19 +513,211 @@ impl GameState {
         new_position: &Position,
         heading: f32,
     ) {
-        {
+        let moved_player = {
             let mut players = self.players.write().await;
             let Some(player) = players.get_mut(player_id) else {
                 return;
             };
             player.position = *new_position;
             player.rotation = heading;
-        }
+            player.clone()
+        };
         self.move_player_spatial_cell(player_id, old_position, new_position)
             .await;
         self.mark_dirty(player_id).await;
+        self.fanout_player_position_update(
+            player_id,
+            old_position,
+            OVERWORLD_FLOOR,
+            &moved_player,
+            None,
+        )
+        .await;
+    }
+
+    /// Handle `ClientMessage::BoardBoat`: climb aboard a nearby hull into
+    /// the lowest free seat.
+    pub async fn board_boat(&self, player_id: &PlayerId, boat_id: BoatId) {
+        let (player_pos, player_floor, alive) = {
+            let players = self.players.read().await;
+            let Some(p) = players.get(player_id) else {
+                return;
+            };
+            (p.position, p.floor_level, p.health > 0)
+        };
+        if !alive || player_floor != OVERWORLD_FLOOR {
+            self.send_boat_error(player_id, "You cannot board a boat right now.")
+                .await;
+            return;
+        }
+        if self.is_aboard(player_id).await.is_some() {
+            self.send_boat_error(player_id, "You are already aboard.")
+                .await;
+            return;
+        }
+
+        let (boat_pos, heading, seat) = {
+            let mut boats = self.boats.write().await;
+            let Some(boat) = boats.get_mut(&boat_id) else {
+                self.send_boat_error(player_id, "That boat is gone.").await;
+                return;
+            };
+            let dx = onlinerpg_shared::shortest_world_delta_x(player_pos.x, boat.position.x);
+            let dz = boat.position.z - player_pos.z;
+            if dx * dx + dz * dz > BOARD_RADIUS_M * BOARD_RADIUS_M {
+                drop(boats);
+                self.send_boat_error(player_id, "The boat is too far away.")
+                    .await;
+                return;
+            }
+            let Some(seat) = boat.seats.iter().position(|slot| slot.is_none()) else {
+                drop(boats);
+                self.send_boat_error(player_id, "The boat is full.").await;
+                return;
+            };
+            boat.seats[seat] = Some(*player_id);
+            (boat.position, boat.heading, seat as u8)
+        };
+
+        // Step aboard: one trusted hop onto the hull (with its PlayerMoved,
+        // like the launch hop) — after this, `BoatState` carries the rider.
+        self.cancel_fishing_if_active(player_id).await;
+        self.apply_player_position(
+            player_id,
+            boat_pos,
+            heading,
+            OVERWORLD_FLOOR,
+            ServerMessage::PlayerMoved {
+                player_id: *player_id,
+                position: boat_pos,
+                rotation: heading,
+                floor_level: OVERWORLD_FLOOR,
+            },
+        )
+        .await;
+        self.broadcast_boat(
+            &boat_pos,
+            ServerMessage::BoatBoarded {
+                boat_id,
+                player_id: *player_id,
+                seat,
+            },
+        )
+        .await;
+    }
+
+    /// Handle `ClientMessage::LeaveBoat`: step ashore at a probed dry point
+    /// near the hull. The last rider off takes the boat with them — hulls
+    /// never float abandoned (the deed model has no orphan boats).
+    pub async fn leave_boat(&self, player_id: &PlayerId) {
+        let Some(boat_id) = self.is_aboard(player_id).await else {
+            self.send_boat_error(player_id, "You are not aboard a boat.")
+                .await;
+            return;
+        };
+        let boat_pos = {
+            let boats = self.boats.read().await;
+            let Some(boat) = boats.get(&boat_id) else {
+                return;
+            };
+            boat.position
+        };
+        let Some(shore) = self.find_shore_point(&boat_pos).await else {
+            self.send_boat_error(player_id, "Open water — sail closer to shore first.")
+                .await;
+            return;
+        };
+        self.unseat_rider(player_id, boat_id, shore).await;
+    }
+
+    /// Death and disconnect both pull a player off their boat — the quiet
+    /// no-op twin of `cancel_fishing_if_active`. No shore probe: the dead
+    /// respawn at the spawn point anyway, and the disconnected keep the
+    /// hull's position for their next login.
+    pub async fn remove_from_boat_if_aboard(&self, player_id: &PlayerId) {
+        let Some(boat_id) = self.is_aboard(player_id).await else {
+            return;
+        };
+        let landing = {
+            let players = self.players.read().await;
+            let Some(p) = players.get(player_id) else {
+                return;
+            };
+            p.position
+        };
+        self.unseat_rider(player_id, boat_id, landing).await;
+    }
+
+    /// Shared exit path: free the seat, land the rider at `landing`,
+    /// broadcast `BoatLeft`, anchor a pilotless boat, and despawn an empty
+    /// hull back into its deed.
+    async fn unseat_rider(&self, player_id: &PlayerId, boat_id: BoatId, landing: Position) {
+        let (boat_pos, now_empty) = {
+            let mut boats = self.boats.write().await;
+            let Some(boat) = boats.get_mut(&boat_id) else {
+                return;
+            };
+            for slot in boat.seats.iter_mut() {
+                if *slot == Some(*player_id) {
+                    *slot = None;
+                }
+            }
+            if boat.owner == *player_id {
+                // The hand leaves the tiller: the boat anchors where it is.
+                boat.route.clear();
+            }
+            let now_empty = boat.riders().is_empty();
+            let boat_pos = boat.position;
+            if now_empty {
+                boats.remove(&boat_id);
+            }
+            (boat_pos, now_empty)
+        };
+
+        self.apply_player_position(
+            player_id,
+            landing,
+            0.0,
+            OVERWORLD_FLOOR,
+            ServerMessage::PlayerMoved {
+                player_id: *player_id,
+                position: landing,
+                rotation: 0.0,
+                floor_level: OVERWORLD_FLOOR,
+            },
+        )
+        .await;
+        self.broadcast_boat(
+            &boat_pos,
+            ServerMessage::BoatLeft {
+                boat_id,
+                player_id: *player_id,
+                position: landing,
+            },
+        )
+        .await;
+        if now_empty {
+            self.broadcast_boat(&boat_pos, ServerMessage::BoatRemoved { boat_id })
+                .await;
+        }
+    }
+
+    /// Snapshots of every boat within `radius` of a point on the overworld —
+    /// what a joining or approaching player needs to render.
+    pub(crate) async fn boat_snapshots_within(
+        &self,
+        position: &Position,
+        radius: f32,
+    ) -> Vec<BoatSnapshot> {
+        let radius_sq = radius * radius;
+        self.boats
+            .read()
+            .await
+            .values()
+            .filter(|boat| position.dist_xz_sq(&boat.position) <= radius_sq)
+            .map(|boat| boat.snapshot())
+            .collect()
     }
 }
 
-// Referenced by later stages (boarding fills seats up to BOAT_SEATS).
 const _: () = assert!(BOAT_SEATS >= 2, "a boat you cannot share is a canoe");

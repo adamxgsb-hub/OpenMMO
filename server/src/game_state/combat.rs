@@ -80,6 +80,14 @@ impl super::GameState {
     }
 
     pub async fn broadcast_player_attack(&self, player_id: &PlayerId, monster_id: String) {
+        // No fighting from the deck in this slice — combat at sea is an open
+        // design question (doc/BOATS.md); refusing keeps it undecided rather
+        // than accidentally answered.
+        if self.is_aboard(player_id).await.is_some() {
+            self.send_boat_error(player_id, "You cannot fight from the boat.")
+                .await;
+            return;
+        }
         // 1. Check if monster exists and is alive first, get its type
         let (
             monster_type,
@@ -711,6 +719,8 @@ impl super::GameState {
     pub(super) async fn on_player_died(&self, player_id: &PlayerId) {
         self.movement_intents.write().await.remove(player_id);
         self.cancel_fishing_if_active(player_id).await;
+        // The defeated slip from their seat too (respawn teleports them).
+        self.remove_from_boat_if_aboard(player_id).await;
         self.apply_player_death_penalty(player_id).await;
     }
 

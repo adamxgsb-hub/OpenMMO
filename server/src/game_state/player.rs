@@ -586,6 +586,13 @@ impl super::GameState {
             floor_level,
             append,
         } = cmd;
+        // Aboard a boat there is no walking: the hull carries you. Sail it,
+        // or step ashore with LeaveBoat (doc/BOATS.md).
+        if !trusted && self.is_aboard(player_id).await.is_some() {
+            self.send_boat_error(player_id, "You are on a boat — sail it or step ashore.")
+                .await;
+            return;
+        }
         if exceeds_positive_floor_limit(floor_level) {
             self.reject_out_of_range_floor(player_id, floor_level, "move")
                 .await;
@@ -969,7 +976,7 @@ impl super::GameState {
             &old_position,
             old_floor,
             &moved_player,
-            update_msg,
+            Some(update_msg),
         )
         .await;
     }
@@ -1285,13 +1292,16 @@ impl super::GameState {
         cells.entry(new_cell).or_default().insert(*player_id);
     }
 
-    async fn fanout_player_position_update(
+    /// `update_msg: None` is the boat-rider mode: run the full AOI diff
+    /// (appear/disappear, monsters, ground items, boats) without emitting a
+    /// movement message — `BoatState` is the rider's movement message.
+    pub(super) async fn fanout_player_position_update(
         &self,
         player_id: &PlayerId,
         old_position: &Position,
         old_floor: i8,
         player: &Player,
-        update_msg: ServerMessage,
+        update_msg: Option<ServerMessage>,
     ) {
         // Visibility is per-floor: the old set is who could see the player on
         // the floor it left, the new set is who can see it on the floor it is
@@ -1438,10 +1448,33 @@ impl super::GameState {
                 .await;
         }
 
-        self.send_direct_message(player_id, update_msg.clone())
-            .await;
-        self.send_direct_message_to_players(&stayed, update_msg)
-            .await;
+        // Anchored boats swim into view like monsters do: announce the ones
+        // entering this player's radius. (Leaving ones age out client-side
+        // when their BoatState falls silent; a BoatRemoved here would lie —
+        // the boat still exists.)
+        let boats_entered = {
+            let boats = self.boats.read().await;
+            let radius_sq = super::EVENT_DELIVERY_RADIUS * super::EVENT_DELIVERY_RADIUS;
+            boats
+                .values()
+                .filter(|boat| {
+                    old_position.dist_xz_sq(&boat.position) > radius_sq
+                        && player.position.dist_xz_sq(&boat.position) <= radius_sq
+                })
+                .map(|boat| boat.snapshot())
+                .collect::<Vec<_>>()
+        };
+        for boat in boats_entered {
+            self.send_direct_message(player_id, ServerMessage::BoatSpawned { boat })
+                .await;
+        }
+
+        if let Some(update_msg) = update_msg {
+            self.send_direct_message(player_id, update_msg.clone())
+                .await;
+            self.send_direct_message_to_players(&stayed, update_msg)
+                .await;
+        }
     }
 
     pub async fn player_ids_within_position(

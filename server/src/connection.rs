@@ -484,6 +484,7 @@ pub async fn handle_connection(
     if !shutdown_started.has_changed().unwrap_or(true) {
         if let Some(ref id) = state.player_id {
             game_state.cancel_fishing_if_active(id).await;
+            game_state.remove_from_boat_if_aboard(id).await;
             game_state.persist_and_detach_player(id, auth_service).await;
 
             game_state.unregister_direct_channel(id).await;
@@ -1012,6 +1013,12 @@ async fn handle_client_message(
             if let Some(game_state_msg) = game_state.add_player(player).await {
                 responses.push(game_state_msg);
             }
+            for boat in game_state
+                .boat_snapshots_within(&rejoin_pos, onlinerpg_shared::EVENT_DELIVERY_RADIUS)
+                .await
+            {
+                responses.push(ServerMessage::BoatSpawned { boat });
+            }
             if rejoin_floor < 0 {
                 // Rejoining inside a dungeon: enter its floor (occupancy
                 // + lazy monster spawn with this player as AI owner).
@@ -1179,8 +1186,21 @@ async fn handle_client_message(
             }
         }
 
-        // Wired to their handlers in the boarding commit that follows.
-        ClientMessage::BoardBoat { .. } | ClientMessage::LeaveBoat => {}
+        ClientMessage::BoardBoat { boat_id } => {
+            if let Some(id) = &state.player_id {
+                game_state.board_boat(id, boat_id).await;
+            } else {
+                warn!("Received board request from client that is not in game");
+            }
+        }
+
+        ClientMessage::LeaveBoat => {
+            if let Some(id) = &state.player_id {
+                game_state.leave_boat(id).await;
+            } else {
+                warn!("Received leave-boat from client that is not in game");
+            }
+        }
 
         ClientMessage::MonsterAttack {
             monster_id,
