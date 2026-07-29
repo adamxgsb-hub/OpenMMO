@@ -25,6 +25,7 @@ export const CHARACTER_ANIMATION_PACK_PATHS = {
   social: '/models/animations/social.glb',
   offhand: '/models/animations/offhand.glb',
   fishing: '/models/animations/fishing.glb',
+  boat: '/models/animations/boat.glb',
 } as const
 
 export function getWeaponModelPath(worldModel: string): string {

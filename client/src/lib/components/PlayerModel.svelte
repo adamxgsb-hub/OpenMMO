@@ -434,16 +434,20 @@
     if (socialLoading || socialClipsByName.size > 0) return
     socialLoading = true
     try {
-      // Interaction-state clips come from two packs; both land in the same
+      // Interaction-state clips come from three packs; all land in the same
       // by-name map since interactionAnim is resolved purely by clip name.
-      const [socialGltf, fishingGltf] = await Promise.all([
+      const [socialGltf, fishingGltf, boatGltf] = await Promise.all([
         loadGLB(CHARACTER_ANIMATION_PACK_PATHS.social),
         loadGLB(CHARACTER_ANIMATION_PACK_PATHS.fishing),
+        loadGLB(CHARACTER_ANIMATION_PACK_PATHS.boat),
       ])
       for (const clip of getGltfAnimations(socialGltf)) {
         socialClipsByName.set(clip.name, clip)
       }
       for (const clip of getGltfAnimations(fishingGltf)) {
+        socialClipsByName.set(clip.name, clip)
+      }
+      for (const clip of getGltfAnimations(boatGltf)) {
         socialClipsByName.set(clip.name, clip)
       }
     } finally {
@@ -544,10 +548,13 @@
 
     const newAction = mixer.clipAction(clip)
 
-    // The fishing idle is a stance held for the whole wait, not a one-shot
-    // gesture like pickup — it loops until the fishing session ends.
-    const playOnce =
-      playerState !== 'moving' && interactionAnim !== FishingAnimationName.IDLE
+    // Stances held for a whole session loop (the fishing wait, a boat
+    // seat); one-shot gestures like pickup clamp on their last frame.
+    const heldStance =
+      interactionAnim === FishingAnimationName.IDLE ||
+      interactionAnim === 'sit' ||
+      interactionAnim === 'row'
+    const playOnce = playerState !== 'moving' && !heldStance
     newAction.reset()
     newAction.loop = playOnce ? THREE.LoopOnce : THREE.LoopRepeat
     newAction.clampWhenFinished = playOnce

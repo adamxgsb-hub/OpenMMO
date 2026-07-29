@@ -7026,8 +7026,53 @@ mod boat_tests {
             !game_state.boats.read().await.contains_key(&boat_id),
             "an empty hull despawns back into its deed"
         );
+        assert!(
+            drain(&mut owner_rx).iter().any(|m| matches!(m,
+                ServerMessage::SystemMessage { message } if message.contains("folds back into its deed"))),
+            "the owner is told the hull returned to the deed, not silently lost"
+        );
         // And a repeat call is a quiet no-op (the chokepoint idiom).
         game_state.remove_from_boat_if_aboard(&owner).await;
+    }
+
+    /// A player who disconnects mid-voyage is saved at the hull's position:
+    /// open water. Login detects that and finds them a standing spot.
+    #[tokio::test(start_paused = true)]
+    async fn deep_water_logins_are_detected_and_rescued_ashore() {
+        let game_state = make_test_game_state("boat_deep_login");
+
+        let wet = Position {
+            x: -40.0,
+            y: 0.0,
+            z: 0.0,
+        };
+        assert!(game_state.is_deep_water(&wet).await);
+        let dry = Position {
+            x: 10.0,
+            y: 0.0,
+            z: 0.0,
+        };
+        assert!(!game_state.is_deep_water(&dry).await);
+
+        // Just off the beach the shore probe reaches standing depth …
+        let near = Position {
+            x: -34.0,
+            y: 0.0,
+            z: 0.0,
+        };
+        let shore = game_state
+            .find_shore_point(&near)
+            .await
+            .expect("shore within probe range");
+        assert!(!game_state.is_deep_water(&shore).await);
+
+        // … far out at sea it finds nothing, and login falls back to spawn.
+        let far = Position {
+            x: -200.0,
+            y: 0.0,
+            z: 0.0,
+        };
+        assert!(game_state.find_shore_point(&far).await.is_none());
     }
 
     #[tokio::test(start_paused = true)]

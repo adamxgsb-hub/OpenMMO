@@ -26,6 +26,11 @@
 
 - Fishing Cast https://www.mixamo.com/#/?query=fishing&type=Motion%2CMotionPack (fishing pack, `fishing_cast`)
 - Fishing Idle https://www.mixamo.com/#/?query=fishing&type=Motion%2CMotionPack (fishing pack, `fishing_idle`)
+- Sitting Idle https://www.mixamo.com/#/?query=sitting&type=Motion%2CMotionPack (boat pack, `sit`)
+- Rowing (boat pack, `row`) — 상체는 Meshy.ai AI-to-Motion (유료 생성, 2026-07-29,
+  contributor-owned account), 하체는 위 Sitting Idle의 첫 프레임 고정. Meshy rig
+  (stripped-Mixamo 변형)에서 local rest-delta 리타게팅으로 게임 스켈레톤에 옮김
+  (레그 본은 rest 축 차이로 리타게팅이 깨져 합성으로 대체)
   - 두 fishing 액션의 `RightHand` 키에는 로컬 Z +40° 오프셋이 bake되어 있다 (탑다운
     카메라에서 로드가 시선 축과 겹쳐 안 보이던 것을 화면에 보이게 트는 각도).
     Mixamo에서 재임포트하면 오프셋이 사라지므로 다시 적용할 것.

@@ -71,7 +71,14 @@ where the tests can reach it. Dying and disconnecting pull a player from
 their seat through the existing `on_player_died` / disconnect chokepoints.
 Going ashore probes `SHORE_PROBE_RADIUS_M` around the hull for water
 shallow enough to stand in; in open water it is refused. The last rider
-off takes the hull with them — the deed model leaves no orphan boats.
+off takes the hull with them — the deed model leaves no orphan boats —
+and both the owner and the last rider are told the boat folded back into
+its deed, so its despawn never reads as a loss.
+
+Disconnecting mid-voyage saves the rider at the hull's position, which is
+open water. Login detects a deep-water saved position and rescues it: to
+a shore point within probe range if one exists, to the world spawn
+otherwise — nobody logs in standing on the sea bed.
 
 ## Client
 
@@ -83,9 +90,9 @@ off takes the hull with them — the deed model leaves no orphan boats.
 - `managers/boatManager.ts` — interpolation between `BoatState`s; also the
   hull click-target registry.
 - `components/Boat.svelte` — the Meshy-generated rowboat hull
-  (`models/objects/rowboat.glb`), normalized at load to the 3.6 m
-  seat-offset footprint and stamped with `userData.boatId` for the click
-  raycast.
+  (`models/objects/rowboat.glb`), normalized at load to `HULL_LENGTH_M`
+  (4.4 m — four 1.9 m characters read as a crew, not giants) and stamped
+  with `userData.boatId` for the click raycast.
 - Input: clicking a hull boards (out of reach walks closer); aboard, deep
   water charts a course (pilot only) and land steps ashore
   (`managers/inputHandler.ts`, `canvas-click-dispatcher.ts`).
@@ -122,11 +129,11 @@ boat in sight with its `boat_id`.
 - **Visual wave clipping**: the hull rides the baked mean water surface;
   the Gerstner shader displacement is visual-only, so crests can lap
   through the hull.
-- **Riders stand rather than sit**: there is no seated or rowing clip in
-  the animation packs (`locomotion`, `combat_melee`, `social`), so riders
-  hold `idle` on the floorboards and the modeled oars never move. Both
-  clips follow the established pipeline (`doc/ASSETS.md`,
-  `doc/ANIMATION.md`) and are the obvious next art pass.
+- **The modeled oars never move**: riders sit (`sit`, Mixamo) and the
+  pilot rows under way (`row`, Meshy AI-to-Motion composite) via the
+  `boat.glb` pack and the `interact` state's by-name clip lookup, but the
+  hull's oars are static geometry — syncing them to the stroke is a
+  follow-up.
 - **No currents**: the baked water field's `flowX/flowZ` are ignored.
 - Prices and speeds are first guesses — final tuning is explicitly the
   maintainer's call.

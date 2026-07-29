@@ -296,7 +296,7 @@ impl GameState {
 
     /// A point near the hull shallow enough to stand in — where a rider can
     /// step ashore (or the owner can drag the boat out).
-    pub(super) async fn find_shore_point(&self, origin: &Position) -> Option<Position> {
+    pub(crate) async fn find_shore_point(&self, origin: &Position) -> Option<Position> {
         let steps: Vec<f32> = LAUNCH_PROBE_DISTANCES
             .iter()
             .copied()
@@ -304,6 +304,15 @@ impl GameState {
             .collect();
         self.find_nearby_point(origin, &steps, |depth| depth < MIN_NAV_DEPTH_M)
             .await
+    }
+
+    /// A saved position out on the water — a player who disconnected while
+    /// riding logs back in over the sea bed. Login rescues them ashore.
+    pub(crate) async fn is_deep_water(&self, position: &Position) -> bool {
+        matches!(
+            self.water_depth_at(position.x, position.z).await,
+            Some((depth, _, _)) if depth > MIN_NAV_DEPTH_M
+        )
     }
 
     /// Depth (surface − bed), surface and bed at a point, or `None` when a
@@ -652,7 +661,7 @@ impl GameState {
     /// broadcast `BoatLeft`, anchor a pilotless boat, and despawn an empty
     /// hull back into its deed.
     async fn unseat_rider(&self, player_id: &PlayerId, boat_id: BoatId, landing: Position) {
-        let (boat_pos, now_empty) = {
+        let (boat_pos, now_empty, owner) = {
             let mut boats = self.boats.write().await;
             let Some(boat) = boats.get_mut(&boat_id) else {
                 return;
@@ -668,10 +677,11 @@ impl GameState {
             }
             let now_empty = boat.riders().is_empty();
             let boat_pos = boat.position;
+            let owner = boat.owner;
             if now_empty {
                 boats.remove(&boat_id);
             }
-            (boat_pos, now_empty)
+            (boat_pos, now_empty, owner)
         };
 
         self.apply_player_position(
@@ -699,6 +709,16 @@ impl GameState {
         if now_empty {
             self.broadcast_boat(&boat_pos, ServerMessage::BoatRemoved { boat_id })
                 .await;
+            // The hull is never lost: empty, it folds back into the deed.
+            // Say so, or its vanishing reads as losing the boat. The last
+            // rider hears it too when they are not the owner (offline
+            // recipients are a send_system_message no-op).
+            self.send_system_message(&owner, "Your boat folds back into its deed.")
+                .await;
+            if owner != *player_id {
+                self.send_system_message(player_id, "The empty boat folds back into its deed.")
+                    .await;
+            }
         }
     }
 

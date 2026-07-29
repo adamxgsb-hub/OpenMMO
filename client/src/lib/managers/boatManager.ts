@@ -14,6 +14,7 @@ import type * as THREE from 'three'
 type TrackedBoat = {
   current: BoatTransform
   target: BoatTransform
+  sailing: boolean
 }
 
 class BoatManager {
@@ -28,17 +29,26 @@ class BoatManager {
     this.tracked.set(boatId, {
       current: { ...transform },
       target: { ...transform },
+      sailing: false,
     })
   }
 
   /** A `BoatState` landed: ease toward it from the next update(). */
-  setTarget(boatId: number, target: BoatTransform) {
+  setTarget(boatId: number, target: BoatTransform, sailing = false) {
     const entry = this.tracked.get(boatId)
     if (entry) {
       entry.target = { ...target }
+      entry.sailing = sailing
     } else {
       this.spawn(boatId, target)
+      const spawned = this.tracked.get(boatId)
+      if (spawned) spawned.sailing = sailing
     }
+  }
+
+  /** Whether the hull is under way — the pilot rows, passengers just sit. */
+  isSailing(boatId: number): boolean {
+    return this.tracked.get(boatId)?.sailing ?? false
   }
 
   remove(boatId: number) {
