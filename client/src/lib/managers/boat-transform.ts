@@ -23,8 +23,10 @@ export const CATCH_UP = 1.25
 /** How fast the bow swings, radians per second. */
 export const TURN_RATE = 2.5
 
-/** Deck height riders stand at, above the water line. */
-export const DECK_HEIGHT_M = 0.45
+/** Deck height riders stand at, above the water line — the modeled hull's
+ *  floorboards sit just under it, and character origins are their soles
+ *  (`computeSoleGroundOffset`). */
+export const DECK_HEIGHT_M = 0.05
 
 /** Seat positions in hull-local meters (x starboard, z forward): the helm
  *  aft, two benches midship, one seat at the bow. */
