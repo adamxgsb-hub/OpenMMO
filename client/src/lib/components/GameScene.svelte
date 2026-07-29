@@ -47,7 +47,10 @@
   import GameSceneMonstersLayer from './game-scene/GameSceneMonstersLayer.svelte'
   import GameSceneGroundItemsLayer from './game-scene/GameSceneGroundItemsLayer.svelte'
   import FishingBobber from './FishingBobber.svelte'
+  import Boat from './Boat.svelte'
   import { fishingBobbers } from '../stores/fishingStore'
+  import { boats } from '../stores/boatsStore'
+  import { boatManager } from '../managers/boatManager'
   import MapEditorCursor from './map-editor/MapEditorCursor.svelte'
   import ZoneOverlay from './map-editor/ZoneOverlay.svelte'
   import RoadOverlay from './map-editor/RoadOverlay.svelte'
@@ -535,6 +538,10 @@
         'playerControl',
         performance.now() - playerControlStart
       )
+
+      // Ease hulls toward their latest BoatState before riders are placed
+      // off them (remote riders read the hull transform in the manager).
+      boatManager.update(deltaTime / 1000)
 
       // Update remote player interpolation
       const remoteInterpolationStart = performance.now()
@@ -1216,6 +1223,10 @@
 
   {#each [...$fishingBobbers] as [playerId, bobber] (playerId)}
     <FishingBobber {bobber} />
+  {/each}
+
+  {#each [...$boats] as [boatId, boat] (boatId)}
+    <Boat {boat} />
   {/each}
 </T>
 

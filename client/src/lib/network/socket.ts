@@ -96,6 +96,9 @@ class NetworkManager {
   readonly kicked = createEvent<(reason: string) => void>()
   readonly interactionRejected = createEvent<(reason: string) => void>()
   readonly positionCorrected = createEvent<(c: PositionCorrection) => void>()
+  readonly boardedBoat =
+    createEvent<(b: { boatId: number; seat: number }) => void>()
+  readonly leftBoat = createEvent<(l: { position: Position }) => void>()
 
   constructor() {
     // Only a fully authenticated connection clears the counter; a socket that
@@ -121,6 +124,8 @@ class NetworkManager {
       playerRespawned: this.playerRespawned,
       interactionRejected: this.interactionRejected,
       positionCorrected: this.positionCorrected,
+      boardedBoat: this.boardedBoat,
+      leftBoat: this.leftBoat,
     }
   }
 
@@ -449,6 +454,22 @@ class NetworkManager {
 
   sendFishingStop() {
     this.sendMessage('FishingStop')
+  }
+
+  sendSailTo(x: number, z: number) {
+    this.sendMessage({ SailTo: { x, z } })
+  }
+
+  sendStopSailing() {
+    this.sendMessage('StopSailing')
+  }
+
+  sendBoardBoat(boatId: number) {
+    this.sendMessage({ BoardBoat: { boat_id: boatId } })
+  }
+
+  sendLeaveBoat() {
+    this.sendMessage('LeaveBoat')
   }
 
   sendBreakDungeonProp(entranceId: string, depth: number, propId: number) {

@@ -147,6 +147,10 @@ export type ClientMessage =
   | { FishingCast: { position: Position } }
   | { FishingRespond: { action: FishingAction } }
   | 'FishingStop'
+  | { SailTo: { x: number; z: number } }
+  | 'StopSailing'
+  | { BoardBoat: { boat_id: number } }
+  | 'LeaveBoat'
   | { OpenDungeonChest: { entrance_id: string } }
   | {
       BreakDungeonProp: { entrance_id: string; depth: number; prop_id: number }
@@ -218,6 +222,23 @@ export type PlayerInventory = {
 
 /** Trained-skill ids (shared `SkillId` wire strings). */
 export type SkillId = 'fishing'
+
+/** Shared `BoatPassenger` (`ServerMessage::BoatSpawned`): a rider and the
+ *  seat they hold; seat 0 is the helm. */
+export type BoatPassenger = {
+  player_id: number
+  seat: number
+}
+
+/** Shared `BoatSnapshot` (`ServerMessage::BoatSpawned`): everything needed
+ *  to render a boat and its riders from a standing start. */
+export type BoatSnapshot = {
+  id: number
+  owner: number
+  position: Position
+  heading: number
+  passengers: BoatPassenger[]
+}
 
 /** Shared `FishingAction` wire strings (`ClientMessage::FishingRespond`). */
 export type FishingAction = 'hook' | 'reel' | 'giveline'

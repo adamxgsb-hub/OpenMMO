@@ -14,6 +14,7 @@ import {
   type PlayerState,
 } from '../utils/movementUtils'
 import { entityGroundY } from './entity-ground'
+import { boatManager } from './boatManager'
 import { shortestWrappedDeltaX } from '../terrain/world-wrap'
 import type { TerrainHeightManager } from './terrainHeightManager'
 
@@ -62,6 +63,11 @@ class PlayerStateManager {
   // Timestamp (performance.now()) when each player's attack animation started
   private attackStartTimes = new Map<number, number>()
 
+  // Riders aboard a boat: placed from the interpolated hull transform each
+  // frame instead of the walking integrator, and exempt from the ground-Y
+  // resample (a deck is not the sea bed). doc/BOATS.md.
+  private riding = new Map<number, { boatId: number; seat: number }>()
+
   // Move remote players toward their target positions with acceleration/deceleration
   update(deltaTime: number) {
     const dt = deltaTime / 1000 // Convert to seconds
@@ -105,6 +111,27 @@ class PlayerStateManager {
       // Get current interpolated position or initialize from player position
       const currentPlayer = this.players.get(playerId)
       if (!currentPlayer) return
+
+      // Riders follow the hull, not the walking integrator.
+      const berth = this.riding.get(playerId)
+      if (berth) {
+        const seatPos = boatManager.seatWorldPositionOf(
+          berth.boatId,
+          berth.seat
+        )
+        const heading = boatManager.transformOf(berth.boatId)?.heading
+        if (seatPos) {
+          this.players.set(playerId, {
+            ...currentPlayer,
+            position: { x: seatPos.x, y: seatPos.y, z: seatPos.z },
+            state: 'idle',
+            speed: 0,
+            rotation: heading ?? currentPlayer.rotation,
+            movementMode: undefined,
+          })
+        }
+        return
+      }
 
       // Skip movement update if player is attacking, dead, or interacting
       if (
@@ -217,7 +244,28 @@ class PlayerStateManager {
   }
 
   // Clean up data for players that have left
+  /** Mark a remote player as aboard a boat (from `BoatBoarded`). */
+  setRiding(playerId: number, berth: { boatId: number; seat: number }) {
+    this.riding.set(playerId, berth)
+    this.movementData.delete(playerId)
+  }
+
+  /** Rider went ashore (`BoatLeft`): resume normal integration from the
+   *  server-picked landing point. */
+  clearRiding(playerId: number, landing?: Position) {
+    this.riding.delete(playerId)
+    if (landing) {
+      const landingPos = { x: landing.x, y: landing.y, z: landing.z }
+      this.targetPositions.set(playerId, landingPos)
+      const p = this.players.get(playerId)
+      if (p) {
+        this.players.set(playerId, { ...p, position: { ...landingPos } })
+      }
+    }
+  }
+
   removePlayer(playerId: number) {
+    this.riding.delete(playerId)
     this.players.delete(playerId)
     this.movementData.delete(playerId)
     this.targetPositions.delete(playerId)
@@ -230,6 +278,7 @@ class PlayerStateManager {
   // Reset all data
   reset() {
     this.players.clear()
+    this.riding.clear()
     this.movementData.clear()
     this.targetPositions.clear()
     this.targetRotations.clear()

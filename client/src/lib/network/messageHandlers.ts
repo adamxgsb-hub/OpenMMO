@@ -44,6 +44,15 @@ import {
   markBobberBite,
   removeBobber,
 } from '../stores/fishingStore'
+import {
+  applyBoatState,
+  clearBoatRider,
+  myBerth,
+  removeBoat,
+  setBoatRider,
+  upsertBoat,
+} from '../stores/boatsStore'
+import { boatManager } from '../managers/boatManager'
 import { getItemDef } from '../data/itemDefs'
 import {
   shopSession,
@@ -66,6 +75,7 @@ import type {
   CharacterAttributes,
   CharacterRollResult,
   ServerGroundItem,
+  Position,
   PositionCorrection,
   ServerMonster,
   ServerPlayer,
@@ -204,6 +214,8 @@ export type MessageEvents = {
   playerRespawned: NetworkEvent<(playerId: number) => void>
   interactionRejected: NetworkEvent<(reason: string) => void>
   positionCorrected: NetworkEvent<(c: PositionCorrection) => void>
+  boardedBoat: NetworkEvent<(b: { boatId: number; seat: number }) => void>
+  leftBoat: NetworkEvent<(l: { position: Position }) => void>
 }
 
 export function handleServerMessage(
@@ -1100,6 +1112,85 @@ export function handleServerMessage(
     }
 
     case 'FishingError':
+      addCombatMessage({ text: data.message, sender: 'local' })
+      break
+
+    case 'BoatSpawned': {
+      upsertBoat(data.boat)
+      boatManager.spawn(data.boat.id, {
+        x: data.boat.position.x,
+        y: data.boat.position.y,
+        z: data.boat.position.z,
+        heading: data.boat.heading,
+      })
+      const selfId = get(gameStore).currentPlayer?.id
+      const mine = data.boat.passengers.find(
+        (p: { player_id: number; seat: number }) => p.player_id === selfId
+      )
+      if (mine !== undefined) {
+        // Our own launch: we hold the helm from seat 0.
+        myBerth.set({
+          boatId: data.boat.id,
+          seat: mine.seat,
+          isPilot: data.boat.owner === selfId,
+        })
+        events.boardedBoat.emit({ boatId: data.boat.id, seat: mine.seat })
+        addCombatMessage({
+          text: 'Your boat takes the water.',
+          sender: 'local',
+        })
+      }
+      break
+    }
+
+    case 'BoatState': {
+      applyBoatState(data.boat_id, data.position, data.heading, data.sailing)
+      boatManager.setTarget(data.boat_id, {
+        x: data.position.x,
+        y: data.position.y,
+        z: data.position.z,
+        heading: data.heading,
+      })
+      break
+    }
+
+    case 'BoatRemoved': {
+      removeBoat(data.boat_id)
+      boatManager.remove(data.boat_id)
+      if (get(myBerth)?.boatId === data.boat_id) {
+        myBerth.set(null)
+      }
+      break
+    }
+
+    case 'BoatBoarded': {
+      setBoatRider(data.boat_id, data.player_id, data.seat)
+      if (get(gameStore).currentPlayer?.id === data.player_id) {
+        myBerth.set({ boatId: data.boat_id, seat: data.seat, isPilot: false })
+        events.boardedBoat.emit({ boatId: data.boat_id, seat: data.seat })
+        addCombatMessage({ text: 'You climb aboard.', sender: 'local' })
+      } else {
+        remotePlayerManager.setRiding(data.player_id, {
+          boatId: data.boat_id,
+          seat: data.seat,
+        })
+      }
+      break
+    }
+
+    case 'BoatLeft': {
+      clearBoatRider(data.boat_id, data.player_id)
+      if (get(gameStore).currentPlayer?.id === data.player_id) {
+        myBerth.set(null)
+        events.leftBoat.emit({ position: data.position })
+        addCombatMessage({ text: 'You step ashore.', sender: 'local' })
+      } else {
+        remotePlayerManager.clearRiding(data.player_id, data.position)
+      }
+      break
+    }
+
+    case 'BoatError':
       addCombatMessage({ text: data.message, sender: 'local' })
       break
 

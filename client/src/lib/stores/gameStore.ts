@@ -5,6 +5,8 @@ import type { CharacterClass, Gender } from '../network/networkTypes'
 import { resetInventoryStore } from './inventoryStore'
 import { resetSkillsStore } from './skillsStore'
 import { resetFishingStore } from './fishingStore'
+import { resetBoatsStore } from './boatsStore'
+import { boatManager } from '../managers/boatManager'
 import { groundItemManager } from '../managers/groundItemManager'
 
 export interface PlayerDamageInfo {
@@ -113,6 +115,8 @@ export const resetGameStore = () => {
   resetInventoryStore()
   resetSkillsStore()
   resetFishingStore()
+  resetBoatsStore()
+  boatManager.reset()
   groundItemManager.reset()
 }
 
