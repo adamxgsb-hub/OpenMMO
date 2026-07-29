@@ -32,8 +32,8 @@ export const DECK_HEIGHT_M = 0.05
  *  aft, two benches midship, one seat at the bow. */
 const SEAT_OFFSETS: ReadonlyArray<readonly [number, number]> = [
   [0, -1.1],
-  [-0.55, 0.1],
-  [0.55, 0.1],
+  [-0.42, 0.1],
+  [0.42, 0.1],
   [0, 1.2],
 ]
 
