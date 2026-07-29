@@ -112,7 +112,8 @@ class PlayerStateManager {
       const currentPlayer = this.players.get(playerId)
       if (!currentPlayer) return
 
-      // Riders follow the hull, not the walking integrator.
+      // Riders follow the hull, not the walking integrator. They hold a
+      // seated stance; the pilot (seat 0) rows while the hull is under way.
       const berth = this.riding.get(playerId)
       if (berth) {
         const seatPos = boatManager.seatWorldPositionOf(
@@ -121,10 +122,13 @@ class PlayerStateManager {
         )
         const heading = boatManager.transformOf(berth.boatId)?.heading
         if (seatPos) {
+          const rowing = berth.seat === 0 && boatManager.isSailing(berth.boatId)
           this.players.set(playerId, {
             ...currentPlayer,
             position: { x: seatPos.x, y: seatPos.y, z: seatPos.z },
-            state: 'idle',
+            state: 'interact',
+            interactionAnim: rowing ? 'row' : 'sit',
+            interactOffsetY: 0,
             speed: 0,
             rotation: heading ?? currentPlayer.rotation,
             movementMode: undefined,
@@ -254,13 +258,26 @@ class PlayerStateManager {
    *  server-picked landing point. */
   clearRiding(playerId: number, landing?: Position) {
     this.riding.delete(playerId)
-    if (landing) {
-      const landingPos = { x: landing.x, y: landing.y, z: landing.z }
-      this.targetPositions.set(playerId, landingPos)
-      const p = this.players.get(playerId)
-      if (p) {
-        this.players.set(playerId, { ...p, position: { ...landingPos } })
+    const p = this.players.get(playerId)
+    if (p) {
+      // Stand up: drop the seated/rowing stance with the berth.
+      const ashore: PlayerState = {
+        ...p,
+        state: 'idle',
+        interactionAnim: undefined,
+        interactOffsetY: undefined,
       }
+      if (landing) {
+        ashore.position = { x: landing.x, y: landing.y, z: landing.z }
+      }
+      this.players.set(playerId, ashore)
+    }
+    if (landing) {
+      this.targetPositions.set(playerId, {
+        x: landing.x,
+        y: landing.y,
+        z: landing.z,
+      })
     }
   }
 

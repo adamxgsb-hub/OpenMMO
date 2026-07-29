@@ -1145,12 +1145,16 @@ export function handleServerMessage(
 
     case 'BoatState': {
       applyBoatState(data.boat_id, data.position, data.heading, data.sailing)
-      boatManager.setTarget(data.boat_id, {
-        x: data.position.x,
-        y: data.position.y,
-        z: data.position.z,
-        heading: data.heading,
-      })
+      boatManager.setTarget(
+        data.boat_id,
+        {
+          x: data.position.x,
+          y: data.position.y,
+          z: data.position.z,
+          heading: data.heading,
+        },
+        data.sailing
+      )
       break
     }
 

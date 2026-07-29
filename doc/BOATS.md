@@ -129,11 +129,11 @@ boat in sight with its `boat_id`.
 - **Visual wave clipping**: the hull rides the baked mean water surface;
   the Gerstner shader displacement is visual-only, so crests can lap
   through the hull.
-- **Riders stand rather than sit**: there is no seated or rowing clip in
-  the animation packs (`locomotion`, `combat_melee`, `social`), so riders
-  hold `idle` on the floorboards and the modeled oars never move. Both
-  clips follow the established pipeline (`doc/ASSETS.md`,
-  `doc/ANIMATION.md`) and are the obvious next art pass.
+- **The modeled oars never move**: riders sit (`sit`, Mixamo) and the
+  pilot rows under way (`row`, Meshy AI-to-Motion composite) via the
+  `boat.glb` pack and the `interact` state's by-name clip lookup, but the
+  hull's oars are static geometry — syncing them to the stroke is a
+  follow-up.
 - **No currents**: the baked water field's `flowX/flowZ` are ignored.
 - Prices and speeds are first guesses — final tuning is explicitly the
   maintainer's call.

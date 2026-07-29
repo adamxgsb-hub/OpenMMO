@@ -417,7 +417,14 @@
     if (!seatPos) return
     playerRotation = heading ?? playerRotation
     writePlayerPosition(seatPos, playerRotation)
-    setPlayerState({ ...playerState, rotation: playerRotation, state: 'idle' })
+    const rowing = berth.isPilot && boatManager.isSailing(berth.boatId)
+    setPlayerState({
+      ...playerState,
+      rotation: playerRotation,
+      state: 'interact',
+      interactionAnim: rowing ? 'row' : 'sit',
+      interactOffsetY: 0,
+    })
   }
 
   function enterBoat() {
@@ -429,6 +436,12 @@
   function leaveBoatAshore(landing: { position: Position }) {
     writePlayerPosition(landing.position, playerRotation)
     transitionTo('idle')
+    setPlayerState({
+      ...playerState,
+      state: 'idle',
+      interactionAnim: undefined,
+      interactOffsetY: undefined,
+    })
     updatePlayerState()
   }
 
