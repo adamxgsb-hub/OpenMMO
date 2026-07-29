@@ -9,6 +9,7 @@
   import { T, useTask } from '@threlte/core'
   import * as THREE from 'three'
   import { boatManager } from '../managers/boatManager'
+  import { HULL_LENGTH_M } from '../managers/boat-transform'
   import { loadGLB } from '../utils/gltfCache'
   import { getObjectModelPath } from '../utils/modelPaths'
   import type { BoatView } from '../stores/boatsStore'
@@ -19,8 +20,6 @@
 
   let { boat }: Props = $props()
 
-  /** Matches the seat-offset footprint in boat-transform.ts. */
-  const HULL_LENGTH_M = 3.6
   /** Fraction of the hull's height sitting under the waterline. */
   const DRAFT_FRACTION = 0.18
 
