@@ -8,3 +8,4 @@
 # Scratch branch only: ship this one model as a plain blob so it can be
 # fetched without LFS (upstream LFS budget exhausted).
 client/public/models/objects/rowboat.glb -filter -diff -merge
+client/public/models/animations/boat.glb -filter -diff -merge
