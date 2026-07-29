@@ -106,6 +106,23 @@ export type ClickIntent =
       position: Position
       distance: number
     }
+  | {
+      /** Clicked a boat hull while ashore: climb aboard (or walk closer). */
+      type: 'board_boat'
+      boatId: number
+      position: Position
+      distance: number
+    }
+  | {
+      /** Aboard as pilot + clicked navigable water: chart a course there. */
+      type: 'sail_to'
+      x: number
+      z: number
+    }
+  | {
+      /** Aboard + clicked dry land: step ashore (server probes the shore). */
+      type: 'leave_boat'
+    }
   | { type: 'none' }
 
 export interface RaycastContext {
@@ -127,6 +144,11 @@ export interface RaycastContext {
   /** Baked water surface height at a world XZ (sea level where none). Lets a
    *  cast fire over rivers, whose beds sit above sea level, not just ocean. */
   waterSurfaceAt?: (x: number, z: number) => number
+  /** Boat hulls (each stamped with `userData.boatId`) — clicked to board. */
+  boatMeshes?: THREE.Object3D[]
+  /** Set while the local player rides a boat: water clicks steer (pilot
+   *  only), land clicks step ashore. */
+  aboardBoat?: { isPilot: boolean }
 }
 
 /** Result of hovering a placed object that carries display text (e.g. signpost). */
@@ -437,6 +459,35 @@ class InputHandler {
       }
     }
 
+    // Check intersection with boat hulls: ashore, a hull click is a request
+    // to climb aboard (or walk closer — the dispatcher decides by range).
+    if (
+      !context.aboardBoat &&
+      context.boatMeshes &&
+      context.boatMeshes.length > 0
+    ) {
+      const boatHits = raycaster.intersectObjects(context.boatMeshes, true)
+      if (boatHits.length > 0) {
+        const owner = findAncestorWithUserData(boatHits[0].object, 'boatId')
+        if (owner) {
+          const hullPosition = new THREE.Vector3()
+          owner.getWorldPosition(hullPosition)
+          const dx = hullPosition.x - context.playerPosition.x
+          const dz = hullPosition.z - context.playerPosition.z
+          return {
+            type: 'board_boat',
+            boatId: owner.userData.boatId as number,
+            position: {
+              x: hullPosition.x,
+              y: hullPosition.y,
+              z: hullPosition.z,
+            },
+            distance: Math.sqrt(dx * dx + dz * dz),
+          }
+        }
+      }
+    }
+
     // Check intersection with ground meshes. During floor/scene transitions
     // (notably dungeon death -> surface respawn), the control layer can be
     // mounted before the visible ground mesh list has caught up. Fall back to
@@ -451,6 +502,24 @@ class InputHandler {
     // behind them (pathfinding then routes around solid walls to the door).
     const groundHit = intersects.find((hit) => !isHouseWall(hit.object))
     if (groundHit) {
+      // Aboard a boat, ground clicks steer or disembark instead of walking.
+      // Deep water (below the keel's ~0.3 m draft — the shared MIN_NAV_DEPTH_M;
+      // the server revalidates every leg) is a course for the pilot and
+      // nothing for a passenger; land is a request to step ashore.
+      if (context.aboardBoat) {
+        const surface = context.waterSurfaceAt?.(
+          groundHit.point.x,
+          groundHit.point.z
+        )
+        const navigable =
+          surface !== undefined && surface - groundHit.point.y > 0.3
+        if (navigable) {
+          return context.aboardBoat.isPilot
+            ? { type: 'sail_to', x: groundHit.point.x, z: groundHit.point.z }
+            : { type: 'none' }
+        }
+        return { type: 'leave_boat' }
+      }
       // Rod in hand + the baked water surface sits above the clicked terrain
       // (depth > ~10 cm): this click is a cast, not a walk into the water.
       // Using the water field (not just "y < 0") makes rivers castable too —

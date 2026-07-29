@@ -6,12 +6,18 @@ import {
   PLAYER_PICKUP_RANGE_METERS,
 } from '../../data/combatTiming'
 
+/** Boarding reach, meters — mirrors the shared `boats::BOARD_RADIUS_M` (the
+ *  server revalidates every boarding, so this only decides board-vs-walk). */
+const BOAT_BOARD_RADIUS_M = 3
+
 type InteractIntent = Extract<ClickIntent, { type: 'interact_object' }>
 type PickupIntent = Extract<ClickIntent, { type: 'pickup_ground_item' }>
 type NpcIntent = Extract<ClickIntent, { type: 'interact_npc' }>
 type BreakPropIntent = Extract<ClickIntent, { type: 'break_prop' }>
 type OpenPropIntent = Extract<ClickIntent, { type: 'open_prop' }>
 type CastFishingIntent = Extract<ClickIntent, { type: 'cast_fishing' }>
+type BoardBoatIntent = Extract<ClickIntent, { type: 'board_boat' }>
+type SailToIntent = Extract<ClickIntent, { type: 'sail_to' }>
 
 export interface CanvasClickActions {
   /** Player is at melee range — start the attack swing immediately. */
@@ -38,6 +44,12 @@ export interface CanvasClickActions {
   moveToGround(position: Position): void
   /** Stop, face the water, and cast the equipped rod (server validates). */
   castFishing(intent: CastFishingIntent): void
+  /** In reach of a clicked hull — climb aboard (server validates seats). */
+  boardBoat(intent: BoardBoatIntent): void
+  /** Pilot charted a course: the server samples and follows the water. */
+  sailTo(intent: SailToIntent): void
+  /** Step ashore near the hull (server probes for a dry landing). */
+  leaveBoat(): void
 }
 
 export function dispatchCanvasClickIntent(
@@ -90,6 +102,21 @@ export function dispatchCanvasClickIntent(
       return
     case 'cast_fishing':
       actions.castFishing(intent)
+      return
+    case 'board_boat':
+      if (intent.distance <= BOAT_BOARD_RADIUS_M) {
+        actions.boardBoat(intent)
+      } else {
+        // Too far to climb aboard: walk toward the hull; click it again in
+        // reach (no auto-board on arrival in this slice).
+        actions.moveToGround(intent.position)
+      }
+      return
+    case 'sail_to':
+      actions.sailTo(intent)
+      return
+    case 'leave_boat':
+      actions.leaveBoat()
       return
     case 'none':
       return

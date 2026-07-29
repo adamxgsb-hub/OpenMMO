@@ -3,6 +3,7 @@
   // asset-free v1; a modeled hull is a listed follow-up in doc/BOATS.md).
   // The group follows boatManager's eased transform each frame; userData
   // carries the boat id so canvas clicks can resolve the hull.
+  import { onDestroy } from 'svelte'
   import { T, useTask } from '@threlte/core'
   import * as THREE from 'three'
   import { boatManager } from '../managers/boatManager'
@@ -16,6 +17,8 @@
 
   let group: THREE.Group | undefined = $state()
   let t = $state(0)
+
+  onDestroy(() => boatManager.unregisterMesh(boat.id))
 
   useTask((delta) => {
     t += delta
@@ -40,6 +43,7 @@
     ref.traverse((child) => {
       child.userData.boatId = boat.id
     })
+    boatManager.registerMesh(boat.id, ref)
   }}
 >
   <!-- hull: a shallow flared box with a raised bow block -->

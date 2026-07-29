@@ -37,6 +37,7 @@ const CONSUMABLE_CATEGORIES = new Set([
   'enchant_scroll',
   'fish',
   'coin_catch',
+  'boat_deed',
 ])
 
 export function isConsumable(def: ItemDefinition): boolean {

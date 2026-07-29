@@ -10,6 +10,7 @@ export type PlayerControlStateName =
   | 'picking_up'
   | 'dead'
   | 'jump_feedback'
+  | 'sailing'
 
 // ───────────────────────────────────────────────────────────────────────────
 // Owned control state (state object holds its own data)
@@ -50,6 +51,7 @@ export type ControlState =
   | ({ name: 'picking_up' } & PickingUpStateData)
   | { name: 'dead' }
   | { name: 'jump_feedback' }
+  | { name: 'sailing' }
 
 export type MovingControlState = Extract<ControlState, { name: 'moving' }>
 export type PickingUpControlState = Extract<

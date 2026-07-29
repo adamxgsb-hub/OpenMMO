@@ -29,6 +29,8 @@
   } from '../stores/debugStore'
   import { localTorchEquipped, inventoryStore } from '../stores/inventoryStore'
   import { getItemDef } from '../data/itemDefs'
+  import { myBerth } from '../stores/boatsStore'
+  import { boatManager } from '../managers/boatManager'
   import {
     DEFAULT_MOVEMENT_CONFIG,
     type Position,
@@ -402,6 +404,32 @@
       }
       return state
     })
+  }
+
+  /** Aboard: place the local player on their seat each frame from the
+   *  interpolated hull. The camera follows the player vector, so a smooth
+   *  hull is a smooth ride — no PlayerMove is ever sent from this state. */
+  function sailingTick(_deltaTime: number) {
+    const berth = get(myBerth)
+    if (!berth) return
+    const seatPos = boatManager.seatWorldPositionOf(berth.boatId, berth.seat)
+    const heading = boatManager.transformOf(berth.boatId)?.heading
+    if (!seatPos) return
+    playerRotation = heading ?? playerRotation
+    writePlayerPosition(seatPos, playerRotation)
+    setPlayerState({ ...playerState, rotation: playerRotation, state: 'idle' })
+  }
+
+  function enterBoat() {
+    combatController.cancelCombat()
+    stopMovement()
+    transitionTo('sailing')
+  }
+
+  function leaveBoatAshore(landing: { position: Position }) {
+    writePlayerPosition(landing.position, playerRotation)
+    transitionTo('idle')
+    updatePlayerState()
   }
 
   // The server refused a step, so we are somewhere it cannot follow. Snap to
@@ -1140,6 +1168,11 @@
         getItemDef(get(inventoryStore).equipped.main_hand?.item_def_id ?? '')
           ?.category === 'fishing_rod',
       waterSurfaceAt,
+      boatMeshes: boatManager.clickTargets(),
+      aboardBoat: (() => {
+        const berth = get(myBerth)
+        return berth ? { isPilot: berth.isPilot } : undefined
+      })(),
     })
   }
 
@@ -1254,6 +1287,18 @@
         sendPlayerMove(currentPlayer.position, playerRotation) // others see the facing
         networkManager.sendFishingCast(intent.position)
       },
+      boardBoat: (intent) => {
+        if (!currentPlayer || currentPlayer.health <= 0) return
+        combatController.cancelCombat()
+        stopMovement()
+        networkManager.sendBoardBoat(intent.boatId)
+      },
+      sailTo: (intent) => {
+        networkManager.sendSailTo(intent.x, intent.z)
+      },
+      leaveBoat: () => {
+        networkManager.sendLeaveBoat()
+      },
       requestMove: handleClickToMove,
       onInteractionFinished,
       onPickupGrab,
@@ -1279,6 +1324,7 @@
       handleInteractKey: checkInteraction,
       handleKeyboard: updateKeyboardMovement,
       tick: updatePlayerMovement,
+      sailingTick,
     },
   })
 
@@ -1370,6 +1416,8 @@
       onPositionCorrected: applyPositionCorrection,
       onInteractionRejected: () =>
         enqueuePlayerControlEvent({ type: 'network_interaction_rejected' }),
+      onBoardedBoat: () => enterBoat(),
+      onLeftBoat: leaveBoatAshore,
     })
 
     return () => {

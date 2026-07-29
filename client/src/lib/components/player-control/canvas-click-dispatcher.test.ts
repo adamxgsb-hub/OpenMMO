@@ -20,6 +20,9 @@ function makeActions() {
     openProp: vi.fn(),
     moveToGround: vi.fn(),
     castFishing: vi.fn(),
+    boardBoat: vi.fn(),
+    sailTo: vi.fn(),
+    leaveBoat: vi.fn(),
   } satisfies CanvasClickActions
 }
 
@@ -86,5 +89,46 @@ describe('dispatchCanvasClickIntent pickup handling', () => {
 
     expect(actions.approachAndPickup).toHaveBeenCalledWith(intent)
     expect(actions.enterPickup).not.toHaveBeenCalled()
+  })
+})
+
+describe('dispatchCanvasClickIntent boat handling', () => {
+  it('boards a hull clicked within reach', () => {
+    const actions = makeActions()
+    const intent: ClickIntent = {
+      type: 'board_boat',
+      boatId: 7,
+      position: { x: 1, y: 0, z: 2 },
+      distance: 2.0,
+    }
+
+    dispatchCanvasClickIntent(intent, false, actions)
+
+    expect(actions.boardBoat).toHaveBeenCalledWith(intent)
+    expect(actions.moveToGround).not.toHaveBeenCalled()
+  })
+
+  it('walks toward a hull clicked out of reach instead of failing', () => {
+    const actions = makeActions()
+    const intent: ClickIntent = {
+      type: 'board_boat',
+      boatId: 7,
+      position: { x: 10, y: 0, z: 2 },
+      distance: 9.0,
+    }
+
+    dispatchCanvasClickIntent(intent, false, actions)
+
+    expect(actions.boardBoat).not.toHaveBeenCalled()
+    expect(actions.moveToGround).toHaveBeenCalledWith(intent.position)
+  })
+
+  it('routes course and go-ashore clicks to their actions', () => {
+    const actions = makeActions()
+    dispatchCanvasClickIntent({ type: 'sail_to', x: 3, z: 4 }, false, actions)
+    dispatchCanvasClickIntent({ type: 'leave_boat' }, false, actions)
+
+    expect(actions.sailTo).toHaveBeenCalledWith({ type: 'sail_to', x: 3, z: 4 })
+    expect(actions.leaveBoat).toHaveBeenCalled()
   })
 })

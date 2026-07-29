@@ -9,6 +9,7 @@ import {
   type BoatTransform,
 } from './boat-transform'
 import { boat_speed_mps } from '../wasm/onlinerpg_shared'
+import type * as THREE from 'three'
 
 type TrackedBoat = {
   current: BoatTransform
@@ -17,6 +18,10 @@ type TrackedBoat = {
 
 class BoatManager {
   private tracked = new Map<number, TrackedBoat>()
+
+  /** Hull scene objects by boat id, registered by Boat.svelte so canvas
+   *  clicks can raycast them (each carries `userData.boatId`). */
+  private meshes = new Map<number, THREE.Object3D>()
 
   /** First sight of a boat: render it where the server says, no glide. */
   spawn(boatId: number, transform: BoatTransform) {
@@ -38,6 +43,20 @@ class BoatManager {
 
   remove(boatId: number) {
     this.tracked.delete(boatId)
+    this.meshes.delete(boatId)
+  }
+
+  registerMesh(boatId: number, mesh: THREE.Object3D) {
+    this.meshes.set(boatId, mesh)
+  }
+
+  unregisterMesh(boatId: number) {
+    this.meshes.delete(boatId)
+  }
+
+  /** Raycast targets for hull clicks. */
+  clickTargets(): THREE.Object3D[] {
+    return [...this.meshes.values()]
   }
 
   update(deltaTime: number) {
@@ -65,6 +84,7 @@ class BoatManager {
 
   reset() {
     this.tracked.clear()
+    this.meshes.clear()
   }
 }
 

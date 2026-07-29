@@ -40,6 +40,7 @@ export function createPlayerControlStateDefinitions(
     picking_up: { name: 'picking_up', ...overrides.picking_up },
     dead: { name: 'dead', ...overrides.dead },
     jump_feedback: { name: 'jump_feedback', ...overrides.jump_feedback },
+    sailing: { name: 'sailing', ...overrides.sailing },
   }
 }
 
@@ -153,6 +154,8 @@ export interface FramePhaseStateActions {
   tick: (deltaTime: number) => void
 }
 
+// 'sailing' is deliberately absent: aboard a boat the walking tick and
+// keyboard movement stay off — the hull moves the player (doc/BOATS.md).
 const framePhaseStateNames = [
   'idle',
   'moving',
@@ -188,6 +191,29 @@ export function createFramePhaseStateOverrides({
       },
     ])
   )
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Sailing overrides (rider follows the hull each frame)
+// ───────────────────────────────────────────────────────────────────────────
+
+export interface SailingStateActions {
+  /** Per-frame while aboard: place the local player on their seat from the
+   *  interpolated hull transform. */
+  sailingTick: (deltaTime: number) => void
+}
+
+export function createSailingStateOverrides({
+  sailingTick,
+}: SailingStateActions): PlayerControlStateOverrides {
+  return {
+    sailing: {
+      tick: (deltaTime: number) => {
+        sailingTick(deltaTime)
+        return true
+      },
+    },
+  }
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -239,6 +265,7 @@ export interface LocalPlayerControlStateActions
     AnimationEventStateActions,
     TimerCleanupStateActions,
     NetworkEventStateActions,
+    SailingStateActions,
     FramePhaseStateActions {}
 
 export function createLocalPlayerControlStateDefinitions(
@@ -249,6 +276,7 @@ export function createLocalPlayerControlStateDefinitions(
       createAnimationEventStateOverrides(actions),
       createTimerCleanupStateOverrides(actions),
       createNetworkEventStateOverrides(actions),
+      createSailingStateOverrides(actions),
       createFramePhaseStateOverrides(actions)
     )
   )

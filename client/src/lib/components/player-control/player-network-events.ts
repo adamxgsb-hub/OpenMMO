@@ -1,5 +1,5 @@
 import { networkManager } from '../../network/socket'
-import type { PositionCorrection } from '../../network/networkTypes'
+import type { Position, PositionCorrection } from '../../network/networkTypes'
 
 export interface PlayerNetworkEventActions {
   /** True if the local player exists, is currently dead, and the id matches. */
@@ -9,6 +9,10 @@ export interface PlayerNetworkEventActions {
   onRespawned: () => void
   onInteractionRejected: () => void
   onPositionCorrected: (correction: PositionCorrection) => void
+  /** The local player took a seat (their own launch or a boarding). */
+  onBoardedBoat: (berth: { boatId: number; seat: number }) => void
+  /** The local player went ashore at the server-picked landing point. */
+  onLeftBoat: (landing: { position: Position }) => void
 }
 
 /** Wires up respawn, interaction-rejected and position-correction listeners.
@@ -41,7 +45,14 @@ export function subscribePlayerNetworkEvents(
     actions.onPositionCorrected
   )
 
+  const unsubscribeBoardedBoat = networkManager.boardedBoat.on(
+    actions.onBoardedBoat
+  )
+  const unsubscribeLeftBoat = networkManager.leftBoat.on(actions.onLeftBoat)
+
   return () => {
+    unsubscribeBoardedBoat()
+    unsubscribeLeftBoat()
     unsubscribePositionCorrected()
     unsubscribeRespawnRequested()
     unsubscribePlayerRespawned()

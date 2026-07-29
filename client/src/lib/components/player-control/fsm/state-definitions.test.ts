@@ -24,6 +24,7 @@ describe('createPlayerControlStateDefinitions', () => {
       'moving',
       'object_interacting',
       'picking_up',
+      'sailing',
     ])
   })
 
@@ -215,6 +216,7 @@ describe('createLocalPlayerControlStateDefinitions', () => {
       handleInteractKey: vi.fn(),
       handleKeyboard: vi.fn(),
       tick: vi.fn(),
+      sailingTick: vi.fn(),
     }
     const states = createLocalPlayerControlStateDefinitions(actions)
 
@@ -243,10 +245,18 @@ describe('createLocalPlayerControlStateDefinitions', () => {
       handleInteractKey: vi.fn(),
       handleKeyboard: vi.fn(),
       tick: vi.fn(),
+      sailingTick: vi.fn(),
     }
     const states = createLocalPlayerControlStateDefinitions(actions)
 
     for (const state of Object.values(states)) {
+      if (state.name === 'sailing') {
+        // Aboard, the walking phases stay off: the hull moves the player
+        // and the only frame work is the rider's seat placement.
+        expect(state.tick).toBeDefined()
+        expect(state.handleKeyboard).toBeUndefined()
+        continue
+      }
       expect(state.handleInteractKey).toBeDefined()
       expect(state.handleKeyboard).toBeDefined()
       expect(state.tick).toBeDefined()
@@ -268,6 +278,7 @@ describe('createLocalPlayerControlMachine', () => {
         handleInteractKey: vi.fn(),
         handleKeyboard: vi.fn(),
         tick,
+        sailingTick: vi.fn(),
       },
     })
 
@@ -280,5 +291,39 @@ describe('createLocalPlayerControlMachine', () => {
 
     expect(onPickupGrab).toHaveBeenCalledOnce()
     expect(tick).toHaveBeenCalledWith(16)
+  })
+})
+
+describe('sailing state', () => {
+  it('runs the sailing tick and keeps the walking phases off', () => {
+    const tick = vi.fn()
+    const sailingTick = vi.fn()
+    const handleKeyboard = vi.fn()
+    const machine = createLocalPlayerControlMachine({
+      dispatchEvent: vi.fn(),
+      stateActions: {
+        onInteractionFinished: vi.fn(),
+        onPickupGrab: vi.fn(),
+        clearJumpFeedbackTimer: vi.fn(),
+        onInteractionRejected: vi.fn(),
+        handleInteractKey: vi.fn(),
+        handleKeyboard,
+        tick,
+        sailingTick,
+      },
+    })
+
+    machine.transition({ name: 'sailing' })
+    machine.update(16, { editorMode: false, events: [] })
+
+    // The hull moves the player: the rider tick runs, the walking
+    // integrator and keyboard movement stay off (doc/BOATS.md).
+    expect(sailingTick).toHaveBeenCalled()
+    expect(tick).not.toHaveBeenCalled()
+    expect(handleKeyboard).not.toHaveBeenCalled()
+
+    machine.transition({ name: 'idle' })
+    machine.update(16, { editorMode: false, events: [] })
+    expect(tick).toHaveBeenCalled()
   })
 })
