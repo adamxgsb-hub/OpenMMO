@@ -917,6 +917,23 @@ async fn handle_client_message(
                     player.floor_level = 0;
                 }
             }
+            // Disconnecting mid-voyage saves the hull's position, which is
+            // open water: rescue the login ashore (or to the spawn) rather
+            // than standing them on the sea bed.
+            if player.floor_level == 0 && game_state.is_deep_water(&player.position).await {
+                match game_state.find_shore_point(&player.position).await {
+                    Some(shore) => player.position = shore,
+                    None => {
+                        let spawn = &crate::world_config::world_config().spawn_position;
+                        player.position = spawn.position();
+                        player.rotation = spawn.rotation;
+                    }
+                }
+                info!(
+                    "Rescued character '{}' from a deep-water login position",
+                    selected_character.name
+                );
+            }
             let id = player.id;
 
             state.direct_rx = Some(game_state.register_direct_channel(&id).await);
