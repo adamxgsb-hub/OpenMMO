@@ -913,7 +913,7 @@ impl super::GameState {
 
     /// Store a position immediately (trusted server-side path) and run the
     /// shared bookkeeping/fanout.
-    async fn apply_player_position(
+    pub(super) async fn apply_player_position(
         &self,
         player_id: &PlayerId,
         new_position: Position,

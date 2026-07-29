@@ -66,6 +66,9 @@ pub enum UseEffect {
     EnchantWeapon,
     /// Open a fished-up coin pouch: roll the given dice for its copper.
     OpenCoinPouch(String),
+    /// Launch the deed's boat at the water's edge — or, aboard it, pack the
+    /// boat back up. The deed is never consumed; it *is* the boat.
+    LaunchBoat,
 }
 
 impl ItemDefinition {
@@ -125,8 +128,16 @@ impl ItemDefinition {
             "return_scroll" => Some(UseEffect::TeleportTown),
             "enchant_scroll" => Some(UseEffect::EnchantWeapon),
             "coin_catch" => self.dice.clone().map(UseEffect::OpenCoinPouch),
+            "boat_deed" => Some(UseEffect::LaunchBoat),
             _ => None,
         }
+    }
+
+    /// A rolled-up boat (`UseEffect::LaunchBoat`). A tool like the fishing
+    /// rod, not treasure — and, carrying no `equipSlot`, it can never slip
+    /// into the dungeon-chest pool.
+    pub fn is_boat_deed(&self) -> bool {
+        self.category.as_deref() == Some("boat_deed")
     }
 }
 

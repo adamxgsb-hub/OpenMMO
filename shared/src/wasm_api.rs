@@ -89,6 +89,19 @@ pub fn fishing_cast_ms() -> u32 {
     crate::fishing::CAST_MS
 }
 
+/// Sailing speed, so the client's hull interpolation matches the server's
+/// boat tick instead of drifting behind it.
+#[wasm_bindgen]
+pub fn boat_speed_mps() -> f32 {
+    crate::boats::BOAT_SPEED_MPS
+}
+
+/// Boarding reach, so hull clicks out of range walk instead of failing.
+#[wasm_bindgen]
+pub fn boat_board_radius_m() -> f32 {
+    crate::boats::BOARD_RADIUS_M
+}
+
 // --- Passability cache (WASM global state) ---
 
 thread_local! {

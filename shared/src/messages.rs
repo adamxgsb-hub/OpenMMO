@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::character::{Character, CharacterAttributes, CharacterClass, Gender};
 use crate::entity::{Monster, MonsterState, Player};
 use crate::world::{GameDateTime, NoSpawnZone, Position};
-use crate::{fishing, housing, inventory, skills};
+use crate::{boats, fishing, housing, inventory, skills};
 
 /// Which side of a merchant trade a haggled deal applies to.
 /// `Buy` = the player buys from the merchant, `Sell` = the player sells to
@@ -302,6 +302,24 @@ pub enum ClientMessage {
     /// Reel in deliberately. Also implied by moving, attacking or
     /// disconnecting — any of them ends the session as `Aborted`.
     FishingStop,
+    /// Pilot request: sail the sender's boat toward a water point. The
+    /// server samples the whole leg for depth and follows only the watery
+    /// prefix; a leg that starts on land earns a direct `BoatError`.
+    SailTo {
+        x: f32,
+        z: f32,
+    },
+    /// Pilot request: drop the route where the boat floats.
+    StopSailing,
+    /// Climb aboard a nearby boat. The server validates distance, seats
+    /// and that the sender is on foot, then broadcasts `BoatBoarded`.
+    BoardBoat {
+        boat_id: boats::BoatId,
+    },
+    /// Step ashore. The server probes around the hull for dry ground and
+    /// answers with `BoatLeft` (carrying the landing point) or a direct
+    /// `BoatError` when there is nothing but open water in reach.
+    LeaveBoat,
 }
 
 impl ClientMessage {
@@ -580,6 +598,44 @@ pub enum ServerMessage {
     /// Direct: a fishing request was refused (no rod, not water, too far…).
     /// Mirrors `InventoryError`.
     FishingError {
+        message: String,
+    },
+    /// A boat took the water (or sailed into view): render it, riders and
+    /// all. Broadcast nearby, and sent when a player walks into a floating
+    /// boat's delivery radius.
+    BoatSpawned {
+        boat: boats::BoatSnapshot,
+    },
+    /// The boat moved (or stopped: `sailing: false` closes a voyage).
+    /// Broadcast each boat tick while under way — riders are NOT sent as
+    /// `PlayerMoved`; clients place everyone aboard from this one message.
+    BoatState {
+        boat_id: boats::BoatId,
+        position: Position,
+        heading: f32,
+        sailing: bool,
+    },
+    /// The boat is gone (stowed back into its deed): despawn the hull.
+    BoatRemoved {
+        boat_id: boats::BoatId,
+    },
+    /// Someone climbed aboard and holds `seat`. Broadcast — bystanders see
+    /// riders take their places.
+    BoatBoarded {
+        boat_id: boats::BoatId,
+        player_id: PlayerId,
+        seat: u8,
+    },
+    /// Someone left the boat and now stands at `position` (the server-picked
+    /// landing point — the one position message riders ever need).
+    BoatLeft {
+        boat_id: boats::BoatId,
+        player_id: PlayerId,
+        position: Position,
+    },
+    /// Direct: a boat request was refused (no water, too far, boat full…).
+    /// Mirrors `FishingError`.
+    BoatError {
         message: String,
     },
     Kicked {

@@ -484,6 +484,8 @@ impl super::GameState {
             UseEffect::OpenCoinPouch(dice) => {
                 self.use_coin_pouch(player_id, instance_id, &dice).await
             }
+            // The deed stays in the bag — launching is not consumption.
+            UseEffect::LaunchBoat => self.use_boat_deed(player_id).await,
         }
     }
 

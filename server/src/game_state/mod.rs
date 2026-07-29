@@ -58,6 +58,7 @@ pub type GameStateReceiver = broadcast::Receiver<BroadcastMessage>;
 
 mod chat;
 pub(crate) use chat::parse_notice_command;
+pub(crate) mod boats;
 mod combat;
 mod deals;
 pub(crate) mod fishing;
@@ -138,6 +139,12 @@ pub struct GameState {
     dirty_skills: Arc<RwLock<HashSet<PlayerId>>>,
     /// Live fishing sessions, one per player, advanced by `tick_fishing`.
     fishing_sessions: Arc<RwLock<HashMap<PlayerId, fishing::FishingSession>>>,
+    /// Boats afloat, keyed by id — spawned from a deed, gone when stowed.
+    /// `tick_boats` walks their pre-validated routes; riders' positions
+    /// follow the hull.
+    boats: Arc<RwLock<HashMap<onlinerpg_shared::boats::BoatId, boats::Boat>>>,
+    /// Monotonically increasing counter for boat ids.
+    next_boat_id: Arc<RwLock<u64>>,
     /// Server-side terrain heights (tile-cached). Fishing's water check is
     /// its first gameplay consumer; sampled only in async handlers, never
     /// in ticks.
@@ -248,6 +255,8 @@ impl GameState {
             player_skills: Arc::new(RwLock::new(HashMap::new())),
             dirty_skills: Arc::new(RwLock::new(HashSet::new())),
             fishing_sessions: Arc::new(RwLock::new(HashMap::new())),
+            boats: Arc::new(RwLock::new(HashMap::new())),
+            next_boat_id: Arc::new(RwLock::new(1)),
             height_sampler,
             water_sampler,
             housing_io,

@@ -1163,6 +1163,13 @@ async fn handle_client_message(
             }
         }
 
+        // Wired to their handlers in the sailing and boarding commits that
+        // follow the deed; the protocol ships whole so v9 bumps once.
+        ClientMessage::SailTo { .. }
+        | ClientMessage::StopSailing
+        | ClientMessage::BoardBoat { .. }
+        | ClientMessage::LeaveBoat => {}
+
         ClientMessage::MonsterAttack {
             monster_id,
             target_player_id,

@@ -6403,3 +6403,154 @@ mod fishing_tests {
         }
     }
 }
+
+// ---- Boats (doc/BOATS.md) ---------------------------------------------------
+// Paused-time tests like fishing's: the deed, launch and stow flows first;
+// sailing and riding land with their own commits.
+
+mod boat_tests {
+    use super::*;
+
+    /// Player standing on the shore of the test world (tiles are centered:
+    /// tile 0 spans x ∈ [−32, 32) and is land; x < −32 is 5 m-deep ocean),
+    /// boat deed in the bag.
+    async fn make_boat_owner(
+        game_state: &GameState,
+        name: &str,
+        x: f32,
+        z: f32,
+    ) -> (
+        PlayerId,
+        tokio::sync::mpsc::UnboundedReceiver<ServerMessage>,
+    ) {
+        let id = pid(name);
+        game_state.add_player(make_player(name, x, z)).await;
+        game_state.inventories.write().await.insert(
+            id,
+            PlayerInventory {
+                bag: vec![bag_item(500, "boat_deed", 1)],
+                equipped: std::collections::HashMap::new(),
+            },
+        );
+        game_state
+            .register_player_character(&id, 1, 0, attrs_with_cha(10), 0)
+            .await;
+        let rx = game_state.register_direct_channel(&id).await;
+        (id, rx)
+    }
+
+    fn drain(rx: &mut tokio::sync::mpsc::UnboundedReceiver<ServerMessage>) -> Vec<ServerMessage> {
+        let mut out = Vec::new();
+        while let Ok(msg) = rx.try_recv() {
+            out.push(msg);
+        }
+        out
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn launching_a_boat_needs_the_deed_and_the_waters_edge() {
+        let game_state = make_test_game_state("boat_launch");
+
+        // No deed in the bag: using a made-up instance goes nowhere.
+        let (dry, mut rx_dry) = make_boat_owner(&game_state, "no_deed", -28.0, 50.0).await;
+        game_state.use_item(&dry, 999).await;
+        assert!(drain(&mut rx_dry)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::SystemMessage { message } if message.contains("not found"))));
+        assert!(game_state.boats.read().await.is_empty());
+
+        // Deed, but standing far inland: every probe lands on dry ground.
+        let (inland, mut rx_inland) = make_boat_owner(&game_state, "inlander", 200.0, 50.0).await;
+        game_state.use_item(&inland, 500).await;
+        assert!(drain(&mut rx_inland)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::BoatError { message } if message.contains("water's edge"))));
+        assert!(game_state.boats.read().await.is_empty());
+
+        // Deed at the shoreline: the probe finds the western sea, the boat
+        // spawns on the surface, and the owner steps aboard at the helm.
+        let (owner, mut rx) = make_boat_owner(&game_state, "sailor", -28.0, 50.0).await;
+        game_state.use_item(&owner, 500).await;
+        let msgs = drain(&mut rx);
+        let boat = msgs
+            .iter()
+            .find_map(|m| match m {
+                ServerMessage::BoatSpawned { boat } => Some(boat.clone()),
+                _ => None,
+            })
+            .expect("launch broadcasts the boat");
+        assert_eq!(boat.owner, owner);
+        assert!(
+            boat.position.x < -32.0,
+            "hull floats past the tile-0 shoreline"
+        );
+        assert_eq!(boat.position.y, 0.0, "hull rides the water surface");
+        assert_eq!(boat.passengers.len(), 1);
+        assert_eq!(boat.passengers[0].player_id, owner);
+        assert_eq!(boat.passengers[0].seat, 0, "the owner takes the helm");
+        let aboard_pos = game_state
+            .players
+            .read()
+            .await
+            .get(&owner)
+            .unwrap()
+            .position;
+        assert_eq!(
+            aboard_pos.x, boat.position.x,
+            "the owner stands on the hull"
+        );
+        // The deed stays in the bag — it is the boat, rolled up.
+        assert!(game_state
+            .inventories
+            .read()
+            .await
+            .get(&owner)
+            .unwrap()
+            .bag
+            .iter()
+            .any(|i| i.item_def_id == "boat_deed"));
+
+        // A second sailor launches their own boat — registries are
+        // per-owner, not global.
+        let (second, mut rx_second) = make_boat_owner(&game_state, "second", -28.0, 120.0).await;
+        game_state.use_item(&second, 500).await;
+        assert!(drain(&mut rx_second)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::BoatSpawned { .. })));
+        assert_eq!(game_state.boats.read().await.len(), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn stowing_returns_the_boat_to_the_deed() {
+        let game_state = make_test_game_state("boat_stow");
+        let (owner, mut rx) = make_boat_owner(&game_state, "stower", -28.0, 50.0).await;
+        game_state.use_item(&owner, 500).await;
+        drain(&mut rx);
+        assert_eq!(game_state.boats.read().await.len(), 1);
+
+        // Using the deed aboard, near the shore, hauls the boat out: the
+        // registry empties, the owner stands on dry land, deed still in bag.
+        game_state.use_item(&owner, 500).await;
+        let msgs = drain(&mut rx);
+        assert!(msgs
+            .iter()
+            .any(|m| matches!(m, ServerMessage::BoatRemoved { .. })));
+        assert!(game_state.boats.read().await.is_empty());
+        let ashore = game_state
+            .players
+            .read()
+            .await
+            .get(&owner)
+            .unwrap()
+            .position;
+        assert!(ashore.x >= -32.0, "stowing steps the owner onto land");
+        assert!(
+            game_state.is_aboard(&owner).await.is_none(),
+            "nobody is aboard a rolled-up deed"
+        );
+
+        // And the cycle repeats: the deed launches again.
+        game_state.use_item(&owner, 500).await;
+        assert_eq!(game_state.boats.read().await.len(), 1);
+    }
+}
