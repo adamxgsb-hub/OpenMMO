@@ -1,6 +1,6 @@
 # Boats
 
-A simple sailboat one player pilots and up to three more ride together —
+A simple rowboat one player pilots and up to three more ride together —
 the smallest slice of the archipelago-crossing travel the worldgen was
 tuned for (`min_strait_width_cells` deliberately cuts land bridges
 "producing archipelagos that require boats to traverse").
@@ -82,8 +82,10 @@ off takes the hull with them — the deed model leaves no orphan boats.
   out-of-range jumps).
 - `managers/boatManager.ts` — interpolation between `BoatState`s; also the
   hull click-target registry.
-- `components/Boat.svelte` — a primitives-built hull (no GLB in this
-  slice), stamped with `userData.boatId` for the click raycast.
+- `components/Boat.svelte` — the Meshy-generated rowboat hull
+  (`models/objects/rowboat.glb`), normalized at load to the 3.6 m
+  seat-offset footprint and stamped with `userData.boatId` for the click
+  raycast.
 - Input: clicking a hull boards (out of reach walks closer); aboard, deep
   water charts a course (pilot only) and land steps ashore
   (`managers/inputHandler.ts`, `canvas-click-dispatcher.ts`).
@@ -119,10 +121,9 @@ boat in sight with its `boat_id`.
   wanted (the cast check already knows depth).
 - **Visual wave clipping**: the hull rides the baked mean water surface;
   the Gerstner shader displacement is visual-only, so crests can lap
-  through the hull. Accepted for the primitives hull.
-- **No modeled hull / animations / SFX yet** — the art pass follows the
-  established pipeline (`doc/ASSETS.md`, `doc/ANIMATION.md`) once the
-  mechanics settle.
+  through the hull.
+- **No rowing animations / SFX yet** — they follow the established
+  pipeline (`doc/ASSETS.md`, `doc/ANIMATION.md`).
 - **No currents**: the baked water field's `flowX/flowZ` are ignored.
 - Prices and speeds are first guesses — final tuning is explicitly the
   maintainer's call.

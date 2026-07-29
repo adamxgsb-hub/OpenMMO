@@ -1965,11 +1965,11 @@ impl SharedState {
         if let Some((boat_id, is_pilot)) = self.my_boat {
             if is_pilot {
                 lines.push(format!(
-                    "You are piloting your sailboat (boat_id {boat_id}) — sail to move it, disembark near shore to get off, or use your boat_deed near shore to pack it up."
+                    "You are piloting your rowboat (boat_id {boat_id}) — sail to move it, disembark near shore to get off, or use your boat_deed near shore to pack it up."
                 ));
             } else {
                 lines.push(format!(
-                    "You are riding aboard a sailboat (boat_id {boat_id}) — disembark near shore to get off."
+                    "You are riding aboard a rowboat (boat_id {boat_id}) — disembark near shore to get off."
                 ));
             }
         } else if let Some(sp) = self.self_player.as_ref() {

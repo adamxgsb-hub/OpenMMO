@@ -56,7 +56,7 @@ Available action types (use EXACTLY these field names):
 - Stop fishing (reel in without waiting for a catch):
   {"type": "stop_fishing"}
 
-- Boats: a boat_deed in your bag becomes a sailboat — use it while standing
+- Boats: a boat_deed in your bag becomes a rowboat — use it while standing
   at the water's edge to launch (you board it automatically). Then sail to
   water coordinates, or omit x/z for a short leg ahead; the server refuses
   legs that cross land with a [BoatError] — you cannot see water yourself,
