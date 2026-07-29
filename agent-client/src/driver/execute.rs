@@ -94,6 +94,22 @@ pub(super) async fn handle_response(
             continue;
         }
 
+        // A coordless board resolves against the nearest tracked boat.
+        if matches!(action, AgentAction::Board { boat_id: None }) {
+            let mut s = state.lock().await;
+            match s.board_nearest_boat_command() {
+                Some(cmd) => {
+                    if let Err(e) = s.send_command(cmd).await {
+                        error!("Failed to send board command: {e}");
+                    }
+                }
+                None => {
+                    s.push_agent_event("[BoatError] No boat in sight to board.".to_string());
+                }
+            }
+            continue;
+        }
+
         // For attack actions, chase the monster and attack
         if let AgentAction::Attack { monster_id } = action {
             info!("Agent attacking monster {monster_id}, chasing...");

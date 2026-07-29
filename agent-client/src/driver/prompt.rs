@@ -432,6 +432,22 @@ pub(crate) fn format_event(state: &SharedState, msg: &ServerMessage) -> Option<S
             })
         }
         ServerMessage::FishingError { message } => Some(format!("[FishingError] {message}")),
+        // Boats: only the agent's own transitions become events (hull
+        // movement is deduped into the world state).
+        ServerMessage::BoatBoarded { player_id, .. }
+            if state.self_player_id.as_ref() == Some(player_id) =>
+        {
+            Some(
+                "[Boat] You are aboard. If it is your boat, sail to move it; disembark near shore to get off."
+                    .to_string(),
+            )
+        }
+        ServerMessage::BoatLeft { player_id, .. }
+            if state.self_player_id.as_ref() == Some(player_id) =>
+        {
+            Some("[Boat] You stepped ashore.".to_string())
+        }
+        ServerMessage::BoatError { message } => Some(format!("[BoatError] {message}")),
         // Skip unknown/unhandled event types
         _ => None,
     }

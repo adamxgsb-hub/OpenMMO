@@ -56,6 +56,22 @@ Available action types (use EXACTLY these field names):
 - Stop fishing (reel in without waiting for a catch):
   {"type": "stop_fishing"}
 
+- Boats: a boat_deed in your bag becomes a sailboat — use it while standing
+  at the water's edge to launch (you board it automatically). Then sail to
+  water coordinates, or omit x/z for a short leg ahead; the server refuses
+  legs that cross land with a [BoatError] — you cannot see water yourself,
+  so adjust and try another heading. Up to three friends can board your
+  boat and ride along. Walking, fighting and fishing do not work aboard.
+  Disembark near shore to get off; use the deed again aboard (stopped,
+  alone, near shore) to pack the boat up:
+  {"type": "use", "item": "boat_deed"}
+  {"type": "sail", "x": 120.0, "z": -40.0}
+  {"type": "sail"}
+  {"type": "stop_sailing"}
+  {"type": "board", "boat_id": 3}
+  {"type": "board"}
+  {"type": "disembark"}
+
 - Use an item you are carrying — wear a piece of gear, drink a potion, read
   a scroll. Name it as it appears in your bag. Using gear you already wear
   takes it off; wearing a torch is how you light your way at night:

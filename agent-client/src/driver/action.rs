@@ -66,6 +66,22 @@ pub(super) enum AgentAction {
     /// Reel in and stop fishing.
     #[serde(rename = "stop_fishing")]
     StopFishing,
+    /// Sail your boat toward a water point (you must be aboard and own it —
+    /// use the boat_deed at the water's edge first). Without coordinates,
+    /// a short leg ahead. The server validates every leg for water and
+    /// answers with BoatError when refused.
+    #[serde(rename = "sail", alias = "sail_to", alias = "navigate")]
+    Sail { x: Option<f32>, z: Option<f32> },
+    /// Drop the route where the boat floats.
+    #[serde(rename = "stop_sailing", alias = "drop_anchor")]
+    StopSailing,
+    /// Climb aboard a nearby boat. With no id, the nearest tracked boat
+    /// (resolved in execute.rs from world state).
+    #[serde(rename = "board", alias = "board_boat")]
+    Board { boat_id: Option<u64> },
+    /// Step ashore near the hull (the server probes for dry ground).
+    #[serde(rename = "disembark", alias = "leave_boat", alias = "go_ashore")]
+    Disembark,
     /// Haggling (merchants only): offer a price modifier on one item to a
     /// nearby player. The server clamps/validates; see `doc/ECONOMY.md`.
     #[serde(rename = "offer_deal")]
@@ -360,6 +376,24 @@ pub(super) fn action_to_command(
             })
         }
         AgentAction::StopFishing => Some(ClientMessage::FishingStop),
+        AgentAction::Sail { x, z } => {
+            // Explicit coordinates, or a short leg ahead of the hull. The
+            // server judges the water, leg by leg.
+            let (sx, sz) = match (x, z, player_pos) {
+                (Some(x), Some(z), _) => (*x, *z),
+                (_, _, Some(pp)) => (pp.x, pp.z + 8.0),
+                _ => return None,
+            };
+            Some(ClientMessage::SailTo { x: sx, z: sz })
+        }
+        AgentAction::StopSailing => Some(ClientMessage::StopSailing),
+        AgentAction::Board {
+            boat_id: Some(boat_id),
+        } => Some(ClientMessage::BoardBoat { boat_id: *boat_id }),
+        // Board with no id needs the nearest tracked boat from SharedState;
+        // handled in `execute::handle_response`, not here.
+        AgentAction::Board { boat_id: None } => None,
+        AgentAction::Disembark => Some(ClientMessage::LeaveBoat),
         // Need player-name → id resolution from SharedState; handled in
         // `execute::handle_response`, not here.
         AgentAction::OfferDeal { .. } => None,
@@ -656,6 +690,58 @@ mod tests {
         }
         // No coordinates and no known position: nothing to send.
         assert!(action_to_command(&response.actions[0], None).is_none());
+    }
+
+    #[test]
+    fn sail_action_parses_with_aliases_and_charts_ahead_without_coords() {
+        let response =
+            parse_agent_response(r#"{"actions": [{"type": "sail_to", "x": 3.0, "z": 4.0}]}"#)
+                .unwrap();
+        match action_to_command(&response.actions[0], None) {
+            Some(ClientMessage::SailTo { x, z }) => {
+                assert_eq!(x, 3.0);
+                assert_eq!(z, 4.0);
+            }
+            other => panic!("expected SailTo, got {other:?}"),
+        }
+        // Coordless: a short leg ahead of where the boat floats.
+        let response = parse_agent_response(r#"{"actions": [{"type": "sail"}]}"#).unwrap();
+        let pos = onlinerpg_shared::Position {
+            x: 1.0,
+            y: 0.0,
+            z: 2.0,
+        };
+        match action_to_command(&response.actions[0], Some(&pos)) {
+            Some(ClientMessage::SailTo { x, z }) => {
+                assert_eq!(x, 1.0);
+                assert_eq!(z, 10.0);
+            }
+            other => panic!("expected SailTo, got {other:?}"),
+        }
+        assert!(action_to_command(&response.actions[0], None).is_none());
+    }
+
+    #[test]
+    fn board_and_disembark_parse() {
+        let response =
+            parse_agent_response(r#"{"actions": [{"type": "board", "boat_id": 7}]}"#).unwrap();
+        assert!(matches!(
+            action_to_command(&response.actions[0], None),
+            Some(ClientMessage::BoardBoat { boat_id: 7 })
+        ));
+        // No id: resolved from tracked boats in execute.rs, not here.
+        let response = parse_agent_response(r#"{"actions": [{"type": "board"}]}"#).unwrap();
+        assert!(action_to_command(&response.actions[0], None).is_none());
+        let response = parse_agent_response(r#"{"actions": [{"type": "disembark"}]}"#).unwrap();
+        assert!(matches!(
+            action_to_command(&response.actions[0], None),
+            Some(ClientMessage::LeaveBoat)
+        ));
+        let response = parse_agent_response(r#"{"actions": [{"type": "drop_anchor"}]}"#).unwrap();
+        assert!(matches!(
+            action_to_command(&response.actions[0], None),
+            Some(ClientMessage::StopSailing)
+        ));
     }
 
     #[test]

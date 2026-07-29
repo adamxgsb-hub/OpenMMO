@@ -351,6 +351,13 @@ pub struct SharedState {
     latest_monster_moves: HashMap<String, ServerMessage>,
     /// Latest position per player -- deduplicates high-frequency PlayerMoved events
     latest_player_moves: HashMap<PlayerId, ServerMessage>,
+    /// Latest BoatState per boat — the movement-dedup treatment, so a
+    /// sailing boat is one event per prompt, not two hundred.
+    latest_boat_states: HashMap<u64, ServerMessage>,
+    /// Boats in sight (hull position + owner), from Boat* broadcasts.
+    boats: HashMap<u64, onlinerpg_shared::boats::BoatSnapshot>,
+    /// The seat we hold, if any: (boat id, we are the pilot).
+    my_boat: Option<(u64, bool)>,
     /// Latest game time -- only the most recent matters
     latest_time: Option<ServerMessage>,
     /// Players we've already seen within NEARBY_PLAYER_RADIUS -- prevents duplicate events
@@ -423,6 +430,9 @@ impl SharedState {
             events: Vec::new(),
             latest_monster_moves: HashMap::new(),
             latest_player_moves: HashMap::new(),
+            latest_boat_states: HashMap::new(),
+            boats: HashMap::new(),
+            my_boat: None,
             latest_time: None,
             seen_nearby_players: HashSet::new(),
             agent_events: Vec::new(),
@@ -961,6 +971,22 @@ impl SharedState {
                 }
             }
             ServerMessage::FishingError { .. } => EventUrgency::Urgent,
+
+            // Boats: refusals and our own boardings/landings matter now;
+            // hull movement is deduped noise (the world state carries it),
+            // and other people's boats are scenery until we act on them.
+            ServerMessage::BoatError { .. } => EventUrgency::Urgent,
+            ServerMessage::BoatBoarded { player_id, .. }
+            | ServerMessage::BoatLeft { player_id, .. } => {
+                if self_id == Some(player_id) {
+                    EventUrgency::Urgent
+                } else {
+                    EventUrgency::Noise
+                }
+            }
+            ServerMessage::BoatSpawned { .. }
+            | ServerMessage::BoatState { .. }
+            | ServerMessage::BoatRemoved { .. } => EventUrgency::Noise,
             ServerMessage::FishingCasted { .. }
             | ServerMessage::FishingBite { .. }
             | ServerMessage::FishingStruggleRound { .. }
@@ -1382,6 +1408,44 @@ impl SharedState {
                     action: fish_state.correct_action(),
                 });
             }
+            // Boat tracking (doc/BOATS.md): the world-state prompt lists
+            // what floats nearby; sailing needs no reflexes at all — the
+            // server drives the hull, the LLM only picks destinations.
+            ServerMessage::BoatSpawned { boat } => {
+                if let Some(me) = self.self_player_id.as_ref() {
+                    if boat.passengers.iter().any(|p| p.player_id == *me) {
+                        self.my_boat = Some((boat.id, boat.owner == *me));
+                    }
+                }
+                self.boats.insert(boat.id, boat.clone());
+            }
+            ServerMessage::BoatRemoved { boat_id } => {
+                self.boats.remove(boat_id);
+                self.latest_boat_states.remove(boat_id);
+                if self.my_boat.map(|(id, _)| id) == Some(*boat_id) {
+                    self.my_boat = None;
+                }
+            }
+            ServerMessage::BoatBoarded {
+                boat_id, player_id, ..
+            } => {
+                if self.self_player_id.as_ref() == Some(player_id) {
+                    let is_pilot = self
+                        .boats
+                        .get(boat_id)
+                        .is_some_and(|b| b.owner == *player_id);
+                    self.my_boat = Some((*boat_id, is_pilot));
+                }
+            }
+            ServerMessage::BoatLeft {
+                boat_id, player_id, ..
+            } => {
+                if self.self_player_id.as_ref() == Some(player_id)
+                    && self.my_boat.map(|(id, _)| id) == Some(*boat_id)
+                {
+                    self.my_boat = None;
+                }
+            }
             _ => {}
         }
 
@@ -1416,6 +1480,15 @@ impl SharedState {
             }
             ServerMessage::PlayerMoved { player_id, .. } => {
                 self.latest_player_moves.insert(*player_id, msg);
+                return urgency;
+            }
+            ServerMessage::BoatState {
+                boat_id, position, ..
+            } => {
+                if let Some(boat) = self.boats.get_mut(boat_id) {
+                    boat.position = *position;
+                }
+                self.latest_boat_states.insert(*boat_id, msg);
                 return urgency;
             }
             // A pure state flag; it changes movement gating but is not an LLM
@@ -1476,8 +1549,23 @@ impl SharedState {
         }
         events.extend(self.latest_monster_moves.drain().map(|(_, v)| v));
         events.extend(self.latest_player_moves.drain().map(|(_, v)| v));
+        events.extend(self.latest_boat_states.drain().map(|(_, v)| v));
 
         events
+    }
+
+    /// The nearest tracked boat's boarding command, for a coordless
+    /// `{"type": "board"}` — None when nothing floats in sight.
+    pub fn board_nearest_boat_command(&self) -> Option<ClientMessage> {
+        let sp = self.self_player.as_ref()?;
+        self.boats
+            .values()
+            .min_by(|a, b| {
+                a.position
+                    .dist_xz_sq(&sp.position)
+                    .total_cmp(&b.position.dist_xz_sq(&sp.position))
+            })
+            .map(|boat| ClientMessage::BoardBoat { boat_id: boat.id })
     }
 
     /// Drain pending commands (from monster AI reactions, spawn requests, etc.)
@@ -1870,6 +1958,30 @@ impl SharedState {
                 .collect();
             worn.sort();
             lines.push(format!("You are wearing: {}", worn.join(", ")));
+        }
+
+        // Your boat, or boats in sight. Agents cannot see water — the way
+        // to learn a leg is unsailable is the server's [BoatError].
+        if let Some((boat_id, is_pilot)) = self.my_boat {
+            if is_pilot {
+                lines.push(format!(
+                    "You are piloting your sailboat (boat_id {boat_id}) — sail to move it, disembark near shore to get off, or use your boat_deed near shore to pack it up."
+                ));
+            } else {
+                lines.push(format!(
+                    "You are riding aboard a sailboat (boat_id {boat_id}) — disembark near shore to get off."
+                ));
+            }
+        } else if let Some(sp) = self.self_player.as_ref() {
+            for boat in self.boats.values() {
+                let dist = boat.position.dist_xz_sq(&sp.position).sqrt();
+                if dist <= NPC_SIGHT_RADIUS {
+                    lines.push(format!(
+                        "Boat afloat at ({:.0}, {:.0}), {:.0}m away (boat_id {}) — board to climb aboard.",
+                        boat.position.x, boat.position.z, dist, boat.id
+                    ));
+                }
+            }
         }
 
         // Nearby players (exclude self and humans beyond the sight radius)
