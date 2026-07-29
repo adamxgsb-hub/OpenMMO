@@ -6553,4 +6553,248 @@ mod boat_tests {
         game_state.use_item(&owner, 500).await;
         assert_eq!(game_state.boats.read().await.len(), 1);
     }
+
+    /// Owner afloat in the river world (water everywhere, depth 0.4 m), with
+    /// the launch messages drained. Returns their id, boat id and receiver.
+    async fn launch_on_river(
+        game_state: &GameState,
+        name: &str,
+        x: f32,
+        z: f32,
+    ) -> (
+        PlayerId,
+        u64,
+        tokio::sync::mpsc::UnboundedReceiver<ServerMessage>,
+    ) {
+        let (id, mut rx) = make_boat_owner(game_state, name, x, z).await;
+        game_state.use_item(&id, 500).await;
+        let boat_id = drain(&mut rx)
+            .iter()
+            .find_map(|m| match m {
+                ServerMessage::BoatSpawned { boat } => Some(boat.id),
+                _ => None,
+            })
+            .expect("river world launches anywhere");
+        (id, boat_id, rx)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn sailing_moves_the_boat_at_boat_speed_along_validated_water() {
+        use onlinerpg_shared::boats::BOAT_SPEED_MPS;
+
+        let game_state = make_river_game_state("boat_sail_speed");
+        let (owner, boat_id, mut rx) = launch_on_river(&game_state, "sailor", 0.0, 0.0).await;
+        let start = game_state
+            .boats
+            .read()
+            .await
+            .get(&boat_id)
+            .unwrap()
+            .position;
+
+        game_state.sail_boat(&owner, start.x, start.z + 30.0).await;
+        assert!(drain(&mut rx)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::BoatState { sailing: true, .. })));
+
+        // One 200 ms tick: the hull covers BOAT_SPEED · dt, no more.
+        game_state.tick_boats(0.2).await;
+        let after_one = game_state
+            .boats
+            .read()
+            .await
+            .get(&boat_id)
+            .unwrap()
+            .position;
+        let step = (after_one.z - start.z).abs();
+        assert!(
+            (step - BOAT_SPEED_MPS * 0.2).abs() < 1e-3,
+            "one tick moved {step} m"
+        );
+        // The rider is carried: same position as the hull, no PlayerMoved.
+        let rider_pos = game_state
+            .players
+            .read()
+            .await
+            .get(&owner)
+            .unwrap()
+            .position;
+        assert_eq!(rider_pos.z, after_one.z);
+        assert!(drain(&mut rx)
+            .iter()
+            .all(|m| !matches!(m, ServerMessage::PlayerMoved { .. })));
+
+        // Enough ticks to arrive: the voyage closes with sailing: false and
+        // the hull rests on the target, riding the river surface.
+        for _ in 0..40 {
+            game_state.tick_boats(0.2).await;
+        }
+        let done = game_state
+            .boats
+            .read()
+            .await
+            .get(&boat_id)
+            .unwrap()
+            .position;
+        assert!((done.z - (start.z + 30.0)).abs() < 1e-2);
+        assert!((done.y - 5.4).abs() < 1e-3, "hull floats on the river");
+        let msgs = drain(&mut rx);
+        assert!(msgs
+            .iter()
+            .any(|m| matches!(m, ServerMessage::BoatState { sailing: false, .. })));
+        // Only the pilot steers.
+        let (walker, mut walker_rx) = make_boat_owner(&game_state, "walker", 0.0, 40.0).await;
+        game_state.sail_boat(&walker, 10.0, 10.0).await;
+        assert!(drain(&mut walker_rx).iter().any(
+            |m| matches!(m, ServerMessage::BoatError { message } if message.contains("not aboard"))
+        ));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn sailing_refuses_land_and_stops_at_the_shore() {
+        let game_state = make_test_game_state("boat_sail_land");
+        let (owner, mut rx) = make_boat_owner(&game_state, "sailor", -28.0, 50.0).await;
+        game_state.use_item(&owner, 500).await;
+        let boat_id = drain(&mut rx)
+            .iter()
+            .find_map(|m| match m {
+                ServerMessage::BoatSpawned { boat } => Some(boat.id),
+                _ => None,
+            })
+            .expect("shoreline launch");
+
+        // Straight inland: the very first sample is aground.
+        let pos = game_state
+            .boats
+            .read()
+            .await
+            .get(&boat_id)
+            .unwrap()
+            .position;
+        game_state.sail_boat(&owner, pos.x + 20.0, pos.z).await;
+        assert!(drain(&mut rx)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::BoatError { message } if message.contains("blocked by land"))));
+        assert!(game_state
+            .boats
+            .read()
+            .await
+            .get(&boat_id)
+            .unwrap()
+            .route
+            .is_empty());
+
+        // Out to sea, then a leg that runs back over the shoreline: the
+        // route silently keeps only the watery prefix and the boat stops
+        // short of the beach.
+        game_state.sail_boat(&owner, pos.x - 20.0, pos.z).await;
+        for _ in 0..40 {
+            game_state.tick_boats(0.2).await;
+        }
+        let out = game_state
+            .boats
+            .read()
+            .await
+            .get(&boat_id)
+            .unwrap()
+            .position;
+        game_state.sail_boat(&owner, out.x + 40.0, out.z).await;
+        for _ in 0..80 {
+            game_state.tick_boats(0.2).await;
+        }
+        let stopped = game_state
+            .boats
+            .read()
+            .await
+            .get(&boat_id)
+            .unwrap()
+            .position;
+        assert!(
+            stopped.x < -32.0,
+            "the hull never grounds on tile-0 land: stopped at x={}",
+            stopped.x
+        );
+        assert!(
+            game_state
+                .boats
+                .read()
+                .await
+                .get(&boat_id)
+                .unwrap()
+                .route
+                .is_empty(),
+            "the truncated route still finishes"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn boat_broadcasts_are_radius_gated() {
+        let game_state = make_river_game_state("boat_radius");
+        let (owner, boat_id, mut rx) = launch_on_river(&game_state, "sailor", 0.0, 0.0).await;
+        let start = game_state
+            .boats
+            .read()
+            .await
+            .get(&boat_id)
+            .unwrap()
+            .position;
+
+        // One bystander inside the delivery radius, one far outside it.
+        let near = pid("near_watcher");
+        game_state
+            .add_player(make_player("near_watcher", 13.0, 0.0))
+            .await;
+        let mut near_rx = game_state.register_direct_channel(&near).await;
+        let far = pid("far_watcher");
+        game_state
+            .add_player(make_player("far_watcher", 300.0, 0.0))
+            .await;
+        let mut far_rx = game_state.register_direct_channel(&far).await;
+
+        game_state.sail_boat(&owner, start.x, start.z + 10.0).await;
+        game_state.tick_boats(0.2).await;
+        drain(&mut rx);
+        assert!(drain(&mut near_rx)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::BoatState { .. })));
+        assert!(drain(&mut far_rx)
+            .iter()
+            .all(|m| !matches!(m, ServerMessage::BoatState { .. })));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn sailing_wraps_across_the_world_x_seam() {
+        use onlinerpg_shared::{WORLD_MAX_X, WORLD_MIN_X};
+
+        let game_state = make_river_game_state("boat_seam");
+        let (owner, boat_id, mut rx) =
+            launch_on_river(&game_state, "sailor", WORLD_MAX_X - 4.0, 0.0).await;
+        let start = game_state
+            .boats
+            .read()
+            .await
+            .get(&boat_id)
+            .unwrap()
+            .position;
+
+        game_state
+            .sail_boat(&owner, WORLD_MIN_X + 6.0, start.z)
+            .await;
+        drain(&mut rx);
+        for _ in 0..60 {
+            game_state.tick_boats(0.2).await;
+        }
+        let done = game_state
+            .boats
+            .read()
+            .await
+            .get(&boat_id)
+            .unwrap()
+            .position;
+        assert!(
+            (done.x - (WORLD_MIN_X + 6.0)).abs() < 1e-2,
+            "the short way over the seam, not a lap: x={}",
+            done.x
+        );
+    }
 }

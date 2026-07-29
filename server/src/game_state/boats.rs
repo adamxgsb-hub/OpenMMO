@@ -326,6 +326,195 @@ impl GameState {
         )
         .await;
     }
+
+    /// Handle `ClientMessage::SailTo`: validate the pilot, sample the whole
+    /// leg for depth (async, handler-side — the tick never samples), and
+    /// replace the boat's route with the watery prefix. A leg whose very
+    /// first step is aground earns an error; a later shoal just truncates
+    /// the route, and the final `BoatState` shows where the boat stopped.
+    pub async fn sail_boat(&self, player_id: &PlayerId, x: f32, z: f32) {
+        let (boat_id, boat_pos) = {
+            let boats = self.boats.read().await;
+            let Some(boat) = boats
+                .values()
+                .find(|boat| boat.passengers.contains(player_id))
+            else {
+                self.send_boat_error(player_id, "You are not aboard a boat.")
+                    .await;
+                return;
+            };
+            if boat.owner != *player_id {
+                self.send_boat_error(player_id, "Only the owner holds the tiller.")
+                    .await;
+                return;
+            }
+            (boat.id, boat.position)
+        };
+
+        let samples = onlinerpg_shared::boats::leg_sample_points(&boat_pos, x, z);
+        if samples.is_empty() {
+            return;
+        }
+        let mut route: VecDeque<Position> = VecDeque::new();
+        for (sx, sz) in samples {
+            match self.water_depth_at(sx, sz).await {
+                Some((depth, surface, _)) if depth > MIN_NAV_DEPTH_M => {
+                    route.push_back(Position {
+                        x: sx,
+                        y: surface,
+                        z: sz,
+                    });
+                }
+                _ => break,
+            }
+        }
+        if route.is_empty() {
+            self.send_boat_error(player_id, "The way is blocked by land.")
+                .await;
+            return;
+        }
+
+        let state_msg = {
+            let mut boats = self.boats.write().await;
+            let Some(boat) = boats.get_mut(&boat_id) else {
+                return;
+            };
+            let first = route.front().copied();
+            boat.route = route;
+            if let Some(first) = first {
+                boat.heading = onlinerpg_shared::boats::heading_of(
+                    onlinerpg_shared::shortest_world_delta_x(boat.position.x, first.x),
+                    first.z - boat.position.z,
+                );
+            }
+            ServerMessage::BoatState {
+                boat_id,
+                position: boat.position,
+                heading: boat.heading,
+                sailing: true,
+            }
+        };
+        // Setting sail reels in every line aboard — the fishing abort idiom.
+        let passengers = self.boat_passengers(boat_id).await;
+        for rider in &passengers {
+            self.cancel_fishing_if_active(rider).await;
+        }
+        self.broadcast_boat(&boat_pos, state_msg).await;
+    }
+
+    /// Handle `ClientMessage::StopSailing`: the pilot drops the route where
+    /// the boat floats.
+    pub async fn stop_sailing(&self, player_id: &PlayerId) {
+        let state_msg = {
+            let mut boats = self.boats.write().await;
+            let Some(boat) = boats
+                .values_mut()
+                .find(|boat| boat.passengers.contains(player_id))
+            else {
+                return;
+            };
+            if boat.owner != *player_id || boat.route.is_empty() {
+                return;
+            }
+            boat.route.clear();
+            (
+                boat.position,
+                ServerMessage::BoatState {
+                    boat_id: boat.id,
+                    position: boat.position,
+                    heading: boat.heading,
+                    sailing: false,
+                },
+            )
+        };
+        self.broadcast_boat(&state_msg.0, state_msg.1).await;
+    }
+
+    /// Everyone aboard a boat, seat order preserved.
+    async fn boat_passengers(&self, boat_id: BoatId) -> Vec<PlayerId> {
+        self.boats
+            .read()
+            .await
+            .get(&boat_id)
+            .map(|boat| boat.passengers.clone())
+            .unwrap_or_default()
+    }
+
+    /// Advance every boat with a route by `dt` seconds. The routes were
+    /// water-validated when accepted, so no sampler is touched here (the
+    /// tick rule). Riders' positions follow the hull; their movement is
+    /// carried by the one `BoatState` broadcast, never by `PlayerMoved`.
+    pub async fn tick_boats(&self, dt: f32) {
+        let moved: Vec<(BoatId, Position, Position, f32, bool, Vec<PlayerId>)> = {
+            let mut boats = self.boats.write().await;
+            if boats.is_empty() {
+                return;
+            }
+            let step = onlinerpg_shared::boats::BOAT_SPEED_MPS * dt.max(0.0);
+            let mut moved = Vec::new();
+            for boat in boats.values_mut() {
+                if boat.route.is_empty() {
+                    continue;
+                }
+                let old_position = boat.position;
+                if let Some((new_position, heading)) =
+                    onlinerpg_shared::boats::advance_route(&boat.position, &mut boat.route, step)
+                {
+                    boat.position = new_position;
+                    boat.heading = heading;
+                    moved.push((
+                        boat.id,
+                        old_position,
+                        new_position,
+                        heading,
+                        !boat.route.is_empty(),
+                        boat.passengers.clone(),
+                    ));
+                }
+            }
+            moved
+        };
+
+        for (boat_id, old_position, position, heading, sailing, passengers) in moved {
+            for rider in &passengers {
+                self.carry_rider(rider, &old_position, &position, heading)
+                    .await;
+            }
+            self.broadcast_boat(
+                &position,
+                ServerMessage::BoatState {
+                    boat_id,
+                    position,
+                    heading,
+                    sailing,
+                },
+            )
+            .await;
+        }
+    }
+
+    /// Move one rider with the hull: position write, spatial-cell move and
+    /// the dirty flag for the periodic save — deliberately no `PlayerMoved`
+    /// (clients place riders from `BoatState`).
+    async fn carry_rider(
+        &self,
+        player_id: &PlayerId,
+        old_position: &Position,
+        new_position: &Position,
+        heading: f32,
+    ) {
+        {
+            let mut players = self.players.write().await;
+            let Some(player) = players.get_mut(player_id) else {
+                return;
+            };
+            player.position = *new_position;
+            player.rotation = heading;
+        }
+        self.move_player_spatial_cell(player_id, old_position, new_position)
+            .await;
+        self.mark_dirty(player_id).await;
+    }
 }
 
 // Referenced by later stages (boarding fills seats up to BOAT_SEATS).

@@ -1258,7 +1258,7 @@ impl super::GameState {
         }
     }
 
-    async fn move_player_spatial_cell(
+    pub(super) async fn move_player_spatial_cell(
         &self,
         player_id: &PlayerId,
         old_position: &Position,

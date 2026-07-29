@@ -426,6 +426,23 @@ async fn main() {
         },
     ));
 
+    // Boats: walk pre-validated routes at BOAT_SPEED_MPS, carrying riders.
+    // Same cadence and dt bookkeeping as the player movement sim.
+    let game_state_for_boats = Arc::clone(&game_state);
+    let mut boats_last = std::time::Instant::now();
+    background.spawn(run_ticks(
+        "boats",
+        Duration::from_millis(200),
+        drain_shutdown.clone(),
+        move || {
+            let now = std::time::Instant::now();
+            let dt = (now - boats_last).as_secs_f32();
+            boats_last = now;
+            let game_state = Arc::clone(&game_state_for_boats);
+            async move { game_state.tick_boats(dt).await }
+        },
+    ));
+
     let game_state_for_time_sync = Arc::clone(&game_state);
     let auth_service_for_time_sync = Arc::clone(&auth_service);
     let mut tick_count = 0u64;

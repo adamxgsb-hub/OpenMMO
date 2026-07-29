@@ -1163,12 +1163,24 @@ async fn handle_client_message(
             }
         }
 
-        // Wired to their handlers in the sailing and boarding commits that
-        // follow the deed; the protocol ships whole so v9 bumps once.
-        ClientMessage::SailTo { .. }
-        | ClientMessage::StopSailing
-        | ClientMessage::BoardBoat { .. }
-        | ClientMessage::LeaveBoat => {}
+        ClientMessage::SailTo { x, z } => {
+            if let Some(id) = &state.player_id {
+                game_state.sail_boat(id, x, z).await;
+            } else {
+                warn!("Received sail request from client that is not in game");
+            }
+        }
+
+        ClientMessage::StopSailing => {
+            if let Some(id) = &state.player_id {
+                game_state.stop_sailing(id).await;
+            } else {
+                warn!("Received stop-sailing from client that is not in game");
+            }
+        }
+
+        // Wired to their handlers in the boarding commit that follows.
+        ClientMessage::BoardBoat { .. } | ClientMessage::LeaveBoat => {}
 
         ClientMessage::MonsterAttack {
             monster_id,
