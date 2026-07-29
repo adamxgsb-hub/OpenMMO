@@ -30,7 +30,7 @@
   onDestroy(() => boatManager.unregisterMesh(boat.id))
 
   async function attachHull(root: THREE.Group) {
-    const gltf = await loadGLB(getObjectModelPath('rowboat.glb'))
+    const gltf = await loadGLB(getObjectModelPath('objects/rowboat.glb'))
     const hull = gltf.scene.clone(true)
     const inner = new THREE.Group()
     inner.add(hull)
