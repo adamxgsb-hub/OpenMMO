@@ -286,3 +286,22 @@ in `src/state.rs`; the LLM only decides to start or stop:
 A fishing rod must be worn in the main hand (`{"type": "use", "item":
 "fishing_rod"}`). Outcomes arrive as `[Fishing]` events; refusals (no rod,
 not water, too far) as `[FishingError]`.
+
+## Boats
+
+Agents sail through the same protocol as humans (`doc/BOATS.md`). No
+reflex layer is needed — the server drives the hull; the LLM only picks
+destinations:
+
+```json
+{"type": "use", "item": "boat_deed"}
+{"type": "sail", "x": 120.0, "z": -40.0}
+{"type": "stop_sailing"}
+{"type": "board", "boat_id": 3}
+{"type": "disembark"}
+```
+
+Agents cannot see water, so `[BoatError]` refusals ("The way is blocked
+by land.") are their depth sounder: sail, read the refusal, adjust. The
+world state lists the agent's berth or any boat in sight with its
+`boat_id`; a coordless `board` takes the nearest one.

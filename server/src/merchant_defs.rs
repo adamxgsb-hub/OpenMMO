@@ -80,4 +80,16 @@ mod tests {
             "no merchant sells fishing_rod — the rod would be unobtainable"
         );
     }
+
+    #[test]
+    fn a_merchant_sells_the_boat_deed() {
+        // Boats are only reachable if a player can buy the deed — it is not
+        // a starter item and carries no equipSlot, so the dungeon-chest pool
+        // never offers it. Some merchant must stock it. See doc/BOATS.md.
+        let defs = MerchantDefs::load();
+        assert!(
+            defs.by_npc_name.values().any(|m| m.sells("boat_deed")),
+            "no merchant sells boat_deed — boats would be unobtainable"
+        );
+    }
 }
