@@ -56,6 +56,18 @@ Available action types (use EXACTLY these field names):
 - Stop fishing (reel in without waiting for a catch):
   {"type": "stop_fishing"}
 
+- Chop a tree for timber (needs a woodcutting axe worn in your main hand —
+  use it from your bag first). Stand next to a tree and chop; the server
+  picks the tree nearest the coordinates (or nearest you, if omitted).
+  Swinging is automatic; you will get a [Woodcutting] event with the logs
+  when the tree falls. Moving or attacking cancels chopping. Big oaks need
+  a trained Woodcutting level:
+  {"type": "chop_tree", "x": 7.0, "z": 3.0}
+  {"type": "chop_tree"}
+
+- Stop chopping (put the axe down before the tree falls):
+  {"type": "stop_chopping"}
+
 - Use an item you are carrying — wear a piece of gear, drink a potion, read
   a scroll. Name it as it appears in your bag. Using gear you already wear
   takes it off; wearing a torch is how you light your way at night:

@@ -85,6 +85,7 @@ function makeActions() {
     openProp: vi.fn(),
     moveToGround: vi.fn(),
     castFishing: vi.fn(),
+    chopTree: vi.fn(),
     requestMove: vi.fn(),
     onInteractionFinished: vi.fn(),
     onPickupGrab: vi.fn(),

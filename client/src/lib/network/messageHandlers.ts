@@ -44,6 +44,14 @@ import {
   markBobberBite,
   removeBobber,
 } from '../stores/fishingStore'
+import { fellMessage } from './woodcuttingMessages'
+import {
+  myChopPhase,
+  myChopProgress,
+  markTreeFelled,
+  markTreeRespawned,
+  setFelledTrees,
+} from '../stores/woodcuttingStore'
 import { getItemDef } from '../data/itemDefs'
 import {
   shopSession,
@@ -1100,6 +1108,71 @@ export function handleServerMessage(
     }
 
     case 'FishingError':
+      addCombatMessage({ text: data.message, sender: 'local' })
+      break
+
+    case 'ChopStarted': {
+      if (get(gameStore).currentPlayer?.id === data.player_id) {
+        myChopPhase.set('chopping')
+        myChopProgress.set({
+          swingsDone: 0,
+          swingsNeeded: data.swings_needed,
+          swingMs: data.swing_ms,
+          startedAt: performance.now(),
+        })
+        addCombatMessage({
+          text: 'You set your axe to the tree.',
+          sender: 'local',
+        })
+      }
+      break
+    }
+
+    case 'ChopSwing': {
+      if (get(gameStore).currentPlayer?.id === data.player_id) {
+        myChopProgress.set({
+          swingsDone: data.swings_done,
+          swingsNeeded: data.swings_needed,
+          swingMs: get(myChopProgress)?.swingMs ?? 1500,
+          startedAt: performance.now(),
+        })
+      }
+      break
+    }
+
+    case 'WoodcuttingEnded': {
+      if (get(gameStore).currentPlayer?.id === data.player_id) {
+        myChopPhase.set('idle')
+        myChopProgress.set(null)
+        const outcome = data.outcome
+        if (outcome === 'Aborted') {
+          addCombatMessage({ text: 'You put your axe away.', sender: 'local' })
+        } else if (outcome?.Felled) {
+          const { item_def_id, logs } = outcome.Felled
+          addCombatMessage({
+            text: fellMessage(getItemDef(item_def_id), item_def_id, logs),
+            sender: 'local',
+          })
+        }
+      }
+      break
+    }
+
+    // Tree bookkeeping is world-wide (every client must agree on which
+    // trees stand); the tree layer re-renders off the felledTrees store.
+    case 'TreeFelled':
+      markTreeFelled(data.tree)
+      break
+
+    case 'TreeRespawned':
+      markTreeRespawned(data.tree)
+      break
+
+    case 'TreeStumps':
+      setFelledTrees(data.stumps ?? [])
+      break
+
+    case 'WoodcuttingError':
       addCombatMessage({ text: data.message, sender: 'local' })
       break
 

@@ -706,11 +706,12 @@ impl super::GameState {
 
     /// Everything that stops when a player drops: movement intent, any
     /// fishing session (a dead angler can't keep a line wet — doc/FISHING.md),
-    /// then the XP penalty. One chokepoint so future death sources can't
-    /// forget a side effect.
+    /// any chopping session (nor swing an axe), then the XP penalty. One
+    /// chokepoint so future death sources can't forget a side effect.
     pub(super) async fn on_player_died(&self, player_id: &PlayerId) {
         self.movement_intents.write().await.remove(player_id);
         self.cancel_fishing_if_active(player_id).await;
+        self.cancel_chopping_if_active(player_id).await;
         self.apply_player_death_penalty(player_id).await;
     }
 

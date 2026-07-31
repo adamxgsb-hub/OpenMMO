@@ -66,6 +66,17 @@ pub(super) enum AgentAction {
     /// Reel in and stop fishing.
     #[serde(rename = "stop_fishing")]
     StopFishing,
+    /// Chop the standing tree nearest the given point (or nearest the agent,
+    /// when omitted) with the equipped woodcutting axe. The server snaps to
+    /// the actual baked tree and validates axe/range/skill, answering with
+    /// WoodcuttingError when refused. Swings are automatic — this action is
+    /// the *decision* to cut timber; the result arrives as a [Woodcutting]
+    /// event.
+    #[serde(rename = "chop_tree")]
+    ChopTree { x: Option<f32>, z: Option<f32> },
+    /// Put the axe down and stop chopping.
+    #[serde(rename = "stop_chopping")]
+    StopChopping,
     /// Haggling (merchants only): offer a price modifier on one item to a
     /// nearby player. The server clamps/validates; see `doc/ECONOMY.md`.
     #[serde(rename = "offer_deal")]
@@ -360,6 +371,23 @@ pub(super) fn action_to_command(
             })
         }
         AgentAction::StopFishing => Some(ClientMessage::FishingStop),
+        AgentAction::ChopTree { x, z } => {
+            // Explicit coordinates, or right where the agent stands — the
+            // server snaps to the nearest standing tree either way.
+            let (cx, cz) = match (x, z, player_pos) {
+                (Some(x), Some(z), _) => (*x, *z),
+                (_, _, Some(pp)) => (pp.x, pp.z),
+                _ => return None,
+            };
+            Some(ClientMessage::ChopTree {
+                position: onlinerpg_shared::Position {
+                    x: cx,
+                    y: 0.0,
+                    z: cz,
+                },
+            })
+        }
+        AgentAction::StopChopping => Some(ClientMessage::ChopStop),
         // Need player-name → id resolution from SharedState; handled in
         // `execute::handle_response`, not here.
         AgentAction::OfferDeal { .. } => None,
@@ -664,6 +692,48 @@ mod tests {
         assert!(matches!(
             action_to_command(&response.actions[0], None),
             Some(ClientMessage::FishingStop)
+        ));
+    }
+
+    #[test]
+    fn chop_tree_action_parses_and_targets() {
+        let response =
+            parse_agent_response(r#"{"actions": [{"type": "chop_tree", "x": 7.0, "z": 3.0}]}"#)
+                .unwrap();
+        match action_to_command(&response.actions[0], None) {
+            Some(ClientMessage::ChopTree { position }) => {
+                assert_eq!(position.x, 7.0);
+                assert_eq!(position.z, 3.0);
+            }
+            other => panic!("expected ChopTree, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn chop_tree_without_coords_chops_where_the_agent_stands() {
+        let response = parse_agent_response(r#"{"actions": [{"type": "chop_tree"}]}"#).unwrap();
+        let pos = onlinerpg_shared::Position {
+            x: 4.0,
+            y: 0.0,
+            z: -8.0,
+        };
+        match action_to_command(&response.actions[0], Some(&pos)) {
+            Some(ClientMessage::ChopTree { position }) => {
+                assert_eq!(position.x, 4.0);
+                assert_eq!(position.z, -8.0);
+            }
+            other => panic!("expected ChopTree, got {other:?}"),
+        }
+        // No coordinates and no known position: nothing to send.
+        assert!(action_to_command(&response.actions[0], None).is_none());
+    }
+
+    #[test]
+    fn stop_chopping_parses() {
+        let response = parse_agent_response(r#"{"actions": [{"type": "stop_chopping"}]}"#).unwrap();
+        assert!(matches!(
+            action_to_command(&response.actions[0], None),
+            Some(ClientMessage::ChopStop)
         ));
     }
 }

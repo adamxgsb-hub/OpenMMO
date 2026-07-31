@@ -451,6 +451,14 @@ class NetworkManager {
     this.sendMessage('FishingStop')
   }
 
+  sendChopTree(position: Position) {
+    this.sendMessage({ ChopTree: { position } })
+  }
+
+  sendChopStop() {
+    this.sendMessage('ChopStop')
+  }
+
   sendBreakDungeonProp(entranceId: string, depth: number, propId: number) {
     this.sendMessage({
       BreakDungeonProp: {

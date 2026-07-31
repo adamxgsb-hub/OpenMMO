@@ -80,6 +80,14 @@ impl ItemDefinition {
         self.category.as_deref() == Some("fishing_rod")
     }
 
+    /// Main-hand tool that enables chopping (`ClientMessage::ChopTree`).
+    /// Like the rod, not a weapon: it has no damage dice, so swinging it at
+    /// a monster uses the bare-handed path — a felling axe is a tool with a
+    /// tool's price, not a budget battleaxe.
+    pub fn is_woodcutting_axe(&self) -> bool {
+        self.category.as_deref() == Some("woodcutting_axe")
+    }
+
     pub fn is_fish(&self) -> bool {
         self.category.as_deref() == Some("fish")
     }
@@ -184,15 +192,15 @@ impl ItemDefs {
 
     /// Equippable items at or above a price floor — the dungeon treasure
     /// chest loot pool. Sorted for determinism before the caller shuffles.
-    /// Fishing rods are excluded: they are tools you buy from a merchant, not
-    /// endgame combat treasure, and their price would otherwise sneak them
-    /// into the chest pool (`doc/FISHING.md`).
+    /// Fishing rods and woodcutting axes are excluded: they are tools you
+    /// buy from a merchant, not endgame combat treasure, and their price
+    /// would otherwise sneak them into the chest pool (`doc/FISHING.md`).
     pub fn equipment_ids_with_min_price(&self, min_price: i64) -> Vec<String> {
         let mut ids: Vec<String> = self
             .defs
             .values()
             .filter(|def| def.equip_slot.is_some())
-            .filter(|def| !def.is_fishing_rod())
+            .filter(|def| !def.is_fishing_rod() && !def.is_woodcutting_axe())
             .filter(|def| def.base_price.is_some_and(|p| p >= min_price))
             .map(|def| def.id.clone())
             .collect();
@@ -378,6 +386,49 @@ mod tests {
         let threshold = trout.trophy_cm.unwrap() as u16;
         assert!(trout.trophy_at(threshold, false));
         assert!(!trout.trophy_at(threshold - 1, false));
+    }
+
+    #[test]
+    fn woodcutting_axe_is_a_tool_not_treasure_or_a_weapon() {
+        let defs = ItemDefs::load();
+        let axe = defs.get("woodcutting_axe").expect("woodcutting_axe def");
+        assert!(axe.is_woodcutting_axe());
+        assert!(!axe.is_weapon(), "the axe must not deal weapon damage");
+        // Bought from a merchant, never looted from a chest — the same
+        // category exclusion that keeps rods out of the pool.
+        let pool = defs.equipment_ids_with_min_price(0);
+        assert!(
+            !pool.contains(&"woodcutting_axe".to_string()),
+            "woodcutting axe must not be in the dungeon chest loot pool"
+        );
+    }
+
+    /// The timber economy contract: a log sells at coin-pile magnitude
+    /// (Rica pays 40% of base), and even the best single felling — an
+    /// ancient oak's four logs — stays a nice find, not a wage. Pinned so a
+    /// price tweak can't quietly turn groves into gold mines.
+    #[test]
+    fn log_prices_stay_in_the_coin_pile_economy() {
+        use onlinerpg_shared::woodcutting::{log_item_id, log_yield};
+        let defs = ItemDefs::load();
+        for kind in 0..2u8 {
+            let id = log_item_id(kind).unwrap();
+            let def = defs.get(id).unwrap_or_else(|| panic!("{id} def missing"));
+            assert!(def.stackable, "{id} must stack — it is a commodity");
+            let sell = def.base_price.expect("logs must be sellable") * 40 / 100;
+            assert!(
+                (4..=12).contains(&sell),
+                "{id} sells for {sell}c — outside the 4–12c coin-pile band"
+            );
+        }
+        // The largest baked tree (tree.glb at scale 3.0) yields the best
+        // haul in the game; it must sell below a guard's hour, not near it.
+        let oak = defs.get("oak_log").unwrap();
+        let best_haul = i64::from(log_yield(0, 3.0)) * oak.base_price.unwrap() * 40 / 100;
+        assert!(
+            best_haul <= 60,
+            "an ancient oak pays {best_haul}c per felling — that is a different economy"
+        );
     }
 
     #[test]

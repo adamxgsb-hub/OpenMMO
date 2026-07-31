@@ -12,6 +12,7 @@ type NpcIntent = Extract<ClickIntent, { type: 'interact_npc' }>
 type BreakPropIntent = Extract<ClickIntent, { type: 'break_prop' }>
 type OpenPropIntent = Extract<ClickIntent, { type: 'open_prop' }>
 type CastFishingIntent = Extract<ClickIntent, { type: 'cast_fishing' }>
+type ChopTreeIntent = Extract<ClickIntent, { type: 'chop_tree' }>
 
 export interface CanvasClickActions {
   /** Player is at melee range — start the attack swing immediately. */
@@ -38,6 +39,9 @@ export interface CanvasClickActions {
   moveToGround(position: Position): void
   /** Stop, face the water, and cast the equipped rod (server validates). */
   castFishing(intent: CastFishingIntent): void
+  /** Chop the clicked tree if in reach, else walk toward it (server
+   *  validates the actual range). */
+  chopTree(intent: ChopTreeIntent): void
 }
 
 export function dispatchCanvasClickIntent(
@@ -90,6 +94,9 @@ export function dispatchCanvasClickIntent(
       return
     case 'cast_fishing':
       actions.castFishing(intent)
+      return
+    case 'chop_tree':
+      actions.chopTree(intent)
       return
     case 'none':
       return

@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::character::{Character, CharacterAttributes, CharacterClass, Gender};
 use crate::entity::{Monster, MonsterState, Player};
 use crate::world::{GameDateTime, NoSpawnZone, Position};
-use crate::{fishing, housing, inventory, skills};
+use crate::{fishing, housing, inventory, skills, woodcutting};
 
 /// Which side of a merchant trade a haggled deal applies to.
 /// `Buy` = the player buys from the merchant, `Sell` = the player sells to
@@ -302,6 +302,17 @@ pub enum ClientMessage {
     /// Reel in deliberately. Also implied by moving, attacking or
     /// disconnecting — any of them ends the session as `Aborted`.
     FishingStop,
+    /// Start chopping the standing tree nearest `position` (the server snaps
+    /// within `woodcutting::TREE_SNAP_RADIUS_METERS`, then validates axe,
+    /// floor, range and skill gate). The web client resolves a click to a
+    /// trunk and sends that point; an agent-client can send any rough point —
+    /// same information, same result.
+    ChopTree {
+        position: Position,
+    },
+    /// Put the axe down deliberately. Also implied by moving, attacking or
+    /// disconnecting — any of them ends the session as `Aborted`.
+    ChopStop,
 }
 
 impl ClientMessage {
@@ -580,6 +591,52 @@ pub enum ServerMessage {
     /// Direct: a fishing request was refused (no rod, not water, too far…).
     /// Mirrors `InventoryError`.
     FishingError {
+        message: String,
+    },
+    /// A player set an axe to a tree: `swings_needed` swings, one per
+    /// `swing_ms`, and it falls. Broadcast nearby (the chopper included) so
+    /// woodcutting is visible to passers-by; `position` is the trunk.
+    ChopStarted {
+        player_id: PlayerId,
+        tree: woodcutting::TreeRef,
+        position: Position,
+        swings_needed: u32,
+        swing_ms: u32,
+    },
+    /// One swing landed. Drives the progress bar and the thunk — there is
+    /// nothing to answer; the server swings again on its own clock.
+    ChopSwing {
+        player_id: PlayerId,
+        swings_done: u32,
+        swings_needed: u32,
+    },
+    /// The chopping session is over: for the chopper, show the outcome.
+    /// Felled logs also arrive via the normal `InventoryUpdated` (or
+    /// `GroundItemSpawned` when the bag couldn't take the weight).
+    WoodcuttingEnded {
+        player_id: PlayerId,
+        outcome: woodcutting::WoodcuttingOutcome,
+    },
+    /// A baked tree came down — hide its instance until it respawns.
+    /// Broadcast world-wide: stumps are few, and every client must agree on
+    /// which trees are standing no matter where it was when the tree fell.
+    TreeFelled {
+        tree: woodcutting::TreeRef,
+        respawn_in_ms: u32,
+    },
+    /// A felled tree grew back — show its instance again. World-wide, same
+    /// reasoning as `TreeFelled`.
+    TreeRespawned {
+        tree: woodcutting::TreeRef,
+    },
+    /// Sent once on join: every tree currently felled, so a client that
+    /// loads tree tiles fresh hides the same stumps everyone else sees.
+    TreeStumps {
+        stumps: Vec<woodcutting::TreeStump>,
+    },
+    /// Direct: a chop request was refused (no axe, no tree, too far, skill
+    /// gate…). Mirrors `FishingError`.
+    WoodcuttingError {
         message: String,
     },
     Kicked {

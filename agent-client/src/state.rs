@@ -966,6 +966,24 @@ impl SharedState {
             | ServerMessage::FishingStruggleRound { .. }
             | ServerMessage::FishingRoundResult { .. } => EventUrgency::Noise,
 
+            // Woodcutting: same shape as fishing — the ending (and any
+            // refusal) is worth an LLM look; the swing-by-swing progress and
+            // the world-wide tree bookkeeping are not. There is no reflex:
+            // nothing in a chop ever needs answering.
+            ServerMessage::WoodcuttingEnded { player_id, .. } => {
+                if self_id == Some(player_id) {
+                    EventUrgency::Urgent
+                } else {
+                    EventUrgency::Routine
+                }
+            }
+            ServerMessage::WoodcuttingError { .. } => EventUrgency::Urgent,
+            ServerMessage::ChopStarted { .. }
+            | ServerMessage::ChopSwing { .. }
+            | ServerMessage::TreeFelled { .. }
+            | ServerMessage::TreeRespawned { .. }
+            | ServerMessage::TreeStumps { .. } => EventUrgency::Noise,
+
             // Noise: high-frequency, irrelevant, or housing updates
             ServerMessage::PlayerMoved { .. }
             | ServerMessage::MonsterMoved { .. }
@@ -1426,6 +1444,14 @@ impl SharedState {
             ServerMessage::GroundItemSpawned { .. }
             | ServerMessage::GroundItemAppeared { .. }
             | ServerMessage::GroundItemRemoved { .. } => return urgency,
+            // Chop progress arrives every swing and tree bookkeeping is
+            // world-wide; neither is ever an LLM event, so don't buffer them
+            // (a buffered no-op event still costs an idle LLM turn).
+            ServerMessage::ChopStarted { .. }
+            | ServerMessage::ChopSwing { .. }
+            | ServerMessage::TreeFelled { .. }
+            | ServerMessage::TreeRespawned { .. }
+            | ServerMessage::TreeStumps { .. } => return urgency,
             ServerMessage::GameTimeSync { datetime, is_night } => {
                 let prev_night = self.is_night;
                 let prev_hour = self.game_hour;

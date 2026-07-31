@@ -286,3 +286,22 @@ in `src/state.rs`; the LLM only decides to start or stop:
 A fishing rod must be worn in the main hand (`{"type": "use", "item":
 "fishing_rod"}`). Outcomes arrive as `[Fishing]` events; refusals (no rod,
 not water, too far) as `[FishingError]`.
+
+## Woodcutting
+
+Agents chop through the same protocol as humans (`doc/WOODCUTTING.md`).
+There is no reflex layer at all — swings are automatic server-side — so the
+LLM only decides where and whether. The server snaps to the nearest standing
+tree, so omitting coordinates chops whatever the agent is standing beside:
+
+```json
+{"type": "chop_tree", "x": 7.0, "z": 3.0}
+{"type": "chop_tree"}
+{"type": "stop_chopping"}
+```
+
+A woodcutting axe must be worn in the main hand (`{"type": "use", "item":
+"woodcutting_axe"}`). Fellings arrive as `[Woodcutting]` events with the log
+count; refusals (no axe, no tree, out of reach, skill gate) as
+`[WoodcuttingError]`; skill progress for any trained skill as `[Skill]`
+lines (`SkillXpGained`).

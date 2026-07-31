@@ -20,6 +20,7 @@ function makeActions() {
     openProp: vi.fn(),
     moveToGround: vi.fn(),
     castFishing: vi.fn(),
+    chopTree: vi.fn(),
   } satisfies CanvasClickActions
 }
 
@@ -54,6 +55,20 @@ describe('dispatchCanvasClickIntent prop handling', () => {
 
     expect(actions.openProp).toHaveBeenCalledWith(intent)
     expect(actions.breakProp).not.toHaveBeenCalled()
+  })
+
+  it('routes a chop_tree intent to chopTree, never to movement', () => {
+    const actions = makeActions()
+    const intent: ClickIntent = {
+      type: 'chop_tree',
+      position: { x: 3, y: 0, z: 4 },
+      distance: 2.5,
+    }
+
+    dispatchCanvasClickIntent(intent, false, actions)
+
+    expect(actions.chopTree).toHaveBeenCalledWith(intent)
+    expect(actions.moveToGround).not.toHaveBeenCalled()
   })
 })
 

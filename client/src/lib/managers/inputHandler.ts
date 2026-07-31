@@ -106,6 +106,13 @@ export type ClickIntent =
       position: Position
       distance: number
     }
+  | {
+      /** Axe equipped + a standing baked tree near the clicked point: chop,
+       *  don't walk. `position` is the resolved trunk. */
+      type: 'chop_tree'
+      position: Position
+      distance: number
+    }
   | { type: 'none' }
 
 export interface RaycastContext {
@@ -127,6 +134,11 @@ export interface RaycastContext {
   /** Baked water surface height at a world XZ (sea level where none). Lets a
    *  cast fire over rivers, whose beds sit above sea level, not just ocean. */
   waterSurfaceAt?: (x: number, z: number) => number
+  /** Main-hand item is a woodcutting axe — tree clicks become chops. */
+  hasAxeEquipped?: boolean
+  /** Nearest standing baked tree trunk within snap radius of a world XZ
+   *  (see utils/chop-target.ts), or null when nothing stands there. */
+  choppableTreeAt?: (x: number, z: number) => Position | null
 }
 
 /** Result of hovering a placed object that carries display text (e.g. signpost). */
@@ -476,6 +488,26 @@ class InputHandler {
             z: groundHit.point.z,
           },
           distance: Math.sqrt(dx * dx + dz * dz),
+        }
+      }
+      // Axe in hand + a standing baked tree near the click: this is a chop,
+      // not a walk into the trunk. Position-based against the decoded tree
+      // tiles (the instanced meshes have no stable ids to raycast); the
+      // server re-validates range and picks the same tree from the same
+      // bytes, so this only decides chop-vs-walk.
+      if (context.hasAxeEquipped && context.playerFloorLevel === 0) {
+        const trunk = context.choppableTreeAt?.(
+          groundHit.point.x,
+          groundHit.point.z
+        )
+        if (trunk) {
+          const dx = trunk.x - context.playerPosition.x
+          const dz = trunk.z - context.playerPosition.z
+          return {
+            type: 'chop_tree',
+            position: trunk,
+            distance: Math.sqrt(dx * dx + dz * dz),
+          }
         }
       }
       return {
