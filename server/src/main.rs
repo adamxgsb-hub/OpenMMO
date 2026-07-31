@@ -338,6 +338,11 @@ async fn main() {
     let water_sampler = Arc::new(onlinerpg_terrain::water::WaterSampler::new(TerrainIO::new(
         std::path::PathBuf::from(&args.terrain_dir),
     )));
+    // Mining's vein lookup derives node lists from the same baked tiles
+    // (splat + height); nothing ore-specific is stored on disk.
+    let ore_nodes = Arc::new(onlinerpg_terrain::ore::OreNodeIndex::new(TerrainIO::new(
+        std::path::PathBuf::from(&args.terrain_dir),
+    )));
 
     let game_state = Arc::new(GameState::new(
         monster_defs,
@@ -349,6 +354,7 @@ async fn main() {
         dungeon_defs,
         height_sampler,
         water_sampler,
+        ore_nodes,
     ));
     // Server-side collision data for the movement sim: houses, solid
     // furniture and dungeon layouts, mirroring what clients build.
@@ -421,6 +427,19 @@ async fn main() {
         move || {
             let game_state = Arc::clone(&game_state_for_fishing);
             async move { game_state.tick_fishing().await }
+        },
+    ));
+
+    // Mining strike timers + vein respawns. Same cadence and reasoning as
+    // the fishing tick.
+    let game_state_for_mining = Arc::clone(&game_state);
+    background.spawn(run_ticks(
+        "mining",
+        Duration::from_millis(250),
+        drain_shutdown.clone(),
+        move || {
+            let game_state = Arc::clone(&game_state_for_mining);
+            async move { game_state.tick_mining().await }
         },
     ));
 

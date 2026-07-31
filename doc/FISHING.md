@@ -115,7 +115,6 @@ still pays the flat 2 XP consolation — the species is never revealed on
 an escape, and a varying consolation would leak the hidden roll. Junk
 keeps the bite/struggle stakes honest without inflating income — the EV
 guardrail above counts flotsam in its average.
->>>>>>> 354ec41a (Add flotsam catches: junk, a bottle, and a sunken coin pouch)
 
 ## Skill
 

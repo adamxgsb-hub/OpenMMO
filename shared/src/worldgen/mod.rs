@@ -18,6 +18,7 @@ pub mod grass_patches;
 pub(crate) mod grid;
 pub mod growth;
 pub mod noise;
+pub mod ore_nodes;
 pub mod rivers;
 pub mod roads;
 pub mod settlements;

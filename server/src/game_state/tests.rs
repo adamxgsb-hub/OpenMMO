@@ -145,6 +145,54 @@ impl onlinerpg_terrain::water::WaterTiles for RiverPlateauWater {
     }
 }
 
+/// No baked splat anywhere: default (all-zero) maps derive zero ore veins,
+/// so non-mining tests see a world without ore — matching unbaked tiles.
+struct NoOreTiles;
+
+#[async_trait::async_trait]
+impl onlinerpg_terrain::ore::OreTiles for NoOreTiles {
+    async fn read_splatmap(&self, _tx: i32, _tz: i32) -> std::io::Result<Vec<u8>> {
+        Ok(onlinerpg_terrain::defaults::default_splatmap())
+    }
+    async fn read_heightmap(&self, _tx: i32, _tz: i32) -> std::io::Result<Vec<u8>> {
+        Ok(onlinerpg_terrain::defaults::default_heightmap())
+    }
+}
+
+/// A mountain world for mining tests: every splat cell is cliff-primary and
+/// the terrain is a flat 40 m plateau, so every tile derives a deterministic
+/// handful of veins the tests can recompute with the shared function.
+struct RockyOreTiles;
+
+fn rocky_splat() -> Vec<u8> {
+    use onlinerpg_shared::worldgen::tile_bake::{PAL_CLIFF, TILE_DIM};
+    let mut out = vec![0u8; TILE_DIM * TILE_DIM * 4];
+    for cell in out.chunks_exact_mut(4) {
+        cell[0] = PAL_CLIFF << 4;
+    }
+    out
+}
+
+fn rocky_height() -> Vec<u8> {
+    let encoded = ((40.0f32 + 500.0) / 0.05) as u16;
+    let verts = onlinerpg_terrain::defaults::VERTS_PER_SIDE;
+    let mut buf = Vec::with_capacity(verts * verts * 2);
+    for _ in 0..(verts * verts) {
+        buf.extend_from_slice(&encoded.to_le_bytes());
+    }
+    buf
+}
+
+#[async_trait::async_trait]
+impl onlinerpg_terrain::ore::OreTiles for RockyOreTiles {
+    async fn read_splatmap(&self, _tx: i32, _tz: i32) -> std::io::Result<Vec<u8>> {
+        Ok(rocky_splat())
+    }
+    async fn read_heightmap(&self, _tx: i32, _tz: i32) -> std::io::Result<Vec<u8>> {
+        Ok(rocky_height())
+    }
+}
+
 fn make_test_game_state(test_name: &str) -> GameState {
     let housing_dir = std::env::temp_dir().join(format!(
         "onlinerpg_{test_name}_housing_{}",
@@ -166,6 +214,66 @@ fn make_test_game_state(test_name: &str) -> GameState {
             SplitWorldTiles,
         )),
         Arc::new(onlinerpg_terrain::water::WaterSampler::new(SeaOnlyWater)),
+        Arc::new(onlinerpg_terrain::ore::OreNodeIndex::new(NoOreTiles)),
+    )
+}
+
+/// A game state over the `RockyOreTiles` mountain world, for mining tests.
+/// Fishing samplers keep their standard fakes — the two systems read
+/// independent tile sources by design.
+fn make_mining_game_state(test_name: &str) -> GameState {
+    let housing_dir = std::env::temp_dir().join(format!(
+        "onlinerpg_{test_name}_housing_{}",
+        uuid::Uuid::new_v4()
+    ));
+    let housing_io = Arc::new(HousingIO::new(housing_dir));
+    let item_defs = ItemDefs::load();
+    let world_drop_defs = crate::world_drop_defs::WorldDropDefs::load(&item_defs);
+    let dungeon_defs = crate::dungeon_defs::DungeonDefs::load(&item_defs);
+    GameState::new(
+        MonsterDefs::load(),
+        item_defs,
+        world_drop_defs,
+        GameState::default_start_datetime(),
+        housing_io,
+        vec![],
+        dungeon_defs,
+        Arc::new(onlinerpg_terrain::height::HeightSampler::new(
+            SplitWorldTiles,
+        )),
+        Arc::new(onlinerpg_terrain::water::WaterSampler::new(SeaOnlyWater)),
+        Arc::new(onlinerpg_terrain::ore::OreNodeIndex::new(RockyOreTiles)),
+    )
+}
+
+/// A game state over a **real baked world** (`data/terrain`), for the
+/// ignored end-to-end mining test. Everything else in the mining suite runs
+/// on synthetic tiles; this one proves the derivation and the session
+/// machine agree with terrain the bake actually produced.
+fn make_real_terrain_mining_game_state(
+    test_name: &str,
+    terrain_dir: &std::path::Path,
+) -> GameState {
+    let housing_dir = std::env::temp_dir().join(format!(
+        "onlinerpg_{test_name}_housing_{}",
+        uuid::Uuid::new_v4()
+    ));
+    let housing_io = Arc::new(HousingIO::new(housing_dir));
+    let item_defs = ItemDefs::load();
+    let world_drop_defs = crate::world_drop_defs::WorldDropDefs::load(&item_defs);
+    let dungeon_defs = crate::dungeon_defs::DungeonDefs::load(&item_defs);
+    let terrain = || onlinerpg_terrain::io::TerrainIO::new(terrain_dir.to_path_buf());
+    GameState::new(
+        MonsterDefs::load(),
+        item_defs,
+        world_drop_defs,
+        GameState::default_start_datetime(),
+        housing_io,
+        vec![],
+        dungeon_defs,
+        Arc::new(onlinerpg_terrain::height::HeightSampler::new(terrain())),
+        Arc::new(onlinerpg_terrain::water::WaterSampler::new(terrain())),
+        Arc::new(onlinerpg_terrain::ore::OreNodeIndex::new(terrain())),
     )
 }
 
@@ -195,6 +303,7 @@ fn make_river_game_state(test_name: &str) -> GameState {
         Arc::new(onlinerpg_terrain::water::WaterSampler::new(
             RiverPlateauWater,
         )),
+        Arc::new(onlinerpg_terrain::ore::OreNodeIndex::new(NoOreTiles)),
     )
 }
 
@@ -5019,5 +5128,580 @@ mod fishing_tests {
                 "an absurd level bottoms out at half the minimum wait"
             );
         }
+    }
+}
+
+mod mining_tests {
+    use super::*;
+    use onlinerpg_shared::inventory::EquipSlot;
+    use onlinerpg_shared::mining::{
+        MiningOutcome, MAX_MINING_DISTANCE_METERS, NODE_RESPAWN_SECONDS,
+    };
+    use onlinerpg_shared::worldgen::ore_nodes::{ore_nodes_for_tile, OreNode};
+    use tokio::time::{advance, Duration};
+
+    /// The `RockyOreTiles` veins on a tile, recomputed with the same shared
+    /// function the server uses — the test's ground truth for where ore is.
+    fn nodes_on_tile(tx: i32, tz: i32) -> Vec<OreNode> {
+        ore_nodes_for_tile(tx, tz, &rocky_splat(), &rocky_height())
+    }
+
+    /// First tile (scanning z) that derives at least one vein — placement is
+    /// a per-tile probability roll, so a specific tile may legally be empty.
+    fn a_tile_with_nodes() -> (i32, i32, Vec<OreNode>) {
+        for tz in 0..64 {
+            let nodes = nodes_on_tile(2, tz);
+            if !nodes.is_empty() {
+                return (2, tz, nodes);
+            }
+        }
+        panic!("no rocky tile derived any veins in 64 tries");
+    }
+
+    /// A player standing at arm's reach of the given vein, pickaxe in hand.
+    async fn make_miner(
+        game_state: &GameState,
+        name: &str,
+        node: &OreNode,
+    ) -> (
+        PlayerId,
+        tokio::sync::mpsc::UnboundedReceiver<ServerMessage>,
+    ) {
+        let id = pid(name);
+        game_state
+            .add_player(make_player(name, node.world_x + 1.0, node.world_z))
+            .await;
+        let mut equipped = std::collections::HashMap::new();
+        equipped.insert(EquipSlot::MainHand, bag_item(998, "pickaxe", 1));
+        game_state.inventories.write().await.insert(
+            id,
+            PlayerInventory {
+                bag: vec![],
+                equipped,
+            },
+        );
+        game_state
+            .register_player_character(&id, 1, 0, attrs_with_cha(10), 0)
+            .await;
+        game_state
+            .register_player_skills(&id, Default::default())
+            .await;
+        let rx = game_state.register_direct_channel(&id).await;
+        (id, rx)
+    }
+
+    fn drain(rx: &mut tokio::sync::mpsc::UnboundedReceiver<ServerMessage>) -> Vec<ServerMessage> {
+        let mut msgs = Vec::new();
+        while let Ok(msg) = rx.try_recv() {
+            msgs.push(msg);
+        }
+        msgs
+    }
+
+    /// Advance paused time in tick-sized steps, running the mining tick at
+    /// each step — the paused-clock equivalent of the 250 ms `run_ticks` task.
+    async fn advance_with_ticks(game_state: &GameState, total_ms: u64) {
+        let mut remaining = total_ms;
+        while remaining > 0 {
+            let step = remaining.min(250);
+            advance(Duration::from_millis(step)).await;
+            game_state.tick_mining().await;
+            remaining -= step;
+        }
+    }
+
+    fn node_position(node: &OreNode) -> Position {
+        Position {
+            x: node.world_x,
+            y: node.world_y,
+            z: node.world_z,
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn start_requires_pickaxe_reach_and_a_vein() {
+        let game_state = make_mining_game_state("mining_validation");
+        let (_, tz, nodes) = a_tile_with_nodes();
+        let node = nodes[0];
+        let (id, mut rx) = make_miner(&game_state, "miner_val", &node).await;
+
+        // Bare hands: refused before any terrain read.
+        game_state
+            .inventories
+            .write()
+            .await
+            .get_mut(&id)
+            .unwrap()
+            .equipped
+            .clear();
+        game_state.start_mining(&id, node_position(&node)).await;
+        let msgs = drain(&mut rx);
+        assert!(
+            msgs.iter().any(|m| matches!(
+                m,
+                ServerMessage::MiningError { message } if message.contains("pickaxe")
+            )),
+            "expected a pickaxe error, got {msgs:?}"
+        );
+
+        // Pickaxe back, but pointing far from any vein on this tile: the
+        // snap radius finds nothing. Aim between nodes far from all.
+        game_state
+            .inventories
+            .write()
+            .await
+            .get_mut(&id)
+            .unwrap()
+            .equipped
+            .insert(EquipSlot::MainHand, bag_item(998, "pickaxe", 1));
+        let far = Position {
+            // Center of a neighbouring tile with the same layout but
+            // shifted nodes; a point 30 m off every node of tile (2,1).
+            x: node.world_x,
+            y: 0.0,
+            z: node.world_z + 30.0,
+        };
+        // (Only meaningful if that point really is off every vein.)
+        let all = [
+            nodes_on_tile(2, tz),
+            nodes_on_tile(2, tz + 1),
+            nodes_on_tile(2, tz - 1),
+        ]
+        .concat();
+        if all.iter().all(|n| {
+            let dx = n.world_x - far.x;
+            let dz = n.world_z - far.z;
+            dx * dx + dz * dz > 36.0
+        }) {
+            game_state.start_mining(&id, far).await;
+            let msgs = drain(&mut rx);
+            assert!(
+                msgs.iter().any(|m| matches!(
+                    m,
+                    ServerMessage::MiningError { message } if message.contains("no ore vein")
+                )),
+                "expected a no-vein error, got {msgs:?}"
+            );
+        }
+
+        // In snap range of the vein but the player is too far away to swing.
+        game_state
+            .players
+            .write()
+            .await
+            .get_mut(&id)
+            .unwrap()
+            .position = Position {
+            x: node.world_x + 5.5,
+            y: node.world_y,
+            z: node.world_z,
+        };
+        game_state.start_mining(&id, node_position(&node)).await;
+        let msgs = drain(&mut rx);
+        assert!(
+            msgs.iter().any(|m| matches!(
+                m,
+                ServerMessage::MiningError { message } if message.contains("too far")
+            )),
+            "expected a too-far error, got {msgs:?}"
+        );
+    }
+
+    /// A vein belongs to the tile it was derived on, but the snap radius
+    /// reaches across tile boundaries. Aiming from the far side of an edge —
+    /// exactly what an agent's `{"type": "mine"}` does, since it aims at its
+    /// own feet — must still find the vein it is standing next to.
+    /// End-to-end over a **real baked world**: find a vein the bake actually
+    /// produced, walk a miner to it, and run the whole session — strikes,
+    /// ore into the bag, skill XP, depletion — against terrain from
+    /// `terrain-gen`, not synthetic tiles. Ignored because `data/terrain` is
+    /// generated, not committed:
+    ///
+    /// ```text
+    /// cargo test -p onlinerpg-server -- --ignored --nocapture mining_on_real_terrain
+    /// ```
+    #[tokio::test(start_paused = true)]
+    #[ignore = "requires a baked data/terrain (see doc/MINING.md)"]
+    async fn mining_on_real_terrain() {
+        let terrain_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("workspace root")
+            .join("data/terrain");
+        assert!(
+            terrain_dir.join("height").is_dir(),
+            "no baked terrain at {terrain_dir:?} — run terrain-gen bake first"
+        );
+        let game_state = make_real_terrain_mining_game_state("mining_real", &terrain_dir);
+
+        // Hunt the baked world for a tile that actually grew ore. Ore lives
+        // on cliffs, so a lowland-only bake legitimately has none — walk
+        // exactly the tiles the bake wrote.
+        let mut found = None;
+        for (tx, tz) in onlinerpg_terrain::io::baked_tiles(&terrain_dir) {
+            let nodes = game_state
+                .ore_nodes
+                .nodes_for_tile(tx, tz)
+                .await
+                .expect("tile read");
+            if let Some(node) = nodes.first() {
+                found = Some((tx, tz, *node));
+                break;
+            }
+        }
+        let (tile_x, tile_z, node) =
+            found.expect("no ore in the baked tiles — bake a mountain region (doc/MINING.md)");
+        println!(
+            "mining a real vein: tile ({tile_x},{tile_z}) index {} at ({:.1}, {:.1}, {:.1}), yield {}",
+            node.index, node.world_x, node.world_y, node.world_z, node.yield_total
+        );
+
+        let (id, mut rx) = make_miner(&game_state, "miner_real", &node).await;
+        let target = Position {
+            x: node.world_x,
+            y: node.world_y,
+            z: node.world_z,
+        };
+        game_state.start_mining(&id, target).await;
+        assert!(
+            drain(&mut rx).iter().any(|m| matches!(
+                m,
+                ServerMessage::MiningStarted { player_id, .. } if *player_id == id
+            )),
+            "a real baked vein must be mineable"
+        );
+
+        // Swing it out under the paused clock, one strike interval at a
+        // time — a vein is a handful of strikes at ~2.8 s each.
+        let mut ores = 0u32;
+        let mut depleted = false;
+        let mut outcome = None;
+        for _ in 0..64 {
+            advance_with_ticks(&game_state, 3_000).await;
+            for msg in drain(&mut rx) {
+                match msg {
+                    ServerMessage::MiningStrike {
+                        ore_item_def_id: Some(ore),
+                        ..
+                    } => {
+                        assert!(
+                            game_state.item_defs.get(&ore).is_some_and(|d| d.is_ore()),
+                            "{ore} is not an ore"
+                        );
+                        ores += 1;
+                    }
+                    ServerMessage::MiningNodeDepleted { .. } => depleted = true,
+                    ServerMessage::MiningEnded { outcome: o, .. } => outcome = Some(o),
+                    _ => {}
+                }
+            }
+            if outcome.is_some() {
+                break;
+            }
+        }
+        assert_eq!(
+            ores,
+            u32::from(node.yield_total),
+            "vein must give its yield"
+        );
+        assert!(depleted, "the vein must crumble when spent");
+        assert!(matches!(outcome, Some(MiningOutcome::Exhausted { .. })));
+
+        let inv = game_state.get_player_inventory(&id).await.unwrap();
+        let bagged: u32 = inv
+            .bag
+            .iter()
+            .filter(|i| {
+                game_state
+                    .item_defs
+                    .get(&i.item_def_id)
+                    .is_some_and(|d| d.is_ore())
+            })
+            .map(|i| i.quantity)
+            .sum();
+        assert_eq!(bagged, ores, "every ore must reach the bag");
+        assert!(
+            game_state
+                .get_player_skills(&id)
+                .await
+                .get(onlinerpg_shared::skills::SkillId::Mining)
+                .xp
+                > 0,
+            "mining real ore must grant Mining XP"
+        );
+        println!("mined {ores} ore from a real vein; bag and skill XP verified");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn snapping_reaches_veins_in_the_neighbouring_tile() {
+        let game_state = make_mining_game_state("mining_tile_boundary");
+
+        // Find a vein close enough to its tile's lower Z edge that a point
+        // just across the boundary is still within a pickaxe's reach, and
+        // where no vein of that neighbouring tile is nearer.
+        let mut scenario = None;
+        'search: for tz in 0..64 {
+            let boundary_z = tz as f32 * 64.0 - 32.0;
+            let neighbour = nodes_on_tile(2, tz - 1);
+            for node in nodes_on_tile(2, tz) {
+                let target_z = boundary_z - 0.5;
+                let gap = node.world_z - target_z;
+                if !(0.0..=MAX_MINING_DISTANCE_METERS).contains(&gap) {
+                    continue;
+                }
+                let nearer_in_neighbour = neighbour.iter().any(|n| {
+                    let dx = n.world_x - node.world_x;
+                    let dz = n.world_z - target_z;
+                    (dx * dx + dz * dz).sqrt() <= gap
+                });
+                if nearer_in_neighbour {
+                    continue;
+                }
+                scenario = Some((tz, node, target_z));
+                break 'search;
+            }
+        }
+        let (tz, node, target_z) =
+            scenario.expect("no vein near a tile edge in the rocky test world");
+
+        // The target really does sit in a different tile than the vein.
+        let target = Position {
+            x: node.world_x,
+            y: node.world_y,
+            z: target_z,
+        };
+        assert_ne!(
+            onlinerpg_terrain::coords::world_to_tile(target.z),
+            tz,
+            "test scenario must straddle a tile boundary"
+        );
+
+        let (id, mut rx) = make_miner(&game_state, "miner_boundary", &node).await;
+        game_state
+            .players
+            .write()
+            .await
+            .get_mut(&id)
+            .unwrap()
+            .position = target;
+
+        game_state.start_mining(&id, target).await;
+        let msgs = drain(&mut rx);
+        let started = msgs.iter().find_map(|m| match m {
+            ServerMessage::MiningStarted {
+                player_id, node: n, ..
+            } if *player_id == id => Some(*n),
+            _ => None,
+        });
+        let started = started.unwrap_or_else(|| {
+            panic!("expected MiningStarted for the vein across the boundary, got {msgs:?}")
+        });
+        assert_eq!(
+            started.tile_z, tz,
+            "must claim the neighbouring tile's vein"
+        );
+        assert_eq!(started.index, node.index);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn mine_to_exhaustion_then_respawn() {
+        let game_state = make_mining_game_state("mining_exhaustion");
+        let (_, _, nodes) = a_tile_with_nodes();
+        let node = nodes[0];
+        let (id, mut rx) = make_miner(&game_state, "miner_exh", &node).await;
+
+        game_state.start_mining(&id, node_position(&node)).await;
+        let msgs = drain(&mut rx);
+        assert!(
+            msgs.iter().any(
+                |m| matches!(m, ServerMessage::MiningStarted { player_id, .. } if *player_id == id)
+            ),
+            "expected MiningStarted, got {msgs:?}"
+        );
+
+        // Swing until the vein crumbles (yield ≤ 5, ~65% hit rate — 200
+        // strikes of budget is astronomically safe).
+        let mut strikes = 0u32;
+        let mut ores_seen = 0u32;
+        let mut skill_xp_seen = false;
+        let mut depleted_seen = false;
+        let mut outcome = None;
+        'outer: for _ in 0..400 {
+            advance_with_ticks(&game_state, 3_000).await;
+            for msg in drain(&mut rx) {
+                match msg {
+                    ServerMessage::MiningStrike {
+                        player_id,
+                        ore_item_def_id,
+                        ..
+                    } if player_id == id => {
+                        strikes += 1;
+                        if ore_item_def_id.is_some() {
+                            ores_seen += 1;
+                        }
+                    }
+                    ServerMessage::SkillXpGained { skill, .. } => {
+                        assert_eq!(skill, onlinerpg_shared::skills::SkillId::Mining);
+                        skill_xp_seen = true;
+                    }
+                    ServerMessage::MiningNodeDepleted { node: n, .. } => {
+                        assert_eq!(n.index, node.index);
+                        depleted_seen = true;
+                    }
+                    ServerMessage::MiningEnded {
+                        player_id,
+                        outcome: o,
+                    } if player_id == id => {
+                        outcome = Some(o);
+                        break 'outer;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        assert!(strikes >= u32::from(node.yield_total), "strikes {strikes}");
+        assert_eq!(ores_seen, u32::from(node.yield_total));
+        assert!(skill_xp_seen, "mining must grant skill XP");
+        assert!(depleted_seen, "the vein must announce its depletion");
+        match outcome {
+            Some(MiningOutcome::Exhausted { ores_gained }) => {
+                assert_eq!(ores_gained, u32::from(node.yield_total));
+            }
+            other => panic!("expected Exhausted, got {other:?}"),
+        }
+        // The ore really landed in the bag.
+        let inv = game_state.get_player_inventory(&id).await.unwrap();
+        let bag_ore: u32 = inv
+            .bag
+            .iter()
+            .filter(|i| {
+                game_state
+                    .item_defs
+                    .get(&i.item_def_id)
+                    .is_some_and(|d| d.is_ore())
+            })
+            .map(|i| i.quantity)
+            .sum();
+        assert_eq!(bag_ore, u32::from(node.yield_total));
+
+        // A spent vein refuses more work…
+        game_state.start_mining(&id, node_position(&node)).await;
+        let msgs = drain(&mut rx);
+        assert!(
+            msgs.iter().any(|m| matches!(
+                m,
+                ServerMessage::MiningError { message } if message.contains("spent")
+            )),
+            "expected a spent-vein error, got {msgs:?}"
+        );
+
+        // …until its respawn timer runs out.
+        advance_with_ticks(&game_state, NODE_RESPAWN_SECONDS * 1_000 + 500).await;
+        let msgs = drain(&mut rx);
+        assert!(
+            msgs.iter()
+                .any(|m| matches!(m, ServerMessage::MiningNodeRespawned { node: n } if n.index == node.index)),
+            "expected MiningNodeRespawned, got {msgs:?}"
+        );
+        game_state.start_mining(&id, node_position(&node)).await;
+        let msgs = drain(&mut rx);
+        assert!(
+            msgs.iter().any(
+                |m| matches!(m, ServerMessage::MiningStarted { player_id, .. } if *player_id == id)
+            ),
+            "a respawned vein must be mineable again, got {msgs:?}"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn movement_and_stop_end_the_session() {
+        let game_state = make_mining_game_state("mining_abort");
+        let node = a_tile_with_nodes().2[0];
+        let (id, mut rx) = make_miner(&game_state, "miner_abort", &node).await;
+
+        game_state.start_mining(&id, node_position(&node)).await;
+        drain(&mut rx);
+        // The move handler's concentration hook.
+        game_state.cancel_mining_if_active(&id).await;
+        let msgs = drain(&mut rx);
+        assert!(
+            msgs.iter().any(|m| matches!(
+                m,
+                ServerMessage::MiningEnded {
+                    outcome: MiningOutcome::Aborted { .. },
+                    ..
+                }
+            )),
+            "expected Aborted, got {msgs:?}"
+        );
+
+        // Deliberate stop reports Stopped with the (empty) haul.
+        game_state.start_mining(&id, node_position(&node)).await;
+        drain(&mut rx);
+        game_state.stop_mining(&id).await;
+        let msgs = drain(&mut rx);
+        assert!(
+            msgs.iter().any(|m| matches!(
+                m,
+                ServerMessage::MiningEnded {
+                    outcome: MiningOutcome::Stopped { ores_gained: 0 },
+                    ..
+                }
+            )),
+            "expected Stopped {{0}}, got {msgs:?}"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn stowing_the_pickaxe_aborts() {
+        let game_state = make_mining_game_state("mining_pick_loss");
+        let node = a_tile_with_nodes().2[0];
+        let (id, mut rx) = make_miner(&game_state, "miner_stow", &node).await;
+
+        game_state.start_mining(&id, node_position(&node)).await;
+        drain(&mut rx);
+        game_state.unequip_item(&id, EquipSlot::MainHand).await;
+        let msgs = drain(&mut rx);
+        assert!(
+            msgs.iter().any(|m| matches!(
+                m,
+                ServerMessage::MiningEnded {
+                    outcome: MiningOutcome::Aborted { .. },
+                    ..
+                }
+            )),
+            "unequipping the pickaxe must abort, got {msgs:?}"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn one_vein_one_miner_at_a_time() {
+        let game_state = make_mining_game_state("mining_contention");
+        let node = a_tile_with_nodes().2[0];
+        let (first, mut rx_first) = make_miner(&game_state, "miner_first", &node).await;
+        let (second, mut rx_second) = make_miner(&game_state, "miner_second", &node).await;
+
+        game_state.start_mining(&first, node_position(&node)).await;
+        assert!(drain(&mut rx_first).iter().any(
+            |m| matches!(m, ServerMessage::MiningStarted { player_id, .. } if *player_id == first)
+        ),);
+        game_state.start_mining(&second, node_position(&node)).await;
+        let msgs = drain(&mut rx_second);
+        assert!(
+            msgs.iter().any(|m| matches!(
+                m,
+                ServerMessage::MiningError { message } if message.contains("already working")
+            )),
+            "expected contention error, got {msgs:?}"
+        );
+
+        // Once the first miner leaves, the vein is free.
+        game_state.stop_mining(&first).await;
+        game_state.start_mining(&second, node_position(&node)).await;
+        let msgs = drain(&mut rx_second);
+        assert!(
+            msgs.iter()
+                .any(|m| matches!(m, ServerMessage::MiningStarted { player_id, .. } if *player_id == second)),
+            "the freed vein must accept the second miner, got {msgs:?}"
+        );
     }
 }

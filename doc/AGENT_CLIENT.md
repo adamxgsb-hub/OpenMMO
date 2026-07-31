@@ -221,3 +221,23 @@ in `src/state.rs`; the LLM only decides to start or stop:
 A fishing rod must be worn in the main hand (`{"type": "use", "item":
 "fishing_rod"}`). Outcomes arrive as `[Fishing]` events; refusals (no rod,
 not water, too far) as `[FishingError]`.
+
+## Mining
+
+Agents mine through the same protocol as humans (`doc/MINING.md`). There is
+no reflex layer to speak of — the server swings the pick on its own timer
+until the vein crumbles or the agent stops — so the LLM only decides where
+and whether:
+
+```json
+{"type": "mine", "x": 120.0, "z": 44.0}
+{"type": "mine"}
+{"type": "stop_mining"}
+```
+
+A pickaxe must be worn in the main hand (`{"type": "use", "item":
+"pickaxe"}`). The position is snapped server-side to the nearest ore vein
+within 6 m (veins live on cliffs and mountainsides). Outcomes arrive as
+`[Mining]` events with the haul; refusals (no pickaxe, no vein nearby,
+spent vein, too far) as `[MiningError]`. Strike-by-strike events are
+classified as noise, so mining costs no extra LLM calls.

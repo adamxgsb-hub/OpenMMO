@@ -30,7 +30,8 @@ fn decode_height(v: u16) -> f32 {
 
 /// Decode a 65×65 uint16 heightmap into f32 meters. Accepts the little-endian
 /// byte buffer that `tile_bake::encode_heightmap` writes.
-fn decode_heightmap(bytes: &[u8]) -> Vec<f32> {
+/// `pub(super)`: the ore-node placement pass reads the same tile bytes.
+pub(super) fn decode_heightmap(bytes: &[u8]) -> Vec<f32> {
     debug_assert_eq!(bytes.len(), VERTS_PER_SIDE * VERTS_PER_SIDE * 2);
     let mut out = Vec::with_capacity(VERTS_PER_SIDE * VERTS_PER_SIDE);
     for chunk in bytes.chunks_exact(2) {
@@ -43,7 +44,7 @@ fn decode_heightmap(bytes: &[u8]) -> Vec<f32> {
 /// Bilinear height sample at fractional tile-local coordinates. Matches the
 /// client's `sampleHeight`: clamps the input to `[0, TILE_DIM-1]`, then reads
 /// the 2×2 neighborhood in the 65×65 vertex grid.
-fn sample_height(heights: &[f32], local_x: f32, local_z: f32) -> f32 {
+pub(super) fn sample_height(heights: &[f32], local_x: f32, local_z: f32) -> f32 {
     let td = TILE_DIM as f32;
     let cx = local_x.clamp(0.0, td - 1.0);
     let cz = local_z.clamp(0.0, td - 1.0);
@@ -101,16 +102,16 @@ fn compute_slope(heights: &[f32], cx: usize, cz: usize) -> f32 {
 /// The JS implementation returns an f64 in [0, 1), and downstream comparisons
 /// (`rand() < 0.08` etc.) are all performed in f64. We mirror that here so
 /// tree/grass placements are deterministic against the same tile seeds.
-struct Rng {
+pub(super) struct Rng {
     s: u32,
 }
 
 impl Rng {
-    fn new(seed_i32: i32) -> Self {
+    pub(super) fn new(seed_i32: i32) -> Self {
         Self { s: seed_i32 as u32 }
     }
 
-    fn next_f64(&mut self) -> f64 {
+    pub(super) fn next_f64(&mut self) -> f64 {
         self.s = self.s.wrapping_add(0x6d2b_79f5);
         let mut t = (self.s ^ (self.s >> 15)).wrapping_mul(1 | self.s);
         t = t.wrapping_add((t ^ (t >> 7)).wrapping_mul(61 | t)) ^ t;
@@ -159,7 +160,7 @@ const VEGMETA_OFFSET: usize = 3;
 
 // Tile-world offset: tile n covers x ∈ [n*TILE_DIM - TILE_DIM/2, n*TILE_DIM + TILE_DIM/2).
 // Matches `TERRAIN_TILE_SIZE = 64` in the client.
-fn tile_min_world(t: i32) -> f32 {
+pub(super) fn tile_min_world(t: i32) -> f32 {
     t as f32 * TILE_DIM as f32 - TILE_DIM as f32 * 0.5
 }
 

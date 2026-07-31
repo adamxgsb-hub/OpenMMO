@@ -469,6 +469,7 @@ pub async fn handle_connection(
     if !shutdown_started.has_changed().unwrap_or(true) {
         if let Some(ref id) = state.player_id {
             game_state.cancel_fishing_if_active(id).await;
+            game_state.cancel_mining_if_active(id).await;
             game_state.persist_and_detach_player(id, auth_service).await;
 
             game_state.unregister_direct_channel(id).await;
@@ -1001,8 +1002,10 @@ async fn handle_client_message(
             append,
         } => {
             if let Some(id) = &state.player_id {
-                // Walking away breaks fishing concentration (doc/FISHING.md).
+                // Walking away breaks fishing/mining concentration
+                // (doc/FISHING.md, doc/MINING.md).
                 game_state.cancel_fishing_if_active(id).await;
+                game_state.cancel_mining_if_active(id).await;
                 game_state
                     .update_player_position(
                         id,
@@ -1093,6 +1096,7 @@ async fn handle_client_message(
         ClientMessage::PlayerAttack { monster_id } => {
             if let Some(id) = &state.player_id {
                 game_state.cancel_fishing_if_active(id).await;
+                game_state.cancel_mining_if_active(id).await;
                 game_state.broadcast_player_attack(id, monster_id).await;
             } else {
                 warn!("Received attack from client that is not in game");
@@ -1120,6 +1124,22 @@ async fn handle_client_message(
                 game_state.stop_fishing(id).await;
             } else {
                 warn!("Received fishing stop from client that is not in game");
+            }
+        }
+
+        ClientMessage::MiningStart { position } => {
+            if let Some(id) = &state.player_id {
+                game_state.start_mining(id, position).await;
+            } else {
+                warn!("Received mining start from client that is not in game");
+            }
+        }
+
+        ClientMessage::MiningStop => {
+            if let Some(id) = &state.player_id {
+                game_state.stop_mining(id).await;
+            } else {
+                warn!("Received mining stop from client that is not in game");
             }
         }
 

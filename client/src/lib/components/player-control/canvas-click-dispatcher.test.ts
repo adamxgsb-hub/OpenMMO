@@ -20,6 +20,7 @@ function makeActions() {
     openProp: vi.fn(),
     moveToGround: vi.fn(),
     castFishing: vi.fn(),
+    mineNode: vi.fn(),
   } satisfies CanvasClickActions
 }
 

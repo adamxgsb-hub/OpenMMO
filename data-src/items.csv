@@ -1,4 +1,4 @@
-id,name,description,weight,equipSlot,stackable,icon,worldModel,category,dice,material,basePrice,guard,rarityTier,catchWeight,sizeDice,trophyCm
+id,name,description,weight,equipSlot,stackable,icon,worldModel,category,dice,material,basePrice,guard,rarityTier,catchWeight,sizeDice,trophyCm,oreWeight
 iron_sword,Iron Sword,A sturdy iron longsword.,3,main_hand,false,iron_sword.png,weapons/sword.glb,weapon,1d8,metal,10000
 worn_iron_sword,Worn Iron Sword,A well-used iron longsword. Merchants won't pay for it.,3,main_hand,false,iron_sword.png,weapons/sword.glb,weapon,1d8,metal,
 wooden_shield,Wooden Shield,A round wooden shield.,6,off_hand,false,shield_wooden.png,armor/shield_wooden.glb,armor,,wood,4000,1
@@ -34,3 +34,9 @@ old_boot,Old Boot,A waterlogged leather boot. Someone had a worse day than you.,
 clump_of_kelp,Clump of Kelp,A slimy tangle of seaweed dredged from the bottom.,0.5,,true,clump_of_kelp.png,,junk,,,,,0,5,6d6,
 message_in_a_bottle,Message in a Bottle,A sealed bottle with a scrap of paper inside. A collector might pay a little.,0.3,,true,message_in_a_bottle.png,,junk,,,15,,0,2,7d3,
 sunken_coin_pouch,Sunken Coin Pouch,A drowned purse still holding a few coins.,0.2,,false,sunken_coin_pouch.png,,coin_catch,3d8,,,,0,4,6d3,
+pickaxe,Pickaxe,A heavy iron-headed pick. Swing at an ore vein to mine.,3,main_hand,false,spear_icon.png,weapons/spear.glb,pickaxe,,metal,300
+chunk_of_stone,Chunk of Stone,A rough lump of grey rock. Builders might pay a pittance.,2,,true,sword.png,,ore,,,8,,1,,,,45
+copper_ore,Copper Ore,A dull green-streaked chunk that smelts to bright copper.,2.5,,true,sword.png,,ore,,,20,,2,,,,30
+iron_ore,Iron Ore,A heavy rust-red chunk. The backbone of every smithy.,3,,true,sword.png,,ore,,,45,,3,,,,16
+silver_ore,Silver Ore,A pale chunk veined with soft white metal.,3,,true,sword.png,,ore,,,120,,4,,,,7
+gold_ore,Gold Ore,A chunk glittering with unmistakable yellow flecks.,4,,true,sword.png,,ore,,,400,,5,,,,2

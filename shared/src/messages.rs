@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::character::{Character, CharacterAttributes, CharacterClass, Gender};
 use crate::entity::{Monster, MonsterState, Player};
 use crate::world::{GameDateTime, NoSpawnZone, Position};
-use crate::{fishing, housing, inventory, skills};
+use crate::{fishing, housing, inventory, mining, skills};
 
 /// Which side of a merchant trade a haggled deal applies to.
 /// `Buy` = the player buys from the merchant, `Sell` = the player sells to
@@ -302,6 +302,16 @@ pub enum ClientMessage {
     /// Reel in deliberately. Also implied by moving, attacking or
     /// disconnecting — any of them ends the session as `Aborted`.
     FishingStop,
+    /// Start mining at a point: the server snaps it to the nearest ore vein
+    /// within `mining::NODE_SNAP_DISTANCE_METERS` and validates pickaxe,
+    /// floor, reach and vein state. A position, not a node id, so an agent
+    /// can say "mine here" without computing tile node lists first.
+    MiningStart {
+        position: Position,
+    },
+    /// Put the pickaxe down deliberately. Also implied by moving, attacking
+    /// or disconnecting — any of them ends the session as `Aborted`.
+    MiningStop,
 }
 
 impl ClientMessage {
@@ -580,6 +590,43 @@ pub enum ServerMessage {
     /// Direct: a fishing request was refused (no rod, not water, too far…).
     /// Mirrors `InventoryError`.
     FishingError {
+        message: String,
+    },
+    /// A miner set to work on a vein. Broadcast nearby (the miner included)
+    /// so passers-by see the swinging.
+    MiningStarted {
+        player_id: PlayerId,
+        node: mining::OreNodeKey,
+        position: Position,
+    },
+    /// One pickaxe strike resolved: `Some(id)` means that ore broke free
+    /// (it arrives via the normal `InventoryUpdated`, or spills as a ground
+    /// item when the bag can't take the weight); `None` is a glancing blow.
+    MiningStrike {
+        player_id: PlayerId,
+        node: mining::OreNodeKey,
+        ore_item_def_id: Option<String>,
+    },
+    /// The session is over: stop the swing and, for the miner, show the
+    /// outcome with the session's haul.
+    MiningEnded {
+        player_id: PlayerId,
+        outcome: mining::MiningOutcome,
+    },
+    /// A vein gave its last ore and crumbled — render it spent. Broadcast
+    /// nearby; players who arrive later simply find out on their first
+    /// swing (the server refuses a depleted vein).
+    MiningNodeDepleted {
+        node: mining::OreNodeKey,
+        respawn_seconds: u32,
+    },
+    /// A crumbled vein grew back. Broadcast near the node.
+    MiningNodeRespawned {
+        node: mining::OreNodeKey,
+    },
+    /// Direct: a mining request was refused (no pickaxe, no vein, spent
+    /// vein, too far…). Mirrors `FishingError`.
+    MiningError {
         message: String,
     },
     Kicked {

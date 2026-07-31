@@ -61,6 +61,7 @@
     doorMeshes: THREE.Object3D[]
     objectMeshes: THREE.Object3D[]
     propMeshes: THREE.Object3D[]
+    oreNodeMeshes?: THREE.Object3D[]
     groundItemMeshes: THREE.Object3D[]
     monsterModels: (Monster | undefined)[]
     playerAttackDuration: number
@@ -98,6 +99,7 @@
     doorMeshes,
     objectMeshes,
     propMeshes,
+    oreNodeMeshes = [],
     groundItemMeshes,
     monsterModels,
     playerAttackDuration,
@@ -398,6 +400,7 @@
     {doorMeshes}
     {objectMeshes}
     {propMeshes}
+    {oreNodeMeshes}
     {groundItemMeshes}
     attackCooldown={playerAttackDuration}
   />

@@ -511,6 +511,23 @@ impl SharedState {
             | ServerMessage::FishingStruggleRound { .. }
             | ServerMessage::FishingRoundResult { .. } => EventUrgency::Noise,
 
+            // Mining mirrors fishing, minus reflexes: the server swings the
+            // pick on its own timer, so only the outcome (and any refusal)
+            // needs an LLM look. Strikes and vein bookkeeping are noise —
+            // the ore itself arrives via InventoryUpdated.
+            ServerMessage::MiningEnded { player_id, .. } => {
+                if self_id == Some(player_id) {
+                    EventUrgency::Urgent
+                } else {
+                    EventUrgency::Routine
+                }
+            }
+            ServerMessage::MiningError { .. } => EventUrgency::Urgent,
+            ServerMessage::MiningStarted { .. }
+            | ServerMessage::MiningStrike { .. }
+            | ServerMessage::MiningNodeDepleted { .. }
+            | ServerMessage::MiningNodeRespawned { .. } => EventUrgency::Noise,
+
             // Noise: high-frequency, irrelevant, or housing updates
             ServerMessage::PlayerMoved { .. }
             | ServerMessage::PlayerTeleported { .. }
