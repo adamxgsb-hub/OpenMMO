@@ -306,3 +306,81 @@ Rules for any future sound:
   so the Settings slider and mute apply. Never `new Audio()` elsewhere.
 - **Self-only, on server responses** — combat precedent: remote players'
   actions are silent, and sounds confirm what the server said, not keypresses.
+
+---
+
+## The woodcutting prompt pack (axe + two logs)
+
+Same deal as the fishing pack: **two of the three assets are icons only** —
+`timber_log` and `oak_log` have empty `worldModel`s and never render in the
+world (icon-only, the fish precedent; a log that spills to the ground uses
+the same fallback every fish already does). Only the **axe needs a mesh**,
+because it sits in the main hand. So: three image generations, one 3D job.
+
+All house-style rules from the fishing pack apply verbatim — *photorealistic
+product render, single object, centred, slight three-quarter angle, soft key
+light from upper left, muted earthy palette, no text, no watermark, no
+border*, flat uniform cutout-friendly background, **no cast shadow**, reject
+anything that turns to mush at 32px. Name the renders after the item ids
+(`woodcutting_axe.png`, `timber_log.png`, `oak_log.png`) so `make-icon.py`
+batch mode drops them straight into `client/public/items/`.
+
+Background colour per asset — same fights-the-subject-least logic:
+
+| Subject | Ask for |
+|---|---|
+| Woodsman's Axe (steel/brown) | flat **deep teal** background |
+| Timber Log (pale wood) | flat **slate blue** background |
+| Oak Log (dark wood) | flat **light warm grey** background |
+
+### The logs (icons only)
+
+- **Timber Log** — a rough freshly-cut log of common pale timber, bark still
+  on, one cleanly sawn end showing growth rings, a few axe scars, small stub
+  of a lopped branch. Ordinary working lumber, not decorative.
+- **Oak Log** — a dense dark hardwood log, thick craggy oak bark, wide
+  growth rings on the cut face, heavier and shorter than it is long, a wedge
+  of heartwood split visible at one end. Should read *older and worth more*
+  than the timber log at a squint — the pair are the ladder.
+
+### The axe (also needs a mesh)
+
+> Photorealistic product render of a medieval woodsman's felling axe on a
+> flat deep teal studio background. Broad wedge-shaped forged steel head
+> with a hammered finish and a working edge, no engraving; long ash haft
+> with visible wood grain, slight curve, worn smooth at the grip with a
+> leather wrist thong at the butt. Weathered, hand-made, functional — a
+> forester's tool, not a battleaxe. Soft studio key light from upper left,
+> no cast shadow, slight three-quarter angle, muted browns and dull steel.
+> Centred, full object in frame, no text.
+
+The "tool, not a battleaxe" line matters in-game too: the item has no damage
+dice on purpose (rod precedent), so the render shouldn't look like combat
+loot either. Mesh route: Meshy Image-to-3D from the concept (an axe is a far
+friendlier shape than the rod was — chunky head, straight haft), then the
+usual Blender pass with `weapons/spear.glb` as the grip/transform reference,
+export `weapons/woodcutting_axe.glb`, and set the CSV row's `worldModel`
+(currently empty) to it.
+
+### Animation (one Mixamo job)
+
+The chop loop already broadcasts everything a swing needs (`ChopStarted` /
+`ChopSwing`, one per 1.5 s, chopper and bystanders alike) — the client just
+lacks a clip. Search Mixamo for a two-handed downward axe chop ("chop" /
+"wood chopping" family), export In-Place FBX per the animation pipeline
+above, action name `chop_swing` (optional second clip `chop_idle` for the
+stance between swings), new `woodcutting` entry in `EXPORT_PACKS`, and wire
+it with the fishing-override pattern in `PlayerModel.svelte` /
+`GameScenePlayersLayer.svelte`. v1 fallback (asset-free, the fishing-PR2
+trick): reuse `slash1` at reduced speed, triggered per `ChopSwing`.
+
+### SFX (two to four CC0 cues)
+
+Nothing reusable exists — the current set is fishing cues plus sword
+impacts, no wood. Source per the SFX rules above (CC0, no-login, `.ogg`,
+≈ −3 dB, through `sfxManager.ts`, self-only on server responses):
+
+- **axe-thunk** ×2–3 variants — rotate per `ChopSwing` so ten swings don't
+  machine-gun the same sample.
+- **tree-fall** — one crash/creak for the felling swing
+  (`WoodcuttingEnded::Felled`), the `fishing-catch` moment of this loop.
