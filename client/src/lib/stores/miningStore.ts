@@ -1,5 +1,6 @@
 import { writable } from 'svelte/store'
 import type { OreNodeKey } from '../network/networkTypes'
+import { oreNodeKeyString } from '../utils/ore-node-tiles'
 
 /** The local player's place in the mining loop. All timing is server-side —
  *  `mining` covers the whole swing loop; the strikes arrive as broadcasts. */
@@ -7,10 +8,7 @@ export type MiningPhase = 'idle' | 'mining'
 
 export const myMiningPhase = writable<MiningPhase>('idle')
 
-/** Stable string form of a vein identity, for Set/Map keys. */
-export function oreNodeKeyString(key: OreNodeKey): string {
-  return `${key.tile_x},${key.tile_z},${key.index}`
-}
+export { oreNodeKeyString }
 
 /** Veins this client saw crumble (`MiningNodeDepleted`) and not yet respawn.
  *  Best-effort visual state: a player who arrives later simply sees the

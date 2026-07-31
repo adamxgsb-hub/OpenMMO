@@ -5103,7 +5103,9 @@ mod fishing_tests {
 mod mining_tests {
     use super::*;
     use onlinerpg_shared::inventory::EquipSlot;
-    use onlinerpg_shared::mining::{MiningOutcome, NODE_RESPAWN_SECONDS};
+    use onlinerpg_shared::mining::{
+        MiningOutcome, MAX_MINING_DISTANCE_METERS, NODE_RESPAWN_SECONDS,
+    };
     use onlinerpg_shared::worldgen::ore_nodes::{ore_nodes_for_tile, OreNode};
     use tokio::time::{advance, Duration};
 
@@ -5272,6 +5274,81 @@ mod mining_tests {
             )),
             "expected a too-far error, got {msgs:?}"
         );
+    }
+
+    /// A vein belongs to the tile it was derived on, but the snap radius
+    /// reaches across tile boundaries. Aiming from the far side of an edge —
+    /// exactly what an agent's `{"type": "mine"}` does, since it aims at its
+    /// own feet — must still find the vein it is standing next to.
+    #[tokio::test(start_paused = true)]
+    async fn snapping_reaches_veins_in_the_neighbouring_tile() {
+        let game_state = make_mining_game_state("mining_tile_boundary");
+
+        // Find a vein close enough to its tile's lower Z edge that a point
+        // just across the boundary is still within a pickaxe's reach, and
+        // where no vein of that neighbouring tile is nearer.
+        let mut scenario = None;
+        'search: for tz in 0..64 {
+            let boundary_z = tz as f32 * 64.0 - 32.0;
+            let neighbour = nodes_on_tile(2, tz - 1);
+            for node in nodes_on_tile(2, tz) {
+                let target_z = boundary_z - 0.5;
+                let gap = node.world_z - target_z;
+                if !(0.0..=MAX_MINING_DISTANCE_METERS).contains(&gap) {
+                    continue;
+                }
+                let nearer_in_neighbour = neighbour.iter().any(|n| {
+                    let dx = n.world_x - node.world_x;
+                    let dz = n.world_z - target_z;
+                    (dx * dx + dz * dz).sqrt() <= gap
+                });
+                if nearer_in_neighbour {
+                    continue;
+                }
+                scenario = Some((tz, node, target_z));
+                break 'search;
+            }
+        }
+        let (tz, node, target_z) =
+            scenario.expect("no vein near a tile edge in the rocky test world");
+
+        // The target really does sit in a different tile than the vein.
+        let target = Position {
+            x: node.world_x,
+            y: node.world_y,
+            z: target_z,
+        };
+        assert_ne!(
+            onlinerpg_terrain::coords::world_to_tile(target.z),
+            tz,
+            "test scenario must straddle a tile boundary"
+        );
+
+        let (id, mut rx) = make_miner(&game_state, "miner_boundary", &node).await;
+        game_state
+            .players
+            .write()
+            .await
+            .get_mut(&id)
+            .unwrap()
+            .position = target;
+
+        game_state.start_mining(&id, target).await;
+        let msgs = drain(&mut rx);
+        let started = msgs.iter().find_map(|m| match m {
+            ServerMessage::MiningStarted {
+                player_id, node: n, ..
+            } if *player_id == id => Some(*n),
+            _ => None,
+        });
+        let started = started.unwrap_or_else(|| {
+            panic!("expected MiningStarted for the vein across the boundary, got {msgs:?}")
+        });
+        assert_eq!(
+            started.tile_z, tz,
+            "must claim the neighbouring tile's vein"
+        );
+        assert_eq!(started.index, node.index);
     }
 
     #[tokio::test(start_paused = true)]

@@ -19,6 +19,7 @@ use onlinerpg_shared::mining::{
     NODE_RESPAWN_SECONDS, NODE_SNAP_DISTANCE_METERS, ORE_XP_PER_RARITY_SQ, STRIKE_DC,
 };
 use onlinerpg_shared::skills::SkillId;
+use onlinerpg_shared::worldgen::ore_nodes::OreNode;
 use onlinerpg_shared::Position;
 use rand::Rng;
 use std::time::Duration;
@@ -131,33 +132,59 @@ impl GameState {
             return;
         }
 
-        // The one async terrain read in the flow, deliberately in the start
+        // The only terrain reads in the flow, deliberately in the start
         // handler (first-touch tile IO) and never in the tick.
+        //
+        // Every tile the snap radius can touch, not just the one under the
+        // target: a vein lives in the tile it was derived on and the radius
+        // reaches across boundaries, so scanning one tile would tell an
+        // agent aiming at its own feet beside a tile edge that the vein it
+        // is standing next to does not exist. Tiles are 64 m and the radius
+        // is metres, so this is at most 2×2 lookups, cached after first touch.
         let target_x = onlinerpg_shared::wrap_world_x(target.x);
-        let tile_x = onlinerpg_terrain::coords::world_to_tile(target_x);
-        let tile_z = onlinerpg_terrain::coords::world_to_tile(target.z);
-        let nodes = match self.ore_nodes.nodes_for_tile(tile_x, tile_z).await {
-            Ok(nodes) => nodes,
-            Err(err) => {
-                warn!("start_mining: ore node derivation failed: {err}");
-                self.send_mining_error(player_id, "There is no ore vein there.")
-                    .await;
-                return;
-            }
+        let tile_range = |center: f32| {
+            onlinerpg_terrain::coords::world_to_tile(center - NODE_SNAP_DISTANCE_METERS)
+                ..=onlinerpg_terrain::coords::world_to_tile(center + NODE_SNAP_DISTANCE_METERS)
         };
 
-        // Snap the requested position to the nearest vein.
-        let snapped = nodes
-            .iter()
-            .map(|n| {
-                let dx = onlinerpg_shared::shortest_world_delta_x(n.world_x, target_x);
-                let dz = n.world_z - target.z;
-                (n, dx * dx + dz * dz)
-            })
-            .filter(|(_, d2)| *d2 <= NODE_SNAP_DISTANCE_METERS * NODE_SNAP_DISTANCE_METERS)
-            .min_by(|a, b| a.1.total_cmp(&b.1))
-            .map(|(n, _)| *n);
-        let Some(node) = snapped else {
+        let mut best: Option<(OreNodeKey, OreNode, f32)> = None;
+        for tz in tile_range(target.z) {
+            for tx in tile_range(target_x) {
+                // Wrap here so the key names the same tile the client
+                // derived from on the cylindrical world.
+                let tile_x = onlinerpg_terrain::coords::wrap_tile_x(tx);
+                let nodes = match self.ore_nodes.nodes_for_tile(tile_x, tz).await {
+                    Ok(nodes) => nodes,
+                    Err(err) => {
+                        warn!("start_mining: ore node derivation failed: {err}");
+                        continue;
+                    }
+                };
+                for n in nodes.iter() {
+                    let dx = onlinerpg_shared::shortest_world_delta_x(n.world_x, target_x);
+                    let dz = n.world_z - target.z;
+                    let dist_sq = dx * dx + dz * dz;
+                    if dist_sq > NODE_SNAP_DISTANCE_METERS * NODE_SNAP_DISTANCE_METERS {
+                        continue;
+                    }
+                    if best
+                        .as_ref()
+                        .is_none_or(|(_, _, best_sq)| dist_sq < *best_sq)
+                    {
+                        best = Some((
+                            OreNodeKey {
+                                tile_x,
+                                tile_z: tz,
+                                index: n.index,
+                            },
+                            *n,
+                            dist_sq,
+                        ));
+                    }
+                }
+            }
+        }
+        let Some((key, node, _)) = best else {
             self.send_mining_error(player_id, "There is no ore vein there.")
                 .await;
             return;
@@ -171,11 +198,6 @@ impl GameState {
             return;
         }
 
-        let key = OreNodeKey {
-            tile_x,
-            tile_z,
-            index: node.index,
-        };
         if self.depleted_ore_nodes.read().await.contains_key(&key) {
             self.send_mining_error(player_id, "This vein is spent. Give it time to replenish.")
                 .await;

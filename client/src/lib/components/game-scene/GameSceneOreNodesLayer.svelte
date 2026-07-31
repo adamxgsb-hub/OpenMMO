@@ -8,7 +8,13 @@
   import { loadGLB } from '../../utils/gltfCache'
   import { enqueueTileWork } from '../../utils/tileWorkQueue'
   import { ore_nodes_for_tile } from '../../wasm/onlinerpg_shared'
-  import { depletedOreNodes, oreNodeKeyString } from '../../stores/miningStore'
+  import { depletedOreNodes } from '../../stores/miningStore'
+  import {
+    heightmapBytes,
+    oreNodeKeyString,
+    tileBytesAreWellFormed,
+    type WasmOreNode,
+  } from '../../utils/ore-node-tiles'
   import type { OreNodeKey } from '../../network/networkTypes'
 
   /**
@@ -122,17 +128,6 @@
     tileGroups.delete(id)
   }
 
-  interface WasmOreNode {
-    index: number
-    world_x: number
-    world_y: number
-    world_z: number
-    rotation: number
-    scale: number
-    variant: number
-    yield_total: number
-  }
-
   function applyDepletionVisual(mesh: THREE.Mesh, depleted: boolean) {
     const base = mesh.userData.baseScale as number
     mesh.scale.setScalar(depleted ? base * DEPLETED_SCALE : base)
@@ -190,18 +185,17 @@
       if (!ok || !heights) return // transient — retried on the next pass
       const splat = splatManager.getSplatData(tileX, tileZ)
       if (!splat) return
+      // A short/oversized tile means a partial fetch or a format change:
+      // skip so the tile is retried, rather than throwing out of wasm on
+      // every pass.
+      if (!tileBytesAreWellFormed(splat, heights)) return
       let nodes: WasmOreNode[]
       try {
-        const heightBytes = new Uint8Array(
-          heights.buffer,
-          heights.byteOffset,
-          heights.length * 2
-        )
         nodes = ore_nodes_for_tile(
           tileX,
           tileZ,
-          new Uint8Array(splat),
-          heightBytes
+          splat,
+          heightmapBytes(heights)
         ) as WasmOreNode[]
       } catch (e) {
         // Wasm not initialized yet (or malformed tile) — retry later.

@@ -235,6 +235,9 @@ impl ItemDefs {
         let mut table: Vec<_> = self
             .defs
             .values()
+            // Category *and* column: a mis-categorised row carrying an
+            // `oreWeight` must not sneak into what a pickaxe can produce.
+            .filter(|def| def.is_ore())
             .filter_map(|def| {
                 Some(crate::game_state::mining::OreCandidate {
                     item_def_id: def.id.clone(),
