@@ -484,6 +484,7 @@ pub async fn handle_connection(
     if !shutdown_started.has_changed().unwrap_or(true) {
         if let Some(ref id) = state.player_id {
             game_state.cancel_fishing_if_active(id).await;
+            game_state.cancel_chopping_if_active(id).await;
             game_state.persist_and_detach_player(id, auth_service).await;
 
             game_state.unregister_direct_channel(id).await;
@@ -1001,6 +1002,12 @@ async fn handle_client_message(
 
             responses.push(ServerMessage::SkillsUpdate { skills });
 
+            // Which trees are down right now, so a fresh client hides the
+            // same stumps everyone else sees (doc/WOODCUTTING.md).
+            responses.push(ServerMessage::TreeStumps {
+                stumps: game_state.tree_stump_snapshot().await,
+            });
+
             if let Some(notice) = game_state.server_notice().await {
                 responses.push(ServerMessage::ServerNotice {
                     message: Some(notice),
@@ -1037,8 +1044,10 @@ async fn handle_client_message(
             append,
         } => {
             if let Some(id) = &state.player_id {
-                // Walking away breaks fishing concentration (doc/FISHING.md).
+                // Walking away breaks fishing concentration (doc/FISHING.md)
+                // and puts the axe down (doc/WOODCUTTING.md).
                 game_state.cancel_fishing_if_active(id).await;
+                game_state.cancel_chopping_if_active(id).await;
                 game_state
                     .update_player_position(
                         id,
@@ -1060,9 +1069,10 @@ async fn handle_client_message(
         ClientMessage::PlayerFloorChanged { floor_level } => {
             if let Some(id) = &state.player_id {
                 // Leaving the surface breaks concentration like movement does
-                // (casts only validate on floor 0).
+                // (casts and chops only validate on floor 0).
                 if floor_level != 0 {
                     game_state.cancel_fishing_if_active(id).await;
+                    game_state.cancel_chopping_if_active(id).await;
                 }
                 game_state.update_player_floor(id, floor_level).await;
             } else {
@@ -1133,6 +1143,7 @@ async fn handle_client_message(
         ClientMessage::PlayerAttack { monster_id } => {
             if let Some(id) = &state.player_id {
                 game_state.cancel_fishing_if_active(id).await;
+                game_state.cancel_chopping_if_active(id).await;
                 game_state.broadcast_player_attack(id, monster_id).await;
             } else {
                 warn!("Received attack from client that is not in game");
@@ -1160,6 +1171,22 @@ async fn handle_client_message(
                 game_state.stop_fishing(id).await;
             } else {
                 warn!("Received fishing stop from client that is not in game");
+            }
+        }
+
+        ClientMessage::ChopTree { position } => {
+            if let Some(id) = &state.player_id {
+                game_state.start_chopping(id, position).await;
+            } else {
+                warn!("Received chop request from client that is not in game");
+            }
+        }
+
+        ClientMessage::ChopStop => {
+            if let Some(id) = &state.player_id {
+                game_state.stop_chopping(id).await;
+            } else {
+                warn!("Received chop stop from client that is not in game");
             }
         }
 

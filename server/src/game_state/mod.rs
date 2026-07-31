@@ -73,6 +73,7 @@ mod skills;
 pub(crate) use skills::skills_from_rows;
 mod time;
 mod trading;
+pub(crate) mod woodcutting;
 
 #[cfg(test)]
 mod tests;
@@ -138,6 +139,16 @@ pub struct GameState {
     dirty_skills: Arc<RwLock<HashSet<PlayerId>>>,
     /// Live fishing sessions, one per player, advanced by `tick_fishing`.
     fishing_sessions: Arc<RwLock<HashMap<PlayerId, fishing::FishingSession>>>,
+    /// Live chopping sessions, one per player, advanced by `tick_woodcutting`.
+    chop_sessions: Arc<RwLock<HashMap<PlayerId, woodcutting::ChopSession>>>,
+    /// Felled trees waiting to grow back, keyed by their baked address and
+    /// holding their regrow deadline. In-memory only: a restart regrows the
+    /// forest, which is fine.
+    tree_stumps: Arc<RwLock<HashMap<onlinerpg_shared::woodcutting::TreeRef, tokio::time::Instant>>>,
+    /// Decoded read access to the baked tree tiles (the same TR01 files the
+    /// client renders), for validating chop targets. Read only in async
+    /// handlers, never in ticks — the fishing sampler rule.
+    tree_reader: Arc<onlinerpg_terrain::trees::TreeReader>,
     /// Server-side terrain heights (tile-cached). Fishing's water check is
     /// its first gameplay consumer; sampled only in async handlers, never
     /// in ticks.
@@ -224,6 +235,7 @@ impl GameState {
         dungeon_defs: crate::dungeon_defs::DungeonDefs,
         height_sampler: Arc<onlinerpg_terrain::height::HeightSampler>,
         water_sampler: Arc<onlinerpg_terrain::water::WaterSampler>,
+        tree_reader: Arc<onlinerpg_terrain::trees::TreeReader>,
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(1000);
 
@@ -248,8 +260,11 @@ impl GameState {
             player_skills: Arc::new(RwLock::new(HashMap::new())),
             dirty_skills: Arc::new(RwLock::new(HashSet::new())),
             fishing_sessions: Arc::new(RwLock::new(HashMap::new())),
+            chop_sessions: Arc::new(RwLock::new(HashMap::new())),
+            tree_stumps: Arc::new(RwLock::new(HashMap::new())),
             height_sampler,
             water_sampler,
+            tree_reader,
             housing_io,
             dirty_players: Arc::new(RwLock::new(HashSet::new())),
             dirty_inventories: Arc::new(RwLock::new(HashSet::new())),

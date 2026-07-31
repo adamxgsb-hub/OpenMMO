@@ -147,6 +147,8 @@ export type ClientMessage =
   | { FishingCast: { position: Position } }
   | { FishingRespond: { action: FishingAction } }
   | 'FishingStop'
+  | { ChopTree: { position: Position } }
+  | 'ChopStop'
   | { OpenDungeonChest: { entrance_id: string } }
   | {
       BreakDungeonProp: { entrance_id: string; depth: number; prop_id: number }
@@ -217,7 +219,7 @@ export type PlayerInventory = {
 }
 
 /** Trained-skill ids (shared `SkillId` wire strings). */
-export type SkillId = 'fishing'
+export type SkillId = 'fishing' | 'woodcutting'
 
 /** Shared `FishingAction` wire strings (`ClientMessage::FishingRespond`). */
 export type FishingAction = 'hook' | 'reel' | 'giveline'
@@ -232,6 +234,30 @@ export type FishingOutcome =
       Caught: { item_def_id: string; size_cm: number; trophy: boolean }
     }
   | 'Escaped'
+  | 'Aborted'
+
+/** One baked tree instance, addressed the way the TR01 tile format stores
+ *  it (shared `woodcutting::TreeRef`): tile, model slot (0 = tree.glb,
+ *  1 = tree2.glb), index within the slot's array. */
+export type TreeRef = {
+  tile_x: number
+  tile_z: number
+  kind: number
+  index: number
+}
+
+/** Shared `TreeStump` (`ServerMessage::TreeStumps` payload). */
+export type TreeStump = {
+  tree: TreeRef
+  respawn_in_ms: number
+}
+
+/** Shared `WoodcuttingOutcome` (`ServerMessage::WoodcuttingEnded`), in its
+ *  externally-tagged serde shape. */
+export type WoodcuttingOutcome =
+  | {
+      Felled: { item_def_id: string; logs: number }
+    }
   | 'Aborted'
 
 export type SkillProgress = {

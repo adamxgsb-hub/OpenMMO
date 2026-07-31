@@ -340,6 +340,10 @@ async fn main() {
     let water_sampler = Arc::new(onlinerpg_terrain::water::WaterSampler::new(TerrainIO::new(
         std::path::PathBuf::from(&args.terrain_dir),
     )));
+    // Woodcutting reads the same baked tree tiles the client renders.
+    let tree_reader = Arc::new(onlinerpg_terrain::trees::TreeReader::new(TerrainIO::new(
+        std::path::PathBuf::from(&args.terrain_dir),
+    )));
 
     let game_state = Arc::new(GameState::new(
         monster_defs,
@@ -351,6 +355,7 @@ async fn main() {
         dungeon_defs,
         height_sampler,
         water_sampler,
+        tree_reader,
     ));
     // Server-side collision data for the movement sim: houses, solid
     // furniture and dungeon layouts, mirroring what clients build.
@@ -423,6 +428,19 @@ async fn main() {
         move || {
             let game_state = Arc::clone(&game_state_for_fishing);
             async move { game_state.tick_fishing().await }
+        },
+    ));
+
+    // Woodcutting swings and stump regrowth. Same 250 ms cadence as fishing:
+    // far inside the 1.5 s swing interval, so tick jitter is invisible.
+    let game_state_for_woodcutting = Arc::clone(&game_state);
+    background.spawn(run_ticks(
+        "woodcutting",
+        Duration::from_millis(250),
+        drain_shutdown.clone(),
+        move || {
+            let game_state = Arc::clone(&game_state_for_woodcutting);
+            async move { game_state.tick_woodcutting().await }
         },
     ));
 

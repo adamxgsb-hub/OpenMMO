@@ -20,6 +20,11 @@
   import { inputHandler, type ClickIntent } from '../managers/inputHandler'
   import { getNpcCapabilities } from '../data/traderDefs'
   import { NPC_TRADE_RANGE_METERS } from '../data/tradeConstants'
+
+  /** Client-side mirror of the server's `MAX_CHOP_DISTANCE_METERS`
+   *  (shared/src/woodcutting.rs) — only decides chop-now vs walk-up; the
+   *  server re-validates the real range. */
+  const CHOP_REACH_METERS = 4.0
   import { npcContextMenu, requestChatFocus } from '../stores/npcMenuStore'
   import {
     mapEditorMode,
@@ -29,6 +34,9 @@
   } from '../stores/debugStore'
   import { localTorchEquipped, inventoryStore } from '../stores/inventoryStore'
   import { getItemDef } from '../data/itemDefs'
+  import { editorTreeDataManager } from '../stores/editorStore'
+  import { felledTrees } from '../stores/woodcuttingStore'
+  import { findChopTarget } from '../utils/chop-target'
   import {
     DEFAULT_MOVEMENT_CONFIG,
     type Position,
@@ -1140,6 +1148,22 @@
         getItemDef(get(inventoryStore).equipped.main_hand?.item_def_id ?? '')
           ?.category === 'fishing_rod',
       waterSurfaceAt,
+      hasAxeEquipped:
+        getItemDef(get(inventoryStore).equipped.main_hand?.item_def_id ?? '')
+          ?.category === 'woodcutting_axe',
+      choppableTreeAt: (x, z) => {
+        const treeDataManager = get(editorTreeDataManager)
+        if (!treeDataManager) return null
+        const felled = get(felledTrees)
+        const hit = findChopTarget(
+          x,
+          z,
+          (tileX, tileZ) => treeDataManager.getCachedTreeData(tileX, tileZ),
+          (tileX, tileZ, kind, index) =>
+            felled.has(`${tileX}_${tileZ}_${kind}_${index}`)
+        )
+        return hit ? { x: hit.x, y: hit.y, z: hit.z } : null
+      },
     })
   }
 
@@ -1253,6 +1277,36 @@
         }
         sendPlayerMove(currentPlayer.position, playerRotation) // others see the facing
         networkManager.sendFishingCast(intent.position)
+      },
+      chopTree: (intent) => {
+        if (!currentPlayer || currentPlayer.health <= 0) return
+        combatController.cancelCombat()
+        // Out of the server's 4 m reach: walk toward the trunk, stopping
+        // just short — the approachAndTrade pattern. (The trunk itself is
+        // inside the canopy; walking onto it looks wrong and isn't needed.)
+        if (intent.distance > CHOP_REACH_METERS) {
+          const dx = currentPlayer.position.x - intent.position.x
+          const dz = currentPlayer.position.z - intent.position.z
+          const dist = Math.sqrt(dx * dx + dz * dz) || 1
+          const stopShort = Math.min(CHOP_REACH_METERS - 1, dist)
+          handleClickToMove({
+            x: intent.position.x + (dx / dist) * stopShort,
+            y: intent.position.y,
+            z: intent.position.z + (dz / dist) * stopShort,
+          })
+          return
+        }
+        // In reach: stop and face the tree before the first swing — the
+        // server aborts a chop on any movement, the fishing-cast rule.
+        stopMovement()
+        const dx = intent.position.x - currentPlayer.position.x
+        const dz = intent.position.z - currentPlayer.position.z
+        if (dx !== 0 || dz !== 0) {
+          playerRotation = Math.atan2(dx, dz)
+          setPlayerState({ ...playerState, rotation: playerRotation })
+        }
+        sendPlayerMove(currentPlayer.position, playerRotation) // others see the facing
+        networkManager.sendChopTree(intent.position)
       },
       requestMove: handleClickToMove,
       onInteractionFinished,

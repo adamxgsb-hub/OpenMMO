@@ -18,12 +18,15 @@ pub const SKILL_LEVEL_CAP: u32 = 30;
 pub enum SkillId {
     #[serde(rename = "fishing")]
     Fishing,
+    #[serde(rename = "woodcutting")]
+    Woodcutting,
 }
 
 impl SkillId {
     pub fn as_str(&self) -> &'static str {
         match self {
             SkillId::Fishing => "fishing",
+            SkillId::Woodcutting => "woodcutting",
         }
     }
 
@@ -31,6 +34,7 @@ impl SkillId {
     pub fn display_name(&self) -> &'static str {
         match self {
             SkillId::Fishing => "Fishing",
+            SkillId::Woodcutting => "Woodcutting",
         }
     }
 }
@@ -41,6 +45,7 @@ impl std::str::FromStr for SkillId {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "fishing" => Ok(SkillId::Fishing),
+            "woodcutting" => Ok(SkillId::Woodcutting),
             _ => Err(()),
         }
     }

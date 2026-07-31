@@ -432,9 +432,53 @@ pub(crate) fn format_event(state: &SharedState, msg: &ServerMessage) -> Option<S
             })
         }
         ServerMessage::FishingError { message } => Some(format!("[FishingError] {message}")),
+        // Woodcutting: only the endings reach the LLM — swings are the
+        // server's business (there is nothing to answer, unlike fishing).
+        ServerMessage::WoodcuttingEnded { player_id, outcome } => {
+            if state.self_player_id.as_ref() != Some(player_id) {
+                return None;
+            }
+            use onlinerpg_shared::woodcutting::WoodcuttingOutcome;
+            Some(match outcome {
+                WoodcuttingOutcome::Felled { item_def_id, logs } => felled_line(item_def_id, *logs),
+                WoodcuttingOutcome::Aborted => "[Woodcutting] You put the axe down.".to_string(),
+            })
+        }
+        ServerMessage::WoodcuttingError { message } => {
+            Some(format!("[WoodcuttingError] {message}"))
+        }
+        // Trained-skill XP (fishing catches, felled trees): tell the model
+        // where it stands, the trained-skill mirror of the [XP] line above.
+        ServerMessage::SkillXpGained {
+            skill,
+            xp_amount,
+            total_xp,
+            new_level,
+            leveled_up,
+        } => {
+            let mut s = format!(
+                "[Skill] {} +{xp_amount} XP (total: {total_xp}, level: {new_level})",
+                skill.display_name()
+            );
+            if *leveled_up {
+                s.push_str(" LEVEL UP!");
+            }
+            Some(s)
+        }
         // Skip unknown/unhandled event types
         _ => None,
     }
+}
+
+/// The `[Woodcutting]` line for a felled tree — names the timber and the
+/// next steps so the model knows what it can actually do. Pure so it's
+/// unit-testable; keep the phrasing in sync with the browser client's
+/// `fellMessage` (client/src/lib/network/woodcuttingMessages.ts).
+fn felled_line(item_def_id: &str, logs: u32) -> String {
+    let unit = if logs == 1 { "log" } else { "logs" };
+    format!(
+        "[Woodcutting] The tree falls — {logs} {item_def_id} {unit} in your bag. You can sell them, or chop another tree with the chop_tree action."
+    )
 }
 
 /// The `[Fishing]` line for a landed catch — category-aware next steps so
@@ -547,7 +591,7 @@ fn format_schedule_context(
 
 #[cfg(test)]
 mod tests {
-    use super::caught_line;
+    use super::{caught_line, felled_line};
 
     // The wording contract with the LLM: each catch category tells the model
     // what it can actually do next (against the real embedded item defs).
@@ -575,6 +619,15 @@ mod tests {
             !line.contains("eat"),
             "junk must not be offered as food: {line}"
         );
+    }
+
+    #[test]
+    fn a_felled_tree_counts_its_logs_and_offers_the_next_chop() {
+        let line = felled_line("oak_log", 4);
+        assert!(line.contains("4 oak_log logs"), "{line}");
+        assert!(line.contains("chop_tree"), "{line}");
+        let one = felled_line("timber_log", 1);
+        assert!(one.contains("1 timber_log log in"), "{one}");
     }
 
     #[test]

@@ -10,6 +10,8 @@
   } from '../../utils/tree-data'
   import { loadGLB } from '../../utils/gltfCache'
   import { SvelteMap, SvelteSet } from 'svelte/reactivity'
+  import { get } from 'svelte/store'
+  import { felledTrees } from '../../stores/woodcuttingStore'
 
   interface Props {
     terrainTiles: TerrainTile[]
@@ -240,20 +242,26 @@
   function rebuildGlobalMeshes() {
     if (!modelsReady) return
 
-    // Collect instance data arrays per tree type
-    const allData: [Float32Array[], Float32Array[]] = [[], []]
-    for (const data of tileTreeDataCache.values()) {
+    // Collect instance data arrays per tree type, tagged with their tile key
+    // so felled trees (woodcutting stumps, addressed by tile/slot/index) can
+    // be skipped while they wait to regrow.
+    const felled = get(felledTrees)
+    const allData: [
+      { tk: string; raw: Float32Array }[],
+      { tk: string; raw: Float32Array }[],
+    ] = [[], []]
+    for (const [tk, data] of tileTreeDataCache.entries()) {
       for (let t = 0; t < 2; t++) {
         const type = t === 0 ? 'tree1' : ('tree2' as const)
         const raw = getTreeInstanceData(data, type)
-        if (raw.length > 0) allData[t].push(raw)
+        if (raw.length > 0) allData[t].push({ tk, raw })
       }
     }
 
     if (!cachedBoundingSpheres) {
       cachedBoundingSpheres = [
-        computeBoundingSphere(allData[0]),
-        computeBoundingSphere(allData[1]),
+        computeBoundingSphere(allData[0].map((e) => e.raw)),
+        computeBoundingSphere(allData[1].map((e) => e.raw)),
       ]
     }
 
@@ -267,7 +275,7 @@
       let idx = 0
       let ghostIdx = 0
 
-      for (const raw of allData[typeIdx]) {
+      for (const { tk, raw } of allData[typeIdx]) {
         const count = raw.length / 5
         for (let i = 0; i < count; i++) {
           const maxInstancesForSlot = mesh.instanceMatrix.count
@@ -277,6 +285,8 @@
             ghostIdx >= maxGhostInstancesForSlot
           )
             break
+          // A felled tree is a stump until the server regrows it.
+          if (felled.size > 0 && felled.has(`${tk}_${typeIdx}_${i}`)) continue
           const base = i * 5
           _pos.set(raw[base], raw[base + 1], raw[base + 2])
           _quat.setFromAxisAngle(_up, raw[base + 3])
@@ -397,6 +407,15 @@
       }
       scheduleRebuild()
     })
+  })
+
+  // ── Felled-tree listener (woodcutting stumps) ─────────
+  $effect(() => {
+    // Subscribing here makes any fell/respawn/snapshot change re-render the
+    // forest without touching the tile caches (the baked data is unchanged —
+    // only which instances currently stand).
+    void $felledTrees
+    scheduleRebuild()
   })
 
   // ── Invalidation listener ─────────────────────────────

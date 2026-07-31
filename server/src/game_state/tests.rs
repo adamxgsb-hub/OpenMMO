@@ -168,6 +168,51 @@ impl onlinerpg_terrain::water::WaterTiles for RiverPlateauWater {
     }
 }
 
+/// A small baked grove on tile (0, 0) for the woodcutting tests, encoded as
+/// real TR01 bytes so the test path exercises the same decoder production
+/// uses. Slot 0 (`tree.glb`): a small oak near the origin (scale byte 0 →
+/// 0.7) and an ancient oak at ~(10, 10) (scale byte 255 → 3.0). Slot 1
+/// (`tree2.glb`): one common timber tree at ~(-10, -10).
+struct GroveTiles;
+
+#[async_trait::async_trait]
+impl onlinerpg_terrain::trees::TreeTiles for GroveTiles {
+    async fn read_trees(&self, tx: i32, tz: i32) -> std::io::Result<Option<Vec<u8>>> {
+        if (tx, tz) != (0, 0) {
+            return Ok(None);
+        }
+        // Tile (0,0) spans [-32, 32): local = world + 32, u16 = local/64·65535.
+        fn local_u16(world: f32) -> u16 {
+            ((world + 32.0) / 64.0 * 65535.0).round() as u16
+        }
+        let mut out = Vec::new();
+        out.extend_from_slice(&onlinerpg_shared::tree_format::TREE_V1_MAGIC.to_le_bytes());
+        out.extend_from_slice(&2u32.to_le_bytes());
+        out.extend_from_slice(&1u32.to_le_bytes());
+        for (x, z, scale_byte) in [(0.5f32, 0.5f32, 0u8), (10.0, 10.0, 255u8)] {
+            out.extend_from_slice(&local_u16(x).to_le_bytes());
+            out.extend_from_slice(&local_u16(z).to_le_bytes());
+            out.push(0);
+            out.push(scale_byte);
+        }
+        out.extend_from_slice(&local_u16(-10.0).to_le_bytes());
+        out.extend_from_slice(&local_u16(-10.0).to_le_bytes());
+        out.push(0);
+        out.push(0);
+        Ok(Some(out))
+    }
+}
+
+/// The grove's tree addresses, as the decoder will report them.
+fn grove_small_oak() -> onlinerpg_shared::woodcutting::TreeRef {
+    onlinerpg_shared::woodcutting::TreeRef {
+        tile_x: 0,
+        tile_z: 0,
+        kind: 0,
+        index: 0,
+    }
+}
+
 fn make_test_game_state(test_name: &str) -> GameState {
     let housing_dir = std::env::temp_dir().join(format!(
         "onlinerpg_{test_name}_housing_{}",
@@ -189,6 +234,7 @@ fn make_test_game_state(test_name: &str) -> GameState {
             SplitWorldTiles,
         )),
         Arc::new(onlinerpg_terrain::water::WaterSampler::new(SeaOnlyWater)),
+        Arc::new(onlinerpg_terrain::trees::TreeReader::new(GroveTiles)),
     )
 }
 
@@ -218,6 +264,7 @@ fn make_river_game_state(test_name: &str) -> GameState {
         Arc::new(onlinerpg_terrain::water::WaterSampler::new(
             RiverPlateauWater,
         )),
+        Arc::new(onlinerpg_terrain::trees::TreeReader::new(GroveTiles)),
     )
 }
 
@@ -6401,5 +6448,322 @@ mod fishing_tests {
                 "an absurd level bottoms out at half the minimum wait"
             );
         }
+    }
+}
+
+// ---- Woodcutting (doc/WOODCUTTING.md) --------------------------------------
+// Same paused-time discipline as the fishing tests: the clock is frozen,
+// `time::advance` moves it, and `tick_woodcutting()` is driven by hand. The
+// trees are `GroveTiles` — real TR01 bytes through the production decoder.
+
+mod woodcutting_tests {
+    use super::*;
+    use onlinerpg_shared::inventory::EquipSlot;
+    use onlinerpg_shared::skills::SkillId;
+    use onlinerpg_shared::woodcutting::{WoodcuttingOutcome, SWING_MS, TREE_RESPAWN_MS};
+    use tokio::time::{advance, Duration};
+
+    /// Player standing in the grove with an axe in hand, ready to chop.
+    async fn make_chopper(
+        game_state: &GameState,
+        name: &str,
+        x: f32,
+        z: f32,
+    ) -> (
+        PlayerId,
+        tokio::sync::mpsc::UnboundedReceiver<ServerMessage>,
+    ) {
+        let id = pid(name);
+        game_state.add_player(make_player(name, x, z)).await;
+        let mut equipped = std::collections::HashMap::new();
+        equipped.insert(EquipSlot::MainHand, bag_item(998, "woodcutting_axe", 1));
+        game_state.inventories.write().await.insert(
+            id,
+            PlayerInventory {
+                bag: vec![],
+                equipped,
+            },
+        );
+        game_state
+            .register_player_character(&id, 1, 0, attrs_with_cha(10), 0)
+            .await;
+        game_state
+            .register_player_skills(&id, Default::default())
+            .await;
+        let rx = game_state.register_direct_channel(&id).await;
+        (id, rx)
+    }
+
+    fn drain(rx: &mut tokio::sync::mpsc::UnboundedReceiver<ServerMessage>) -> Vec<ServerMessage> {
+        let mut msgs = Vec::new();
+        while let Ok(msg) = rx.try_recv() {
+            msgs.push(msg);
+        }
+        msgs
+    }
+
+    /// Advance paused time in tick-sized steps, running the woodcutting tick
+    /// at each step — the paused-clock twin of the 250 ms `run_ticks` task.
+    async fn advance_with_ticks(game_state: &GameState, total_ms: u64) {
+        let mut remaining = total_ms;
+        while remaining > 0 {
+            let step = remaining.min(250);
+            advance(Duration::from_millis(step)).await;
+            game_state.tick_woodcutting().await;
+            remaining -= step;
+        }
+    }
+
+    fn at(x: f32, z: f32) -> Position {
+        Position { x, y: 0.0, z }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn chop_requires_axe_a_tree_and_reach() {
+        let game_state = make_test_game_state("wc_validation");
+        let (id, mut rx) = make_chopper(&game_state, "chopper_val", 2.0, 0.0).await;
+
+        // No tree anywhere near the target point.
+        game_state.start_chopping(&id, at(0.0, 25.0)).await;
+        // A real tree, but the player is too far from it to swing: the
+        // ancient oak stands at ~(10, 10), ~13 m from the player.
+        game_state.start_chopping(&id, at(10.0, 10.0)).await;
+        // Axe swapped away: even a reachable tree is refused.
+        game_state.inventories.write().await.insert(
+            id,
+            PlayerInventory {
+                bag: vec![],
+                equipped: std::collections::HashMap::new(),
+            },
+        );
+        game_state.start_chopping(&id, at(0.5, 0.5)).await;
+
+        let errors: Vec<String> = drain(&mut rx)
+            .into_iter()
+            .filter_map(|m| match m {
+                ServerMessage::WoodcuttingError { message } => Some(message),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(errors.len(), 3, "three refusals expected: {errors:?}");
+        assert!(errors[0].contains("no tree"), "{}", errors[0]);
+        assert!(errors[1].contains("out of reach"), "{}", errors[1]);
+        assert!(errors[2].contains("axe"), "{}", errors[2]);
+        assert!(game_state.chop_sessions.read().await.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn felling_awards_logs_xp_and_plants_a_stump() {
+        let game_state = make_test_game_state("wc_fell");
+        let (id, mut rx) = make_chopper(&game_state, "chopper_fell", 2.0, 0.0).await;
+
+        // The small oak (scale 0.7): 5 swings at skill 0, 1 log, 12 XP.
+        game_state.start_chopping(&id, at(0.5, 0.5)).await;
+        let started = drain(&mut rx);
+        assert!(
+            started.iter().any(|m| matches!(
+                m,
+                ServerMessage::ChopStarted {
+                    swings_needed: 5,
+                    ..
+                }
+            )),
+            "expected ChopStarted with 5 swings: {started:?}"
+        );
+
+        advance_with_ticks(&game_state, u64::from(SWING_MS) * 5 + 250).await;
+        let msgs = drain(&mut rx);
+        let swings = msgs
+            .iter()
+            .filter(|m| matches!(m, ServerMessage::ChopSwing { .. }))
+            .count();
+        assert_eq!(swings, 4, "four progress swings before the felling swing");
+        assert!(
+            msgs.iter().any(|m| matches!(
+                m,
+                ServerMessage::WoodcuttingEnded {
+                    outcome: WoodcuttingOutcome::Felled { logs: 1, .. },
+                    ..
+                }
+            )),
+            "expected a Felled outcome: {msgs:?}"
+        );
+
+        let inventories = game_state.inventories.read().await;
+        let bag = &inventories.get(&id).unwrap().bag;
+        assert_eq!(bag.len(), 1);
+        assert_eq!(bag[0].item_def_id, "oak_log");
+        assert_eq!(bag[0].quantity, 1);
+        drop(inventories);
+
+        let skills = game_state.get_player_skills(&id).await;
+        assert_eq!(skills.get(SkillId::Woodcutting).xp, 12);
+
+        let stumps = game_state.tree_stump_snapshot().await;
+        assert_eq!(stumps.len(), 1);
+        assert_eq!(stumps[0].tree, grove_small_oak());
+        assert!(stumps[0].respawn_in_ms <= TREE_RESPAWN_MS);
+        assert!(game_state.chop_sessions.read().await.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stump_cannot_be_chopped_until_it_regrows() {
+        let game_state = make_test_game_state("wc_stump");
+        let (id, mut rx) = make_chopper(&game_state, "chopper_stump", 2.0, 0.0).await;
+
+        game_state.start_chopping(&id, at(0.5, 0.5)).await;
+        advance_with_ticks(&game_state, u64::from(SWING_MS) * 5 + 250).await;
+        drain(&mut rx);
+
+        // The felled oak no longer counts as a tree; nothing else stands
+        // within the snap radius of the same spot.
+        game_state.start_chopping(&id, at(0.5, 0.5)).await;
+        assert!(
+            drain(&mut rx).iter().any(|m| matches!(
+                m,
+                ServerMessage::WoodcuttingError { message } if message.contains("no tree")
+            )),
+            "a stump must not be choppable"
+        );
+
+        // After the regrow window the tick clears the stump and the tree is
+        // choppable again.
+        advance_with_ticks(&game_state, u64::from(TREE_RESPAWN_MS) + 250).await;
+        assert!(game_state.tree_stump_snapshot().await.is_empty());
+        game_state.start_chopping(&id, at(0.5, 0.5)).await;
+        assert!(
+            drain(&mut rx)
+                .iter()
+                .any(|m| matches!(m, ServerMessage::ChopStarted { .. })),
+            "a regrown tree must be choppable"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_ancient_oak_is_gated_behind_woodcutting_20() {
+        let game_state = make_test_game_state("wc_gate");
+        let (id, mut rx) = make_chopper(&game_state, "chopper_gate", 11.0, 11.0).await;
+
+        game_state.start_chopping(&id, at(10.0, 10.0)).await;
+        assert!(
+            drain(&mut rx).iter().any(|m| matches!(
+                m,
+                ServerMessage::WoodcuttingError { message } if message.contains("Woodcutting 20")
+            )),
+            "an untrained chopper must be refused"
+        );
+
+        // At level 20 the same tree opens up — and its size pays: 10 swings,
+        // minus the skill discount, and 4 logs.
+        game_state
+            .add_skill_xp(
+                &id,
+                SkillId::Woodcutting,
+                onlinerpg_shared::skills::skill_xp_for_level(20),
+            )
+            .await
+            .unwrap();
+        drain(&mut rx);
+        game_state.start_chopping(&id, at(10.0, 10.0)).await;
+        let msgs = drain(&mut rx);
+        assert!(
+            msgs.iter().any(|m| matches!(
+                m,
+                ServerMessage::ChopStarted {
+                    swings_needed: 7,
+                    ..
+                }
+            )),
+            "expected ChopStarted with 7 swings (10 − 20/6): {msgs:?}"
+        );
+        advance_with_ticks(&game_state, u64::from(SWING_MS) * 7 + 250).await;
+        let inventories = game_state.inventories.read().await;
+        let bag = &inventories.get(&id).unwrap().bag;
+        assert_eq!(bag[0].item_def_id, "oak_log");
+        assert_eq!(bag[0].quantity, 4, "an ancient oak yields four logs");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn interruptions_abort_without_logs() {
+        let game_state = make_test_game_state("wc_abort");
+        let (id, mut rx) = make_chopper(&game_state, "chopper_abort", 2.0, 0.0).await;
+
+        // Movement (the connection layer calls this on PlayerMove).
+        game_state.start_chopping(&id, at(0.5, 0.5)).await;
+        advance_with_ticks(&game_state, u64::from(SWING_MS) * 2).await;
+        game_state.cancel_chopping_if_active(&id).await;
+        let msgs = drain(&mut rx);
+        assert!(
+            msgs.iter().any(|m| matches!(
+                m,
+                ServerMessage::WoodcuttingEnded {
+                    outcome: WoodcuttingOutcome::Aborted,
+                    ..
+                }
+            )),
+            "moving away must abort: {msgs:?}"
+        );
+
+        // Losing the axe mid-chop (the equip paths call this hook).
+        game_state.start_chopping(&id, at(0.5, 0.5)).await;
+        game_state.inventories.write().await.insert(
+            id,
+            PlayerInventory {
+                bag: vec![],
+                equipped: std::collections::HashMap::new(),
+            },
+        );
+        game_state.abort_chopping_if_axe_lost(&id).await;
+        assert!(
+            drain(&mut rx).iter().any(|m| matches!(
+                m,
+                ServerMessage::WoodcuttingEnded {
+                    outcome: WoodcuttingOutcome::Aborted,
+                    ..
+                }
+            )),
+            "losing the axe must abort"
+        );
+
+        // No logs, no XP, no stump from either aborted attempt.
+        assert!(game_state
+            .inventories
+            .read()
+            .await
+            .get(&id)
+            .unwrap()
+            .bag
+            .is_empty());
+        assert_eq!(
+            game_state
+                .get_player_skills(&id)
+                .await
+                .get(SkillId::Woodcutting)
+                .xp,
+            0
+        );
+        assert!(game_state.tree_stump_snapshot().await.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn one_axe_per_tree() {
+        let game_state = make_test_game_state("wc_contention");
+        let (first, mut rx1) = make_chopper(&game_state, "chopper_one", 2.0, 0.0).await;
+        let (_second, mut rx2) = make_chopper(&game_state, "chopper_two", 0.0, 2.0).await;
+
+        game_state.start_chopping(&first, at(0.5, 0.5)).await;
+        assert!(drain(&mut rx1)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::ChopStarted { .. })));
+
+        let second_id = pid("chopper_two");
+        game_state.start_chopping(&second_id, at(0.5, 0.5)).await;
+        assert!(
+            drain(&mut rx2).iter().any(|m| matches!(
+                m,
+                ServerMessage::WoodcuttingError { message } if message.contains("already chopping that tree")
+            )),
+            "the first axe claims the tree"
+        );
     }
 }

@@ -409,6 +409,7 @@ impl super::GameState {
             self.set_player_torch(player_id, torch_on).await;
         }
         self.abort_fishing_if_rod_lost(player_id).await;
+        self.abort_chopping_if_axe_lost(player_id).await;
     }
 
     pub async fn unequip_item(&self, player_id: &PlayerId, slot: EquipSlot) {
@@ -439,6 +440,7 @@ impl super::GameState {
             self.set_player_torch(player_id, false).await;
         }
         self.abort_fishing_if_rod_lost(player_id).await;
+        self.abort_chopping_if_axe_lost(player_id).await;
     }
 
     /// Use a consumable from the bag: resolve its effect and dispatch to the
@@ -814,6 +816,7 @@ impl super::GameState {
         // Dropping the equipped rod is as much "putting it away" as
         // unequipping it — same mid-session abort.
         self.abort_fishing_if_rod_lost(player_id).await;
+        self.abort_chopping_if_axe_lost(player_id).await;
     }
 
     pub async fn debug_drop_item(&self, player_id: &PlayerId, item_def_id: &str) {
