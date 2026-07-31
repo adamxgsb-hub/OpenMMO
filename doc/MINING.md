@@ -18,13 +18,33 @@ a fade apron around them carries it as secondary
 (`shared/src/worldgen/tile_bake/splatmap.rs`). That palette channel *is* the
 geology — mountains, gorge walls, sea cliffs. `ore_nodes_for_tile(tile_x,
 tile_z, splatmap, heightmap)` (`shared/src/worldgen/ore_nodes.rs`) scans a
-tile's baked splat + height bytes and deterministically places 0–5 outcrops
-on that rock (Mulberry32 seeded per tile — the tree-bake pattern, with its
-own prime pair): per-cell probability on cliff cells, an 8 m spacing floor,
-never underwater, never on the plains (grass cells carry `vegMeta ≠ 0`; ore
-and trees occupy complementary terrain by construction). Each node also
-rolls its identity: rock variant, scale, rotation, and a **yield of 2–5
-ore**.
+tile's baked splat + height bytes and deterministically places outcrops on
+that rock (Mulberry32 seeded per tile — the tree-bake pattern, with its own
+prime pair): per-cell probability on cliff cells, an 8 m spacing floor, a
+per-tile cap, never underwater, never on the plains (grass cells carry
+`vegMeta ≠ 0`; ore and trees occupy complementary terrain by construction).
+Each node also rolls its identity: rock variant, scale, rotation, and a
+**yield of 2–5 ore**.
+
+**Density is calibrated against a real bake, not guessed.** A mountain tile
+is not "rock here and there" — the median rocky tile carries **4072 of its
+4096 cells** as cliff, so the per-cell probability has to be tiny.
+Measured over seed 7 (a coastal block plus a mountain block, 6144 tiles) at
+the shipped tuning:
+
+| | |
+|---|---|
+| tiles carrying ore | 18.5% (0% on the coast) |
+| veins per ore tile | 1.22 — the 5-vein cap never binds |
+| veins per km² | 55, i.e. one roughly every 135 m of rock |
+| vein altitude | 28 m … 2130 m, median **1432 m** |
+
+`terrain/src/ore_calibration.rs` is the probe that produced those numbers
+and asserts the band; re-run it after any worldgen or tuning change:
+
+```text
+cargo test -p onlinerpg-terrain -- --ignored --nocapture ore_density
+```
 
 This is the **river-rock idiom promoted to gameplay**: the client already
 derives decorative rocks from baked water-field bytes with no extra artifact
@@ -77,8 +97,11 @@ monster uses the bare-handed path.
   table**: every `category: "ore"` item with an `oreWeight` column, weighted
   `oreWeight + (level + altitude_bonus) × rarityTier`. Skill and altitude
   both shift the table toward rich ore without ever emptying the stone —
-  `altitude_weight_bonus` grants one point per 25 m of vein elevation
-  (capped at 5): the high peaks are where the silver lives.
+  `altitude_weight_bonus` grants one point per 400 m of vein elevation
+  (capped at 5): the high peaks are where the silver lives. The 400 m step
+  is scaled to where veins measurably are (28–2130 m): a step that topped
+  out below the lowest vein would hand every vein the same bonus and make
+  the mechanic a no-op.
 - **Yield**: the ore stacks into the bag via the normal `InventoryUpdated`,
   or spills as a ground item when the bag can't take the weight — never
   silently lost (fishing's rule). Strikes, depletion, and respawn broadcast

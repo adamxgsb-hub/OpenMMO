@@ -76,11 +76,14 @@ pub fn strike_interval_ms(skill_level: u32) -> u64 {
 }
 
 /// Altitude bonus applied to rare-ore weights: higher veins carry richer
-/// ore. One point per 25 m above sea level, capped so the table never
-/// collapses into gold. Shared so the doc, the server roll and any client
-/// tooltip agree on the same number.
+/// ore. Scaled to where veins actually are — a real bake puts them between
+/// ~30 m and ~2200 m with a median around 1400 m, so a point per 400 m
+/// spreads the bonus across that range (foothills 0–1, median vein 3,
+/// the highest peaks 5). An earlier 25 m step capped out below the lowest
+/// vein in the world, which made every vein equally rich and the mechanic
+/// dead. Shared so the doc, the server roll and any client tooltip agree.
 pub fn altitude_weight_bonus(world_y: f32) -> u32 {
-    (world_y / 25.0).clamp(0.0, 5.0) as u32
+    (world_y / 400.0).clamp(0.0, 5.0) as u32
 }
 
 #[cfg(test)]
@@ -100,9 +103,22 @@ mod tests {
     fn altitude_bonus_steps_and_caps() {
         assert_eq!(altitude_weight_bonus(-10.0), 0);
         assert_eq!(altitude_weight_bonus(0.0), 0);
-        assert_eq!(altitude_weight_bonus(24.9), 0);
-        assert_eq!(altitude_weight_bonus(25.0), 1);
-        assert_eq!(altitude_weight_bonus(100.0), 4);
-        assert_eq!(altitude_weight_bonus(1_000.0), 5);
+        assert_eq!(altitude_weight_bonus(399.9), 0);
+        assert_eq!(altitude_weight_bonus(400.0), 1);
+        assert_eq!(altitude_weight_bonus(2_000.0), 5);
+        assert_eq!(altitude_weight_bonus(10_000.0), 5);
+    }
+
+    /// The bonus has to *vary* across the altitudes veins actually occupy —
+    /// a real bake spreads them from ~30 m to ~2200 m. A scale that caps
+    /// below the lowest vein would make every vein equally rich and the
+    /// mechanic a no-op, which is exactly what an earlier 25 m step did.
+    #[test]
+    fn altitude_bonus_spreads_over_real_vein_altitudes() {
+        let sampled: Vec<u32> = [30.0, 300.0, 700.0, 1_100.0, 1_432.0, 1_900.0, 2_185.0]
+            .into_iter()
+            .map(altitude_weight_bonus)
+            .collect();
+        assert_eq!(sampled, vec![0, 0, 1, 2, 3, 4, 5]);
     }
 }

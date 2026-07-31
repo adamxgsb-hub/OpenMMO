@@ -100,17 +100,36 @@ mod tests {
             altitudes.last().copied().unwrap_or_default()
         );
 
-        // The shape mining is tuned for: ore is a reason to go to the
-        // mountains, not something underfoot in every meadow, and not so
-        // rare that prospecting is hopeless.
+        // The shape mining is tuned for, measured on a bake that mixes
+        // coastline with mountains (seed 7: regions x[0,1] z[0,1] and
+        // x[4,8] z[12,15]). These are guard rails, not exact figures — a
+        // different block shifts them — but a tenfold move means the
+        // tuning drifted and wants another look.
         assert!(total_veins > 0, "a baked world must contain some ore");
         assert!(
-            pct_tiles < 50.0,
-            "ore on {pct_tiles:.1}% of tiles — too common to be worth travelling for"
+            (5.0..40.0).contains(&pct_tiles),
+            "ore on {pct_tiles:.1}% of tiles — outside the prospecting band"
+        );
+        assert!(
+            (10.0..150.0).contains(&veins_per_km2),
+            "{veins_per_km2:.0} veins/km² — outside the prospecting band"
+        );
+        // The cap is a safety valve against a sheer wall becoming a quarry,
+        // not the thing setting density. When it binds on most ore tiles the
+        // per-cell probability has stopped doing any work.
+        assert!(
+            f64::from(at_cap) < 0.05 * f64::from(tiles_with_ore),
+            "{at_cap} of {tiles_with_ore} ore tiles hit the cap — probability is too high"
         );
         assert!(
             altitudes.first().copied().unwrap_or_default() >= 0.5,
             "veins must never sit below the waterline"
+        );
+        // Ore is a mountain resource: the typical vein is well up a slope,
+        // not scattered across the lowlands.
+        assert!(
+            median > 100.0,
+            "median vein at {median:.0} m — ore should be a reason to climb"
         );
     }
 }

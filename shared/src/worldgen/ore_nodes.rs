@@ -20,10 +20,16 @@ use super::vegetation::{decode_heightmap, sample_height, tile_min_world, Rng};
 use serde::{Deserialize, Serialize};
 
 /// Per-cell probability that an eligible (cliff) cell tries to host a vein.
-/// Cliff cells cluster in the hundreds on mountain tiles; together with the
-/// spacing floor and per-tile cap this lands a handful of veins per rocky
-/// tile and none on the plains.
-const ORE_NODE_PROBABILITY: f64 = 0.012;
+///
+/// Calibrated against a real bake (seed 7, regions x[4,8] z[12,15]), not
+/// guessed: a mountain tile is not "rock here and there" but *almost
+/// entirely* rock — the median rocky tile carries 4072 of its 4096 cells.
+/// So this has to be tiny. It lands ~1.2 veins on a rocky tile, ore on
+/// ~1 tile in 5 of mountain terrain and none at all on the coast, or one
+/// vein roughly every 135 m of rock — far enough that ore is worth
+/// climbing for, close enough that prospecting is not a chore. Re-measure
+/// with `ore_calibration.rs` after any worldgen change.
+const ORE_NODE_PROBABILITY: f64 = 0.0001;
 
 /// Minimum XZ distance between two veins in the same tile. (Cross-tile
 /// pairs can undercut this at borders; accepted, they're still distinct
