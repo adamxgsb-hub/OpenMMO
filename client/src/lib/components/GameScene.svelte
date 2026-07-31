@@ -26,6 +26,7 @@
   import type Monster from './Monster.svelte'
   import GameSceneTerrainLayer from './game-scene/GameSceneTerrainLayer.svelte'
   import GameSceneWaterFieldLayer from './game-scene/GameSceneWaterFieldLayer.svelte'
+  import GameSceneOreNodesLayer from './game-scene/GameSceneOreNodesLayer.svelte'
   import GameSceneRiverRocksLayer from './game-scene/GameSceneRiverRocksLayer.svelte'
   import GameSceneShoreSprayLayer from './game-scene/GameSceneShoreSprayLayer.svelte'
   import GameSceneGrassLayer from './game-scene/GameSceneGrassLayer.svelte'
@@ -190,6 +191,7 @@
   let waterGroup = $state<THREE.Group | undefined>(undefined)
   let waterLayerRef = $state<GameSceneWaterFieldLayer | undefined>(undefined)
   let riverRocksRef = $state<GameSceneRiverRocksLayer | undefined>(undefined)
+  let oreNodesRef = $state<GameSceneOreNodesLayer | undefined>(undefined)
   let shoreSprayRef = $state<GameSceneShoreSprayLayer | undefined>(undefined)
   let grassLayerRef = $state<GameSceneGrassLayer | undefined>(undefined)
   let treeLayerRef = $state<GameSceneTreeLayer | undefined>(undefined)
@@ -1086,6 +1088,13 @@
   />
 {/if}
 
+<GameSceneOreNodesLayer
+  bind:this={oreNodesRef}
+  {terrainTiles}
+  splatManager={terrainSplatManager}
+  heightManager={terrainHeightManager}
+/>
+
 {#if graphicsPreset.enableTreeLayer}
   <GameSceneTreeLayer
     bind:this={treeLayerRef}
@@ -1163,6 +1172,7 @@
     ]}
     objectMeshes={objectOverlayRef ? [objectOverlayRef.getGroup()] : []}
     propMeshes={dungeonLayerRef?.getPropMeshes() ?? []}
+    oreNodeMeshes={oreNodesRef ? [oreNodesRef.getGroup()] : []}
     groundItemMeshes={groundItemsLayerRef?.getGroup()
       ? [groundItemsLayerRef.getGroup()!]
       : []}

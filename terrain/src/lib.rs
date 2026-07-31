@@ -2,6 +2,7 @@ pub mod coords;
 pub mod defaults;
 pub mod height;
 pub mod io;
+pub mod ore;
 pub mod trees;
 pub mod water;
 

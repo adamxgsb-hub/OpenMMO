@@ -61,6 +61,7 @@ pub(crate) use chat::parse_notice_command;
 mod combat;
 mod deals;
 pub(crate) mod fishing;
+pub(crate) mod mining;
 pub(crate) use deals::band_invariant_holds;
 mod dungeon;
 mod inventory;
@@ -146,6 +147,14 @@ pub struct GameState {
     /// with `height_sampler` so fishing's water check covers rivers, whose
     /// beds sit above sea level, not just the ocean.
     water_sampler: Arc<onlinerpg_terrain::water::WaterSampler>,
+    /// Live mining sessions, one per player, advanced by `tick_mining`.
+    mining_sessions: Arc<RwLock<HashMap<PlayerId, mining::MiningSession>>>,
+    /// Veins that gave their last ore, with their respawn deadlines. In
+    /// memory only: a restart heals every vein (renewable resource).
+    depleted_ore_nodes:
+        Arc<RwLock<HashMap<onlinerpg_shared::mining::OreNodeKey, mining::DepletedNode>>>,
+    /// Derived per-tile ore-vein lists (tile-cached), the third sampler.
+    ore_nodes: Arc<onlinerpg_terrain::ore::OreNodeIndex>,
     housing_io: Arc<HousingIO>,
     /// Players whose state has changed since the last periodic save.
     dirty_players: Arc<RwLock<HashSet<PlayerId>>>,
@@ -215,6 +224,7 @@ impl GameState {
         dungeon_defs: crate::dungeon_defs::DungeonDefs,
         height_sampler: Arc<onlinerpg_terrain::height::HeightSampler>,
         water_sampler: Arc<onlinerpg_terrain::water::WaterSampler>,
+        ore_nodes: Arc<onlinerpg_terrain::ore::OreNodeIndex>,
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(1000);
 
@@ -241,6 +251,9 @@ impl GameState {
             fishing_sessions: Arc::new(RwLock::new(HashMap::new())),
             height_sampler,
             water_sampler,
+            mining_sessions: Arc::new(RwLock::new(HashMap::new())),
+            depleted_ore_nodes: Arc::new(RwLock::new(HashMap::new())),
+            ore_nodes,
             housing_io,
             dirty_players: Arc::new(RwLock::new(HashSet::new())),
             dirty_inventories: Arc::new(RwLock::new(HashSet::new())),

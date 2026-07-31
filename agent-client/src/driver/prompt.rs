@@ -357,6 +357,26 @@ pub(crate) fn format_event(state: &SharedState, msg: &ServerMessage) -> Option<S
             })
         }
         ServerMessage::FishingError { message } => Some(format!("[FishingError] {message}")),
+        // Mining: only the endings reach the LLM (the loop is automatic).
+        // Word the outcome so the model knows what it can do next.
+        ServerMessage::MiningEnded { player_id, outcome } => {
+            if state.self_player_id.as_ref() != Some(player_id) {
+                return None;
+            }
+            use onlinerpg_shared::mining::MiningOutcome;
+            Some(match outcome {
+                MiningOutcome::Exhausted { ores_gained } => format!(
+                    "[Mining] The vein crumbled after yielding {ores_gained} ore — it is in your bag. It will regrow in a few minutes; mine elsewhere or sell your haul."
+                ),
+                MiningOutcome::Stopped { ores_gained } => format!(
+                    "[Mining] You stopped mining with {ores_gained} ore gained."
+                ),
+                MiningOutcome::Aborted { ores_gained } => format!(
+                    "[Mining] Mining was interrupted ({ores_gained} ore gained)."
+                ),
+            })
+        }
+        ServerMessage::MiningError { message } => Some(format!("[MiningError] {message}")),
         // Skip unknown/unhandled event types
         _ => None,
     }

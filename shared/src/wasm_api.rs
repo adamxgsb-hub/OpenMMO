@@ -82,6 +82,35 @@ pub fn skill_level_cap() -> u32 {
     crate::skills::SKILL_LEVEL_CAP
 }
 
+/// The deterministic ore-vein list for one terrain tile, derived from the
+/// tile's raw splatmap + heightmap bytes — the exact function the server
+/// validates mining against, so what the client renders is what the server
+/// will accept (`doc/MINING.md`). Returns an array of `OreNode` objects.
+#[wasm_bindgen]
+pub fn ore_nodes_for_tile(
+    tile_x: i32,
+    tile_z: i32,
+    splatmap: &[u8],
+    heightmap: &[u8],
+) -> Result<JsValue, JsError> {
+    let expected_splat =
+        crate::worldgen::tile_bake::TILE_DIM * crate::worldgen::tile_bake::TILE_DIM * 4;
+    let expected_height =
+        crate::worldgen::tile_bake::VERTS_PER_SIDE * crate::worldgen::tile_bake::VERTS_PER_SIDE * 2;
+    if splatmap.len() != expected_splat || heightmap.len() != expected_height {
+        return Err(JsError::new("ore_nodes_for_tile: malformed tile bytes"));
+    }
+    to_js(&crate::worldgen::ore_nodes::ore_nodes_for_tile(
+        tile_x, tile_z, splatmap, heightmap,
+    ))
+}
+
+/// Reach for a pickaxe swing, so the client walks up before asking.
+#[wasm_bindgen]
+pub fn max_mining_distance() -> f32 {
+    crate::mining::MAX_MINING_DISTANCE_METERS
+}
+
 // --- Passability cache (WASM global state) ---
 
 thread_local! {

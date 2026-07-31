@@ -147,6 +147,8 @@ export type ClientMessage =
   | { FishingCast: { position: Position } }
   | { FishingRespond: { action: FishingAction } }
   | 'FishingStop'
+  | { MiningStart: { position: Position } }
+  | 'MiningStop'
   | { OpenDungeonChest: { entrance_id: string } }
   | {
       BreakDungeonProp: { entrance_id: string; depth: number; prop_id: number }
@@ -217,7 +219,7 @@ export type PlayerInventory = {
 }
 
 /** Trained-skill ids (shared `SkillId` wire strings). */
-export type SkillId = 'fishing'
+export type SkillId = 'fishing' | 'mining'
 
 /** Shared `FishingAction` wire strings (`ClientMessage::FishingRespond`). */
 export type FishingAction = 'hook' | 'reel' | 'giveline'
@@ -233,6 +235,21 @@ export type FishingOutcome =
     }
   | 'Escaped'
   | 'Aborted'
+
+/** Shared `mining::OreNodeKey` — a vein's wire identity: the tile it was
+ *  derived on plus its index in that tile's deterministic node list. */
+export type OreNodeKey = {
+  tile_x: number
+  tile_z: number
+  index: number
+}
+
+/** Shared `MiningOutcome` (`ServerMessage::MiningEnded`), in its
+ *  externally-tagged serde shape. Every variant reports the haul. */
+export type MiningOutcome =
+  | { Exhausted: { ores_gained: number } }
+  | { Stopped: { ores_gained: number } }
+  | { Aborted: { ores_gained: number } }
 
 export type SkillProgress = {
   level: number

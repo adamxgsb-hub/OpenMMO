@@ -447,6 +447,14 @@ class NetworkManager {
     this.sendMessage('FishingStop')
   }
 
+  sendMiningStart(position: Position) {
+    this.sendMessage({ MiningStart: { position } })
+  }
+
+  sendMiningStop() {
+    this.sendMessage('MiningStop')
+  }
+
   sendBreakDungeonProp(entranceId: string, depth: number, propId: number) {
     this.sendMessage({
       BreakDungeonProp: {

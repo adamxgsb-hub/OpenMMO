@@ -35,6 +35,11 @@ import {
   markBobberBite,
   removeBobber,
 } from '../stores/fishingStore'
+import {
+  myMiningPhase,
+  markNodeDepleted,
+  markNodeRespawned,
+} from '../stores/miningStore'
 import { getItemDef } from '../data/itemDefs'
 import {
   shopSession,
@@ -1080,6 +1085,69 @@ export function handleServerMessage(
     }
 
     case 'FishingError':
+      addCombatMessage({ text: data.message, sender: 'local' })
+      break
+
+    case 'MiningStarted': {
+      if (get(gameStore).currentPlayer?.id === data.player_id) {
+        myMiningPhase.set('mining')
+        addCombatMessage({
+          text: 'You set to work on the vein.',
+          sender: 'local',
+        })
+      }
+      break
+    }
+
+    case 'MiningStrike': {
+      if (get(gameStore).currentPlayer?.id === data.player_id) {
+        const oreId = data.ore_item_def_id
+        if (oreId) {
+          const name = getItemDef(oreId)?.name ?? oreId
+          addCombatMessage({
+            text: `Your pick breaks loose a ${name}.`,
+            sender: 'local',
+          })
+        } else {
+          addCombatMessage({ text: 'The rock holds fast.', sender: 'local' })
+        }
+      }
+      break
+    }
+
+    case 'MiningEnded': {
+      if (get(gameStore).currentPlayer?.id === data.player_id) {
+        myMiningPhase.set('idle')
+        const outcome = data.outcome
+        if (outcome?.Exhausted) {
+          addCombatMessage({
+            text: `The vein crumbles — ${outcome.Exhausted.ores_gained} ore richer.`,
+            sender: 'local',
+          })
+        } else if (outcome?.Stopped) {
+          addCombatMessage({
+            text: 'You shoulder your pickaxe.',
+            sender: 'local',
+          })
+        } else if (outcome?.Aborted) {
+          addCombatMessage({
+            text: 'You break off mining.',
+            sender: 'local',
+          })
+        }
+      }
+      break
+    }
+
+    case 'MiningNodeDepleted':
+      markNodeDepleted(data.node)
+      break
+
+    case 'MiningNodeRespawned':
+      markNodeRespawned(data.node)
+      break
+
+    case 'MiningError':
       addCombatMessage({ text: data.message, sender: 'local' })
       break
 

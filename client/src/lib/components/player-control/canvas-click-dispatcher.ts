@@ -12,6 +12,7 @@ type NpcIntent = Extract<ClickIntent, { type: 'interact_npc' }>
 type BreakPropIntent = Extract<ClickIntent, { type: 'break_prop' }>
 type OpenPropIntent = Extract<ClickIntent, { type: 'open_prop' }>
 type CastFishingIntent = Extract<ClickIntent, { type: 'cast_fishing' }>
+type MineNodeIntent = Extract<ClickIntent, { type: 'mine_node' }>
 
 export interface CanvasClickActions {
   /** Player is at melee range — start the attack swing immediately. */
@@ -38,6 +39,9 @@ export interface CanvasClickActions {
   moveToGround(position: Position): void
   /** Stop, face the water, and cast the equipped rod (server validates). */
   castFishing(intent: CastFishingIntent): void
+  /** In reach: stop, face the vein, start mining. Out of reach: walk up
+   *  (another click in reach starts the swinging). Server validates. */
+  mineNode(intent: MineNodeIntent): void
 }
 
 export function dispatchCanvasClickIntent(
@@ -90,6 +94,9 @@ export function dispatchCanvasClickIntent(
       return
     case 'cast_fishing':
       actions.castFishing(intent)
+      return
+    case 'mine_node':
+      actions.mineNode(intent)
       return
     case 'none':
       return

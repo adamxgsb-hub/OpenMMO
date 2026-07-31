@@ -49,6 +49,11 @@ pub struct ItemDefinition {
     /// Fish only — rolled length at or above this is a trophy catch.
     #[serde(rename = "trophyCm", default)]
     pub trophy_cm: Option<u32>,
+    /// Ore only — relative weight in the mining yield table at mining
+    /// level 0. Its own column (not `catchWeight`) so ore can never leak
+    /// onto a fishing hook (doc/MINING.md).
+    #[serde(rename = "oreWeight", default)]
+    pub ore_weight: Option<u32>,
 }
 
 /// The effect produced by consuming a usable item via `use_item`, decided by
@@ -76,6 +81,17 @@ impl ItemDefinition {
 
     pub fn is_fish(&self) -> bool {
         self.category.as_deref() == Some("fish")
+    }
+
+    /// Main-hand tool that enables mining (`ClientMessage::MiningStart`).
+    /// Like the rod: not a weapon, no damage dice — swinging it at a monster
+    /// uses the bare-handed path.
+    pub fn is_pickaxe(&self) -> bool {
+        self.category.as_deref() == Some("pickaxe")
+    }
+
+    pub fn is_ore(&self) -> bool {
+        self.category.as_deref() == Some("ore")
     }
 
     /// A catch that pays out coins directly instead of entering the bag.
@@ -182,6 +198,7 @@ impl ItemDefs {
             .values()
             .filter(|def| def.equip_slot.is_some())
             .filter(|def| !def.is_fishing_rod())
+            .filter(|def| !def.is_pickaxe())
             .filter(|def| def.base_price.is_some_and(|p| p >= min_price))
             .map(|def| def.id.clone())
             .collect();
@@ -205,6 +222,24 @@ impl ItemDefs {
                     item_def_id: def.id.clone(),
                     rarity: def.rarity_tier.unwrap_or(1),
                     catch_weight: def.catch_weight?,
+                })
+            })
+            .collect();
+        table.sort_by(|a, b| a.item_def_id.cmp(&b.item_def_id));
+        table
+    }
+
+    /// The mining yield table: every item def with an `oreWeight`. Sorted
+    /// by id for a deterministic cumulative walk (the fishing pattern).
+    pub fn ore_table(&self) -> Vec<crate::game_state::mining::OreCandidate> {
+        let mut table: Vec<_> = self
+            .defs
+            .values()
+            .filter_map(|def| {
+                Some(crate::game_state::mining::OreCandidate {
+                    item_def_id: def.id.clone(),
+                    rarity: def.rarity_tier.unwrap_or(1),
+                    ore_weight: def.ore_weight?,
                 })
             })
             .collect();
@@ -343,6 +378,79 @@ mod tests {
         let threshold = trout.trophy_cm.unwrap() as u16;
         assert!(trout.trophy_at(threshold, false));
         assert!(!trout.trophy_at(threshold - 1, false));
+    }
+
+    #[test]
+    fn pickaxe_is_not_dungeon_chest_treasure() {
+        // Picks are bought tools, exactly like rods (doc/MINING.md).
+        let defs = ItemDefs::load();
+        let pool = defs.equipment_ids_with_min_price(0);
+        assert!(
+            !pool.contains(&"pickaxe".to_string()),
+            "pickaxe must not be in the dungeon chest loot pool"
+        );
+        let pick = defs.get("pickaxe").expect("pickaxe def");
+        assert!(pick.is_pickaxe());
+        assert!(!pick.is_weapon(), "the pick must not deal weapon damage");
+    }
+
+    #[test]
+    fn ore_table_is_ores_only_with_full_tiers() {
+        let defs = ItemDefs::load();
+        let table = defs.ore_table();
+        let ids: Vec<&str> = table.iter().map(|c| c.item_def_id.as_str()).collect();
+        for expected in [
+            "chunk_of_stone",
+            "copper_ore",
+            "iron_ore",
+            "silver_ore",
+            "gold_ore",
+        ] {
+            assert!(ids.contains(&expected), "{expected} missing from ore table");
+        }
+        for c in &table {
+            let def = defs.get(&c.item_def_id).unwrap();
+            assert!(
+                def.is_ore(),
+                "{} in ore table but not category ore",
+                c.item_def_id
+            );
+            assert!(
+                (1..=5).contains(&c.rarity),
+                "{} ore tier out of range",
+                c.item_def_id
+            );
+            // The columns stay disjoint: ore never rides a fishing hook.
+            assert!(
+                def.catch_weight.is_none(),
+                "{} must not carry a catchWeight",
+                c.item_def_id
+            );
+        }
+    }
+
+    /// The mining economy guardrail, mirroring the fishing one: the
+    /// expected *sell* value of one broken ore (at mining level 0, sea
+    /// level) must stay at coin-pile magnitude. Ore lands faster than fish
+    /// bite, so the band is the same but the per-item values sit lower.
+    #[test]
+    fn expected_ore_value_stays_in_the_coin_pile_economy() {
+        let defs = ItemDefs::load();
+        let table = defs.ore_table();
+        let total_weight: f64 = table.iter().map(|c| f64::from(c.ore_weight)).sum();
+        let ev: f64 = table
+            .iter()
+            .map(|c| {
+                let def = defs.get(&c.item_def_id).unwrap();
+                // Ore sells at the merchant rate (Rica: 40%).
+                f64::from(c.ore_weight) * def.base_price.unwrap_or(0) as f64 * 0.4
+            })
+            .sum::<f64>()
+            / total_weight;
+        assert!(
+            (5.0..=25.0).contains(&ev),
+            "expected sell value per ore is {ev:.1}c — outside the 5–25c coin-pile band"
+        );
     }
 
     #[test]

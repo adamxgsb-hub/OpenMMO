@@ -711,6 +711,7 @@ impl super::GameState {
     pub(super) async fn on_player_died(&self, player_id: &PlayerId) {
         self.movement_intents.write().await.remove(player_id);
         self.cancel_fishing_if_active(player_id).await;
+        self.cancel_mining_if_active(player_id).await;
         self.apply_player_death_penalty(player_id).await;
     }
 

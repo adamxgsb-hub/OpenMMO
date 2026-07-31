@@ -104,6 +104,13 @@ export type ClickIntent =
       position: Position
       distance: number
     }
+  | {
+      /** Pickaxe equipped + clicked an ore outcrop: mine it (walking up
+       *  first when out of reach — the break_prop pattern). */
+      type: 'mine_node'
+      position: Position
+      distance: number
+    }
   | { type: 'none' }
 
 export interface RaycastContext {
@@ -120,8 +127,14 @@ export interface RaycastContext {
   playerPosition: Position
   playerFloorLevel: number
   isMonsterDead: (monsterId: string) => boolean
+  /** Ore outcrop meshes (`GameSceneOreNodesLayer`), tagged with
+   *  `userData.oreNode`. Clicked from any range with a pickaxe in hand —
+   *  the player walks up before the mining starts. */
+  oreNodeMeshes?: THREE.Object3D[]
   /** Main-hand item is a fishing rod — water clicks become casts. */
   hasFishingRodEquipped?: boolean
+  /** Main-hand item is a pickaxe — ore outcrop clicks become mining. */
+  hasPickaxeEquipped?: boolean
   /** Baked water surface height at a world XZ (sea level where none). Lets a
    *  cast fire over rivers, whose beds sit above sea level, not just ocean. */
   waterSurfaceAt?: (x: number, z: number) => number
@@ -398,6 +411,33 @@ class InputHandler {
           }
           if (owner.userData.propBreakable) {
             return { type: 'break_prop', ...target }
+          }
+        }
+      }
+    }
+
+    // Ore outcrops: with a pickaxe in hand a click means "mine this vein".
+    // No distance gate (the break_prop pattern) — the dispatcher walks the
+    // player up first; the server re-validates reach regardless. Without a
+    // pickaxe the ray falls through to the ground and the click just walks.
+    if (
+      context.hasPickaxeEquipped &&
+      context.oreNodeMeshes &&
+      context.oreNodeMeshes.length > 0
+    ) {
+      const oreHits = raycaster.intersectObjects(context.oreNodeMeshes, true)
+      if (oreHits.length > 0) {
+        const owner = findAncestorWithUserData(oreHits[0].object, 'oreNode')
+        if (owner) {
+          const wp = new THREE.Vector3()
+          owner.getWorldPosition(wp)
+          const pp = context.playerPosition
+          const dx = wp.x - pp.x
+          const dz = wp.z - pp.z
+          return {
+            type: 'mine_node',
+            position: { x: wp.x, y: wp.y, z: wp.z },
+            distance: Math.sqrt(dx * dx + dz * dz),
           }
         }
       }

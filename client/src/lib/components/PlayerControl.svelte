@@ -18,6 +18,7 @@
   } from '../managers/sfxManager'
   import { inputHandler, type ClickIntent } from '../managers/inputHandler'
   import { getNpcCapabilities } from '../data/traderDefs'
+  import { PLAYER_MINE_RANGE_METERS } from '../data/combatTiming'
   import { NPC_TRADE_RANGE_METERS } from '../data/tradeConstants'
   import { npcContextMenu, requestChatFocus } from '../stores/npcMenuStore'
   import {
@@ -118,6 +119,8 @@
     doorMeshes: THREE.Object3D[]
     objectMeshes: THREE.Object3D[]
     propMeshes: THREE.Object3D[]
+    /** Ore outcrop meshes — clicked with a pickaxe in hand to mine. */
+    oreNodeMeshes?: THREE.Object3D[]
     attackCooldown?: number
     /** Baked water surface height at a world XZ (for fishing cast detection). */
     waterSurfaceAt?: (x: number, z: number) => number
@@ -134,6 +137,7 @@
     doorMeshes,
     objectMeshes,
     propMeshes,
+    oreNodeMeshes = [],
     attackCooldown,
     waterSurfaceAt,
   }: Props = $props()
@@ -1135,9 +1139,13 @@
         const m = monsterManager.monsters.get(id)
         return m?.state === 'dead' || false
       },
+      oreNodeMeshes,
       hasFishingRodEquipped:
         getItemDef(get(inventoryStore).equipped.main_hand?.item_def_id ?? '')
           ?.category === 'fishing_rod',
+      hasPickaxeEquipped:
+        getItemDef(get(inventoryStore).equipped.main_hand?.item_def_id ?? '')
+          ?.category === 'pickaxe',
       waterSurfaceAt,
     })
   }
@@ -1247,6 +1255,33 @@
         if (dx !== 0 || dz !== 0) playerRotation = Math.atan2(dx, dz)
         sendPlayerMove(currentPlayer.position, playerRotation) // others see the facing
         networkManager.sendFishingCast(intent.position)
+      },
+      mineNode: (intent) => {
+        if (!currentPlayer || currentPlayer.health <= 0) return
+        // In reach: stop and face the vein before starting — the server
+        // aborts a session on any movement (the fishing-cast rule).
+        if (intent.distance <= PLAYER_MINE_RANGE_METERS) {
+          combatController.cancelCombat()
+          stopMovement()
+          const dx = intent.position.x - currentPlayer.position.x
+          const dz = intent.position.z - currentPlayer.position.z
+          if (dx !== 0 || dz !== 0) playerRotation = Math.atan2(dx, dz)
+          sendPlayerMove(currentPlayer.position, playerRotation)
+          networkManager.sendMiningStart(intent.position)
+          return
+        }
+        // Out of reach: walk to a spot just short of the outcrop. A second
+        // click in reach starts the swinging (server re-validates anyway).
+        const dx = currentPlayer.position.x - intent.position.x
+        const dz = currentPlayer.position.z - intent.position.z
+        const d = Math.hypot(dx, dz) || 1
+        const stopShort = 1.5
+        combatController.cancelCombat()
+        handleClickToMove({
+          x: intent.position.x + (dx / d) * stopShort,
+          y: intent.position.y,
+          z: intent.position.z + (dz / d) * stopShort,
+        })
       },
       requestMove: handleClickToMove,
       onInteractionFinished,

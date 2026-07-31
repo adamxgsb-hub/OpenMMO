@@ -49,6 +49,17 @@ Available action types (use EXACTLY these field names):
 - Stop fishing (reel in without waiting for a catch):
   {"type": "stop_fishing"}
 
+- Mine (needs a pickaxe worn in your main hand — use it from your bag
+  first). Ore veins are rocky outcrops on cliffs and mountainsides; stand
+  next to one and mine, or give coordinates. The swinging is automatic;
+  you will get a [Mining] event with the outcome. Moving or attacking
+  stops mining:
+  {"type": "mine", "x": 120.0, "z": 44.0}
+  {"type": "mine"}
+
+- Stop mining:
+  {"type": "stop_mining"}
+
 - Use an item you are carrying — wear a piece of gear, drink a potion, read
   a scroll. Name it as it appears in your bag. Using gear you already wear
   takes it off; wearing a torch is how you light your way at night:

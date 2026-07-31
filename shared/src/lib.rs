@@ -12,6 +12,7 @@ pub mod furniture;
 pub mod housing;
 pub mod inventory;
 pub mod messages;
+pub mod mining;
 pub mod monster_ai;
 pub mod pathfinding;
 pub mod skills;
@@ -34,7 +35,9 @@ pub const NPC_TOKEN_PATH_FROM_ROOT: &str = "data/npc_token";
 ///     Ended/Error) — see `doc/FISHING.md`.
 /// v8: fishing struggle rounds (FishingStruggleRound/FishingRoundResult,
 ///     Reel/GiveLine actions).
-pub const PROTOCOL_VERSION: u32 = 8;
+/// v9: mining core loop (MiningStart/Stop, MiningStarted/Strike/Ended/
+///     NodeDepleted/NodeRespawned/Error) — see `doc/MINING.md`.
+pub const PROTOCOL_VERSION: u32 = 9;
 
 /// WebSocket close code sent when the handshake is refused (wrong protocol
 /// version, or traffic before `ClientInfo`). Lives outside the serialized

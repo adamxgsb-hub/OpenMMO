@@ -61,6 +61,16 @@ pub(super) enum AgentAction {
     /// Reel in and stop fishing.
     #[serde(rename = "stop_fishing")]
     StopFishing,
+    /// Start mining. With coordinates, aim there; without, aim at the
+    /// agent's own position — either way the server snaps to the nearest
+    /// ore vein within its snap radius and answers with MiningError when
+    /// there is none (or no pickaxe in the main hand). The swing loop is
+    /// fully server-driven; a [Mining] event reports the outcome.
+    #[serde(rename = "mine")]
+    Mine { x: Option<f32>, z: Option<f32> },
+    /// Shoulder the pickaxe and stop mining.
+    #[serde(rename = "stop_mining")]
+    StopMining,
     /// Haggling (merchants only): offer a price modifier on one item to a
     /// nearby player. The server clamps/validates; see `doc/ECONOMY.md`.
     #[serde(rename = "offer_deal")]
@@ -239,6 +249,23 @@ pub(super) fn action_to_command(
             })
         }
         AgentAction::StopFishing => Some(ClientMessage::FishingStop),
+        AgentAction::Mine { x, z } => {
+            // Explicit coordinates, or the agent's own feet — the server
+            // snaps to the nearest vein and is the judge of reach.
+            let (mx, mz) = match (x, z, player_pos) {
+                (Some(x), Some(z), _) => (*x, *z),
+                (_, _, Some(pp)) => (pp.x, pp.z),
+                _ => return None,
+            };
+            Some(ClientMessage::MiningStart {
+                position: onlinerpg_shared::Position {
+                    x: mx,
+                    y: 0.0,
+                    z: mz,
+                },
+            })
+        }
+        AgentAction::StopMining => Some(ClientMessage::MiningStop),
         // Need player-name → id resolution from SharedState; handled in
         // `execute::handle_response`, not here.
         AgentAction::OfferDeal { .. } => None,
@@ -398,6 +425,48 @@ mod tests {
         assert!(matches!(
             action_to_command(&response.actions[0], None),
             Some(ClientMessage::FishingStop)
+        ));
+    }
+
+    #[test]
+    fn mine_action_parses_and_starts() {
+        let response =
+            parse_agent_response(r#"{"actions": [{"type": "mine", "x": 33.0, "z": -7.0}]}"#)
+                .unwrap();
+        match action_to_command(&response.actions[0], None) {
+            Some(ClientMessage::MiningStart { position }) => {
+                assert_eq!(position.x, 33.0);
+                assert_eq!(position.z, -7.0);
+            }
+            other => panic!("expected MiningStart, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn mine_without_coords_aims_at_the_agents_feet() {
+        let response = parse_agent_response(r#"{"actions": [{"type": "mine"}]}"#).unwrap();
+        let pos = onlinerpg_shared::Position {
+            x: 4.0,
+            y: 0.0,
+            z: 9.0,
+        };
+        match action_to_command(&response.actions[0], Some(&pos)) {
+            Some(ClientMessage::MiningStart { position }) => {
+                assert_eq!(position.x, 4.0);
+                assert_eq!(position.z, 9.0);
+            }
+            other => panic!("expected MiningStart, got {other:?}"),
+        }
+        // No coordinates and no known position: nothing to send.
+        assert!(action_to_command(&response.actions[0], None).is_none());
+    }
+
+    #[test]
+    fn stop_mining_parses() {
+        let response = parse_agent_response(r#"{"actions": [{"type": "stop_mining"}]}"#).unwrap();
+        assert!(matches!(
+            action_to_command(&response.actions[0], None),
+            Some(ClientMessage::MiningStop)
         ));
     }
 }
