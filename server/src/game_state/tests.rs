@@ -5333,23 +5333,23 @@ mod mining_tests {
         );
         let game_state = make_real_terrain_mining_game_state("mining_real", &terrain_dir);
 
-        // Hunt the baked world for a tile that actually grew ore.
+        // Hunt the baked world for a tile that actually grew ore. Ore lives
+        // on cliffs, so a lowland-only bake legitimately has none — walk
+        // exactly the tiles the bake wrote.
         let mut found = None;
-        'search: for tz in 0..32 {
-            for tx in 0..32 {
-                let nodes = game_state
-                    .ore_nodes
-                    .nodes_for_tile(tx, tz)
-                    .await
-                    .expect("tile read");
-                if let Some(node) = nodes.first() {
-                    found = Some((tx, tz, *node));
-                    break 'search;
-                }
+        for (tx, tz) in onlinerpg_terrain::io::baked_tiles(&terrain_dir) {
+            let nodes = game_state
+                .ore_nodes
+                .nodes_for_tile(tx, tz)
+                .await
+                .expect("tile read");
+            if let Some(node) = nodes.first() {
+                found = Some((tx, tz, *node));
+                break;
             }
         }
         let (tile_x, tile_z, node) =
-            found.expect("the baked world produced no ore in the scanned region");
+            found.expect("no ore in the baked tiles — bake a mountain region (doc/MINING.md)");
         println!(
             "mining a real vein: tile ({tile_x},{tile_z}) index {} at ({:.1}, {:.1}, {:.1}), yield {}",
             node.index, node.world_x, node.world_y, node.world_z, node.yield_total

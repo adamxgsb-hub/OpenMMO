@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::fs;
 use tracing::warn;
 
@@ -385,4 +385,36 @@ impl TerrainIO {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         fs::write(&path, json_str).await
     }
+}
+
+/// Every tile a bake actually wrote, read off the heightmap tree
+/// (`height/r±NN_±NN/h_±xxxxx_±zzzzz.bin`), sorted. Tools and calibration
+/// probes use it to walk exactly what exists instead of guessing a range —
+/// a bake may cover one coastline, one mountain block, or the whole world.
+pub fn baked_tiles(base_dir: &Path) -> Vec<(i32, i32)> {
+    let mut tiles = Vec::new();
+    let Ok(regions) = std::fs::read_dir(base_dir.join("height")) else {
+        return tiles;
+    };
+    for region in regions.flatten() {
+        let Ok(files) = std::fs::read_dir(region.path()) else {
+            continue;
+        };
+        for file in files.flatten() {
+            let name = file.file_name();
+            let name = name.to_string_lossy();
+            // h_+00012_-00034.bin
+            let Some(rest) = name.strip_prefix("h_").and_then(|n| n.strip_suffix(".bin")) else {
+                continue;
+            };
+            let Some((x, z)) = rest.split_once('_') else {
+                continue;
+            };
+            if let (Ok(x), Ok(z)) = (x.parse::<i32>(), z.parse::<i32>()) {
+                tiles.push((x, z));
+            }
+        }
+    }
+    tiles.sort_unstable();
+    tiles
 }

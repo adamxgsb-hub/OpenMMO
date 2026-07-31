@@ -39,11 +39,13 @@ mod tests {
             dir.join("height").is_dir(),
             "no baked terrain at {dir:?} — run terrain-gen bake first"
         );
+        let baked = crate::io::baked_tiles(&dir);
+        assert!(
+            !baked.is_empty(),
+            "no baked height tiles under {dir:?} — run terrain-gen bake first"
+        );
         let index = OreNodeIndex::new(TerrainIO::new(dir));
 
-        // One region is 16×16 tiles; scan the block a bake of
-        // regions (0,0)..(1,1) produces.
-        let (tile_min, tile_max) = (0, 31);
         let mut tiles_scanned = 0u32;
         let mut tiles_with_ore = 0u32;
         let mut total_veins = 0u32;
@@ -51,22 +53,20 @@ mod tests {
         let mut at_cap = 0u32;
         let mut altitudes: Vec<f32> = Vec::new();
 
-        for tz in tile_min..=tile_max {
-            for tx in tile_min..=tile_max {
-                let nodes = index.nodes_for_tile(tx, tz).await.expect("tile read");
-                tiles_scanned += 1;
-                if nodes.is_empty() {
-                    continue;
-                }
-                tiles_with_ore += 1;
-                total_veins += nodes.len() as u32;
-                if nodes.len() == MAX_NODES_PER_TILE {
-                    at_cap += 1;
-                }
-                for n in nodes.iter() {
-                    total_yield += u32::from(n.yield_total);
-                    altitudes.push(n.world_y);
-                }
+        for (tx, tz) in baked {
+            let nodes = index.nodes_for_tile(tx, tz).await.expect("tile read");
+            tiles_scanned += 1;
+            if nodes.is_empty() {
+                continue;
+            }
+            tiles_with_ore += 1;
+            total_veins += nodes.len() as u32;
+            if nodes.len() == MAX_NODES_PER_TILE {
+                at_cap += 1;
+            }
+            for n in nodes.iter() {
+                total_yield += u32::from(n.yield_total);
+                altitudes.push(n.world_y);
             }
         }
 
