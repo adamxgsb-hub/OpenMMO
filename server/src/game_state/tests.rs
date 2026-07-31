@@ -246,6 +246,37 @@ fn make_mining_game_state(test_name: &str) -> GameState {
     )
 }
 
+/// A game state over a **real baked world** (`data/terrain`), for the
+/// ignored end-to-end mining test. Everything else in the mining suite runs
+/// on synthetic tiles; this one proves the derivation and the session
+/// machine agree with terrain the bake actually produced.
+fn make_real_terrain_mining_game_state(
+    test_name: &str,
+    terrain_dir: &std::path::Path,
+) -> GameState {
+    let housing_dir = std::env::temp_dir().join(format!(
+        "onlinerpg_{test_name}_housing_{}",
+        uuid::Uuid::new_v4()
+    ));
+    let housing_io = Arc::new(HousingIO::new(housing_dir));
+    let item_defs = ItemDefs::load();
+    let world_drop_defs = crate::world_drop_defs::WorldDropDefs::load(&item_defs);
+    let dungeon_defs = crate::dungeon_defs::DungeonDefs::load(&item_defs);
+    let terrain = || onlinerpg_terrain::io::TerrainIO::new(terrain_dir.to_path_buf());
+    GameState::new(
+        MonsterDefs::load(),
+        item_defs,
+        world_drop_defs,
+        GameState::default_start_datetime(),
+        housing_io,
+        vec![],
+        dungeon_defs,
+        Arc::new(onlinerpg_terrain::height::HeightSampler::new(terrain())),
+        Arc::new(onlinerpg_terrain::water::WaterSampler::new(terrain())),
+        Arc::new(onlinerpg_terrain::ore::OreNodeIndex::new(terrain())),
+    )
+}
+
 /// A game state whose terrain is a 5 m plateau with a river surface at 5.4 m
 /// everywhere — for testing that fishing works in rivers whose beds are above
 /// sea level (the ocean-vs-river regression).
@@ -5280,6 +5311,126 @@ mod mining_tests {
     /// reaches across tile boundaries. Aiming from the far side of an edge —
     /// exactly what an agent's `{"type": "mine"}` does, since it aims at its
     /// own feet — must still find the vein it is standing next to.
+    /// End-to-end over a **real baked world**: find a vein the bake actually
+    /// produced, walk a miner to it, and run the whole session — strikes,
+    /// ore into the bag, skill XP, depletion — against terrain from
+    /// `terrain-gen`, not synthetic tiles. Ignored because `data/terrain` is
+    /// generated, not committed:
+    ///
+    /// ```text
+    /// cargo test -p onlinerpg-server -- --ignored --nocapture mining_on_real_terrain
+    /// ```
+    #[tokio::test(start_paused = true)]
+    #[ignore = "requires a baked data/terrain (see doc/MINING.md)"]
+    async fn mining_on_real_terrain() {
+        let terrain_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("workspace root")
+            .join("data/terrain");
+        assert!(
+            terrain_dir.join("height").is_dir(),
+            "no baked terrain at {terrain_dir:?} — run terrain-gen bake first"
+        );
+        let game_state = make_real_terrain_mining_game_state("mining_real", &terrain_dir);
+
+        // Hunt the baked world for a tile that actually grew ore.
+        let mut found = None;
+        'search: for tz in 0..32 {
+            for tx in 0..32 {
+                let nodes = game_state
+                    .ore_nodes
+                    .nodes_for_tile(tx, tz)
+                    .await
+                    .expect("tile read");
+                if let Some(node) = nodes.first() {
+                    found = Some((tx, tz, *node));
+                    break 'search;
+                }
+            }
+        }
+        let (tile_x, tile_z, node) =
+            found.expect("the baked world produced no ore in the scanned region");
+        println!(
+            "mining a real vein: tile ({tile_x},{tile_z}) index {} at ({:.1}, {:.1}, {:.1}), yield {}",
+            node.index, node.world_x, node.world_y, node.world_z, node.yield_total
+        );
+
+        let (id, mut rx) = make_miner(&game_state, "miner_real", &node).await;
+        let target = Position {
+            x: node.world_x,
+            y: node.world_y,
+            z: node.world_z,
+        };
+        game_state.start_mining(&id, target).await;
+        assert!(
+            drain(&mut rx).iter().any(|m| matches!(
+                m,
+                ServerMessage::MiningStarted { player_id, .. } if *player_id == id
+            )),
+            "a real baked vein must be mineable"
+        );
+
+        // Swing it out under the paused clock, one strike interval at a
+        // time — a vein is a handful of strikes at ~2.8 s each.
+        let mut ores = 0u32;
+        let mut depleted = false;
+        let mut outcome = None;
+        for _ in 0..64 {
+            advance_with_ticks(&game_state, 3_000).await;
+            for msg in drain(&mut rx) {
+                match msg {
+                    ServerMessage::MiningStrike {
+                        ore_item_def_id: Some(ore),
+                        ..
+                    } => {
+                        assert!(
+                            game_state.item_defs.get(&ore).is_some_and(|d| d.is_ore()),
+                            "{ore} is not an ore"
+                        );
+                        ores += 1;
+                    }
+                    ServerMessage::MiningNodeDepleted { .. } => depleted = true,
+                    ServerMessage::MiningEnded { outcome: o, .. } => outcome = Some(o),
+                    _ => {}
+                }
+            }
+            if outcome.is_some() {
+                break;
+            }
+        }
+        assert_eq!(
+            ores,
+            u32::from(node.yield_total),
+            "vein must give its yield"
+        );
+        assert!(depleted, "the vein must crumble when spent");
+        assert!(matches!(outcome, Some(MiningOutcome::Exhausted { .. })));
+
+        let inv = game_state.get_player_inventory(&id).await.unwrap();
+        let bagged: u32 = inv
+            .bag
+            .iter()
+            .filter(|i| {
+                game_state
+                    .item_defs
+                    .get(&i.item_def_id)
+                    .is_some_and(|d| d.is_ore())
+            })
+            .map(|i| i.quantity)
+            .sum();
+        assert_eq!(bagged, ores, "every ore must reach the bag");
+        assert!(
+            game_state
+                .get_player_skills(&id)
+                .await
+                .get(onlinerpg_shared::skills::SkillId::Mining)
+                .xp
+                > 0,
+            "mining real ore must grant Mining XP"
+        );
+        println!("mined {ores} ore from a real vein; bag and skill XP verified");
+    }
+
     #[tokio::test(start_paused = true)]
     async fn snapping_reaches_veins_in_the_neighbouring_tile() {
         let game_state = make_mining_game_state("mining_tile_boundary");
